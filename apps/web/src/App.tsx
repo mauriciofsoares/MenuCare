@@ -93,6 +93,28 @@ type InviteAuditEvent = {
   createdAt: string
 }
 
+type NonConformityItem = {
+  id: string
+  title: string
+  description: string
+  origin: string
+  impact: string
+  owner: string
+  dueDate: string
+  status: string
+  createdAt: string
+}
+
+type ActionPlanItem = {
+  id: string
+  nonConformityId: string
+  description: string
+  owner: string
+  dueDate: string
+  status: string
+  createdAt: string
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -174,6 +196,8 @@ function App() {
   const [dashboardSummary, setDashboardSummary] = useState<DashboardSummary | null>(null)
   const [contracts, setContracts] = useState<ContractItem[]>([])
   const [rules, setRules] = useState<RuleItem[]>([])
+  const [nonConformities, setNonConformities] = useState<NonConformityItem[]>([])
+  const [actionPlans, setActionPlans] = useState<ActionPlanItem[]>([])
   const [loadingSession, setLoadingSession] = useState(true)
   const [authError, setAuthError] = useState<string | null>(null)
   const [domainError, setDomainError] = useState<string | null>(null)
@@ -187,6 +211,8 @@ function App() {
   const [isLoadingRuleHistory, setIsLoadingRuleHistory] = useState(false)
   const [isSubmittingContract, setIsSubmittingContract] = useState(false)
   const [isSubmittingRule, setIsSubmittingRule] = useState(false)
+  const [isSubmittingNonConformity, setIsSubmittingNonConformity] = useState(false)
+  const [isSubmittingActionPlan, setIsSubmittingActionPlan] = useState(false)
   const [loginForm, setLoginForm] = useState({
     email: 'admin@menucare.local',
     password: 'Admin@123',
@@ -221,6 +247,21 @@ function App() {
     description: '',
     category: '',
     status: 'identified',
+  })
+  const [nonConformityForm, setNonConformityForm] = useState({
+    title: '',
+    description: '',
+    origin: '',
+    impact: '',
+    owner: '',
+    dueDate: '',
+  })
+  const [selectedNonConformityId, setSelectedNonConformityId] = useState('')
+  const [actionPlanForm, setActionPlanForm] = useState({
+    description: '',
+    owner: '',
+    dueDate: '',
+    status: 'pending',
   })
 
   const uiMessage = getUiMessage(locale)
@@ -305,6 +346,78 @@ function App() {
 
     if (status === 'archived') {
       return 'status-badge is-muted'
+    }
+
+    return 'status-badge is-neutral'
+  }
+
+  const getNonConformityStatusLabel = (status: string) => {
+    if (status === 'open') {
+      return uiMessage.auth.nonConformityStatusOpen
+    }
+
+    if (status === 'in_progress') {
+      return uiMessage.auth.nonConformityStatusInProgress
+    }
+
+    if (status === 'resolved') {
+      return uiMessage.auth.nonConformityStatusResolved
+    }
+
+    if (status === 'cancelled') {
+      return uiMessage.auth.nonConformityStatusCancelled
+    }
+
+    return status
+  }
+
+  const getActionPlanStatusLabel = (status: string) => {
+    if (status === 'pending') {
+      return uiMessage.auth.actionPlanStatusPending
+    }
+
+    if (status === 'in_progress') {
+      return uiMessage.auth.actionPlanStatusInProgress
+    }
+
+    if (status === 'done') {
+      return uiMessage.auth.actionPlanStatusDone
+    }
+
+    return status
+  }
+
+  const getNonConformityStatusBadgeClass = (status: string) => {
+    if (status === 'open') {
+      return 'status-badge is-negative'
+    }
+
+    if (status === 'in_progress') {
+      return 'status-badge is-progress'
+    }
+
+    if (status === 'resolved') {
+      return 'status-badge is-positive'
+    }
+
+    if (status === 'cancelled') {
+      return 'status-badge is-muted'
+    }
+
+    return 'status-badge is-neutral'
+  }
+
+  const getActionPlanStatusBadgeClass = (status: string) => {
+    if (status === 'pending') {
+      return 'status-badge is-neutral'
+    }
+
+    if (status === 'in_progress') {
+      return 'status-badge is-progress'
+    }
+
+    if (status === 'done') {
+      return 'status-badge is-positive'
     }
 
     return 'status-badge is-neutral'
@@ -579,12 +692,14 @@ function App() {
       setDashboardSummary(null)
       setContracts([])
       setRules([])
+      setNonConformities([])
+      setActionPlans([])
       return
     }
 
     const loadDomainData = async () => {
       try {
-        const [summaryResponse, contractsResponse, rulesResponse] = await Promise.all([
+        const [summaryResponse, contractsResponse, rulesResponse, nonConformityResponse] = await Promise.all([
           fetch(`${API_URL}/dashboard/summary`, {
             headers: { Authorization: `Bearer ${authState.token}` },
           }),
@@ -592,6 +707,9 @@ function App() {
             headers: { Authorization: `Bearer ${authState.token}` },
           }),
           fetch(`${API_URL}/rules?limit=30`, {
+            headers: { Authorization: `Bearer ${authState.token}` },
+          }),
+          fetch(`${API_URL}/non-conformities?limit=30`, {
             headers: { Authorization: `Bearer ${authState.token}` },
           }),
         ])
@@ -612,6 +730,13 @@ function App() {
         if (rulesResponse.ok) {
           const payload = (await rulesResponse.json()) as { rules?: RuleItem[] }
           setRules(payload.rules ?? [])
+        }
+
+        if (nonConformityResponse.ok) {
+          const payload = (await nonConformityResponse.json()) as {
+            nonConformities?: NonConformityItem[]
+          }
+          setNonConformities(payload.nonConformities ?? [])
         }
       } catch {
         setDashboardSummary(null)
@@ -642,6 +767,41 @@ function App() {
       void fetchRuleHistory(authState.token, ruleValidationForm.ruleId)
     }
   }, [authState?.token, ruleValidationForm.ruleId, rules])
+
+  useEffect(() => {
+    if (!selectedNonConformityId && nonConformities.length > 0) {
+      setSelectedNonConformityId(nonConformities[0].id)
+    }
+  }, [nonConformities, selectedNonConformityId])
+
+  useEffect(() => {
+    if (!authState || !selectedNonConformityId) {
+      setActionPlans([])
+      return
+    }
+
+    const loadActionPlans = async () => {
+      try {
+        const response = await fetch(
+          `${API_URL}/non-conformities/${selectedNonConformityId}/actions`,
+          {
+            headers: { Authorization: `Bearer ${authState.token}` },
+          },
+        )
+
+        if (!response.ok) {
+          return
+        }
+
+        const payload = (await response.json()) as { actions?: ActionPlanItem[] }
+        setActionPlans(payload.actions ?? [])
+      } catch {
+        setActionPlans([])
+      }
+    }
+
+    void loadActionPlans()
+  }, [authState?.token, selectedNonConformityId])
 
   const handleLocaleChange = (event: ChangeEvent<HTMLSelectElement>) => {
     setLocale(resolveUiLocale(event.target.value))
@@ -964,6 +1124,100 @@ function App() {
       setDomainError(error instanceof Error ? error.message : 'Falha ao validar regra.')
     } finally {
       setIsSubmittingRuleValidation(false)
+    }
+  }
+
+  const handleCreateNonConformity = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!authState) {
+      return
+    }
+
+    setDomainError(null)
+    setIsSubmittingNonConformity(true)
+
+    try {
+      const response = await fetch(`${API_URL}/non-conformities`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authState.token}`,
+        },
+        body: JSON.stringify({
+          ...nonConformityForm,
+          status: 'open',
+        }),
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; nonConformity: NonConformityItem }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error(
+          'message' in payload ? payload.message : 'Falha ao registrar nao conformidade.',
+        )
+      }
+
+      setNonConformities((current) => [payload.nonConformity, ...current])
+      setSelectedNonConformityId(payload.nonConformity.id)
+      setNonConformityForm({
+        title: '',
+        description: '',
+        origin: '',
+        impact: '',
+        owner: '',
+        dueDate: '',
+      })
+    } catch (error) {
+      setDomainError(
+        error instanceof Error ? error.message : 'Falha ao registrar nao conformidade.',
+      )
+    } finally {
+      setIsSubmittingNonConformity(false)
+    }
+  }
+
+  const handleCreateActionPlan = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!authState || !selectedNonConformityId) {
+      return
+    }
+
+    setDomainError(null)
+    setIsSubmittingActionPlan(true)
+
+    try {
+      const response = await fetch(`${API_URL}/non-conformities/${selectedNonConformityId}/actions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authState.token}`,
+        },
+        body: JSON.stringify(actionPlanForm),
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; action: ActionPlanItem }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao adicionar acao.')
+      }
+
+      setActionPlans((current) => [payload.action, ...current])
+      setActionPlanForm({
+        description: '',
+        owner: '',
+        dueDate: '',
+        status: 'pending',
+      })
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao adicionar acao.')
+    } finally {
+      setIsSubmittingActionPlan(false)
     }
   }
 
@@ -1678,6 +1932,204 @@ function App() {
               <li>
                 <strong>Nenhuma regra encontrada</strong>
                 <span>Cadastre regras para iniciar a validacao contratual.</span>
+              </li>
+            )}
+          </ul>
+        </article>
+
+        <article className="panel">
+          <div className="section-head compact">
+            <div>
+              <span className="section-kicker">Conformidade</span>
+              <h2>{uiMessage.auth.nonConformityTitle}</h2>
+            </div>
+          </div>
+
+          <p className="invite-admin-description">{uiMessage.auth.nonConformityDescription}</p>
+
+          <form className="crud-form" onSubmit={handleCreateNonConformity}>
+            <label>
+              <span>{uiMessage.auth.nonConformityFormTitleLabel}</span>
+              <input
+                type="text"
+                value={nonConformityForm.title}
+                onChange={(event) =>
+                  setNonConformityForm((current) => ({ ...current, title: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>{uiMessage.auth.nonConformityFormDescriptionLabel}</span>
+              <textarea
+                value={nonConformityForm.description}
+                onChange={(event) =>
+                  setNonConformityForm((current) => ({ ...current, description: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>{uiMessage.auth.nonConformityFormOriginLabel}</span>
+              <input
+                type="text"
+                value={nonConformityForm.origin}
+                onChange={(event) =>
+                  setNonConformityForm((current) => ({ ...current, origin: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>{uiMessage.auth.nonConformityFormImpactLabel}</span>
+              <input
+                type="text"
+                value={nonConformityForm.impact}
+                onChange={(event) =>
+                  setNonConformityForm((current) => ({ ...current, impact: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>{uiMessage.auth.nonConformityFormOwnerLabel}</span>
+              <input
+                type="text"
+                value={nonConformityForm.owner}
+                onChange={(event) =>
+                  setNonConformityForm((current) => ({ ...current, owner: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>{uiMessage.auth.nonConformityFormDueDateLabel}</span>
+              <input
+                type="date"
+                value={nonConformityForm.dueDate}
+                onChange={(event) =>
+                  setNonConformityForm((current) => ({ ...current, dueDate: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <button type="submit" className="auth-button" disabled={isSubmittingNonConformity}>
+              {isSubmittingNonConformity
+                ? uiMessage.auth.nonConformityFormLoadingButton
+                : uiMessage.auth.nonConformityFormButton}
+            </button>
+          </form>
+
+          <ul className="records-list">
+            {nonConformities.length ? (
+              nonConformities.map((item) => (
+                <li key={item.id}>
+                  <strong>{item.title}</strong>
+                  <span className={getNonConformityStatusBadgeClass(item.status)}>
+                    {getNonConformityStatusLabel(item.status)}
+                  </span>
+                </li>
+              ))
+            ) : (
+              <li>
+                <strong>{uiMessage.auth.nonConformityEmpty}</strong>
+              </li>
+            )}
+          </ul>
+        </article>
+
+        <article className="panel">
+          <div className="section-head compact">
+            <div>
+              <span className="section-kicker">Conformidade</span>
+              <h2>{uiMessage.auth.actionPlanTitle}</h2>
+            </div>
+          </div>
+
+          <form className="crud-form" onSubmit={handleCreateActionPlan}>
+            <label>
+              <span>{uiMessage.auth.nonConformityTitle}</span>
+              <select
+                value={selectedNonConformityId}
+                onChange={(event) => setSelectedNonConformityId(event.target.value)}
+                required
+              >
+                <option value="" disabled>
+                  Selecione uma nao conformidade
+                </option>
+                {nonConformities.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>{uiMessage.auth.actionPlanDescriptionLabel}</span>
+              <textarea
+                value={actionPlanForm.description}
+                onChange={(event) =>
+                  setActionPlanForm((current) => ({ ...current, description: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>{uiMessage.auth.actionPlanOwnerLabel}</span>
+              <input
+                type="text"
+                value={actionPlanForm.owner}
+                onChange={(event) =>
+                  setActionPlanForm((current) => ({ ...current, owner: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>{uiMessage.auth.actionPlanDueDateLabel}</span>
+              <input
+                type="date"
+                value={actionPlanForm.dueDate}
+                onChange={(event) =>
+                  setActionPlanForm((current) => ({ ...current, dueDate: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <button
+              type="submit"
+              className="auth-button"
+              disabled={isSubmittingActionPlan || !selectedNonConformityId}
+            >
+              {isSubmittingActionPlan
+                ? uiMessage.auth.actionPlanLoadingButton
+                : uiMessage.auth.actionPlanButton}
+            </button>
+          </form>
+
+          <ul className="records-list">
+            {actionPlans.length ? (
+              actionPlans.map((item) => (
+                <li key={item.id}>
+                  <strong>{item.description}</strong>
+                  <span className={getActionPlanStatusBadgeClass(item.status)}>
+                    {getActionPlanStatusLabel(item.status)}
+                  </span>
+                </li>
+              ))
+            ) : (
+              <li>
+                <strong>{uiMessage.auth.actionPlanEmpty}</strong>
               </li>
             )}
           </ul>

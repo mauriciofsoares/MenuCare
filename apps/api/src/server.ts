@@ -68,6 +68,31 @@ const ruleParamsSchema = z.object({
   ruleId: z.string().min(1),
 });
 
+const nonConformitySchema = z.object({
+  title: z.string().min(3),
+  description: z.string().min(3),
+  origin: z.string().min(2),
+  impact: z.string().min(2),
+  owner: z.string().min(2),
+  dueDate: z.string().min(8),
+  status: z.enum(['open', 'in_progress', 'resolved', 'cancelled']).default('open'),
+});
+
+const nonConformityStatusSchema = z.object({
+  status: z.enum(['open', 'in_progress', 'resolved', 'cancelled']),
+});
+
+const nonConformityParamsSchema = z.object({
+  nonConformityId: z.string().min(1),
+});
+
+const actionPlanSchema = z.object({
+  description: z.string().min(3),
+  owner: z.string().min(2),
+  dueDate: z.string().min(8),
+  status: z.enum(['pending', 'in_progress', 'done']).default('pending'),
+});
+
 type SupportedLocale = z.infer<typeof localeSchema>['locale'];
 
 const normalizeLocale = (locale?: string): SupportedLocale => {
@@ -214,6 +239,37 @@ const ensureDomainTables = async () => {
   `;
 
   await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS non_conformities (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      impact TEXT NOT NULL,
+      owner TEXT NOT NULL,
+      due_date DATE NOT NULL,
+      status TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS non_conformity_action_plans (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      non_conformity_id TEXT NOT NULL,
+      description TEXT NOT NULL,
+      owner TEXT NOT NULL,
+      due_date DATE NOT NULL,
+      status TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_contracts_company_created_at
     ON contracts (company_name, created_at DESC)
   `;
@@ -226,6 +282,16 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_rule_validation_events_rule_created_at
     ON rule_validation_events (rule_id, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_non_conformities_company_status
+    ON non_conformities (company_name, status)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_non_conformity_action_plans_non_conformity
+    ON non_conformity_action_plans (non_conformity_id, created_at DESC)
   `;
 
   domainTablesReady = true;
@@ -1280,6 +1346,310 @@ app.get('/rules/:ruleId/history', { preHandler: authenticate }, async (request, 
       note: event.note,
       actorName: event.actor_name,
       createdAt: event.created_at.toISOString(),
+    })),
+  };
+});
+
+app.post('/non-conformities', { preHandler: authenticate }, async (request, reply) => {
+  const parsed = nonConformitySchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
+  }
+
+  await ensureDomainTables();
+
+  const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
+  const itemId = randomUUID();
+  const payload = parsed.data;
+
+  await prisma.$executeRaw`
+    INSERT INTO non_conformities (
+      id,
+      company_name,
+      title,
+      description,
+      origin,
+      impact,
+      owner,
+      due_date,
+      status,
+      created_by
+    )
+    VALUES (
+      ${itemId},
+      ${companyName},
+      ${payload.title},
+      ${payload.description},
+      ${payload.origin},
+      ${payload.impact},
+      ${payload.owner},
+      ${payload.dueDate},
+      ${payload.status},
+      ${actor.id}
+    )
+  `;
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    title: string;
+    description: string;
+    origin: string;
+    impact: string;
+    owner: string;
+    due_date: Date;
+    status: string;
+    created_at: Date;
+  }>>`
+    SELECT id, title, description, origin, impact, owner, due_date, status, created_at
+    FROM non_conformities
+    WHERE id = ${itemId}
+    LIMIT 1
+  `;
+
+  return reply.code(201).send({
+    status: 'ok',
+    nonConformity: {
+      id: rows[0]?.id ?? itemId,
+      title: rows[0]?.title ?? payload.title,
+      description: rows[0]?.description ?? payload.description,
+      origin: rows[0]?.origin ?? payload.origin,
+      impact: rows[0]?.impact ?? payload.impact,
+      owner: rows[0]?.owner ?? payload.owner,
+      dueDate: (rows[0]?.due_date ?? new Date(payload.dueDate)).toISOString(),
+      status: rows[0]?.status ?? payload.status,
+      createdAt: (rows[0]?.created_at ?? new Date()).toISOString(),
+    },
+  });
+});
+
+app.get('/non-conformities', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
+  }
+
+  const query = z
+    .object({
+      status: z.enum(['open', 'in_progress', 'resolved', 'cancelled']).optional(),
+      limit: z.coerce.number().int().min(1).max(100).default(30),
+    })
+    .safeParse(request.query);
+
+  await ensureDomainTables();
+
+  const companyName = getCompanyFromJwt(request);
+  const limit = query.success ? query.data.limit : 30;
+  const selectedStatus = query.success ? query.data.status : undefined;
+
+  const rows = selectedStatus
+    ? await prisma.$queryRaw<Array<{
+        id: string;
+        title: string;
+        description: string;
+        origin: string;
+        impact: string;
+        owner: string;
+        due_date: Date;
+        status: string;
+        created_at: Date;
+      }>>`
+        SELECT id, title, description, origin, impact, owner, due_date, status, created_at
+        FROM non_conformities
+        WHERE company_name = ${companyName}
+          AND status = ${selectedStatus}
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `
+    : await prisma.$queryRaw<Array<{
+        id: string;
+        title: string;
+        description: string;
+        origin: string;
+        impact: string;
+        owner: string;
+        due_date: Date;
+        status: string;
+        created_at: Date;
+      }>>`
+        SELECT id, title, description, origin, impact, owner, due_date, status, created_at
+        FROM non_conformities
+        WHERE company_name = ${companyName}
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `;
+
+  return {
+    status: 'ok',
+    nonConformities: rows.map((item) => ({
+      id: item.id,
+      title: item.title,
+      description: item.description,
+      origin: item.origin,
+      impact: item.impact,
+      owner: item.owner,
+      dueDate: item.due_date.toISOString(),
+      status: item.status,
+      createdAt: item.created_at.toISOString(),
+    })),
+  };
+});
+
+app.patch('/non-conformities/:nonConformityId/status', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = nonConformityParamsSchema.safeParse(request.params);
+  const parsedBody = nonConformityStatusSchema.safeParse(request.body);
+
+  if (!parsedParams.success || !parsedBody.success) {
+    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const existing = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM non_conformities
+    WHERE id = ${parsedParams.data.nonConformityId}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  if (!existing.length) {
+    return reply.code(404).send({ status: 'error', message: 'Nao conformidade nao encontrada.' });
+  }
+
+  await prisma.$executeRaw`
+    UPDATE non_conformities
+    SET status = ${parsedBody.data.status},
+        updated_at = NOW()
+    WHERE id = ${parsedParams.data.nonConformityId}
+      AND company_name = ${companyName}
+  `;
+
+  return { status: 'ok' };
+});
+
+app.post('/non-conformities/:nonConformityId/actions', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = nonConformityParamsSchema.safeParse(request.params);
+  const parsedBody = actionPlanSchema.safeParse(request.body);
+
+  if (!parsedParams.success || !parsedBody.success) {
+    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
+  const actionId = randomUUID();
+
+  await ensureDomainTables();
+
+  await prisma.$executeRaw`
+    INSERT INTO non_conformity_action_plans (
+      id,
+      company_name,
+      non_conformity_id,
+      description,
+      owner,
+      due_date,
+      status,
+      created_by
+    )
+    VALUES (
+      ${actionId},
+      ${companyName},
+      ${parsedParams.data.nonConformityId},
+      ${parsedBody.data.description},
+      ${parsedBody.data.owner},
+      ${parsedBody.data.dueDate},
+      ${parsedBody.data.status},
+      ${actor.id}
+    )
+  `;
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    non_conformity_id: string;
+    description: string;
+    owner: string;
+    due_date: Date;
+    status: string;
+    created_at: Date;
+  }>>`
+    SELECT id, non_conformity_id, description, owner, due_date, status, created_at
+    FROM non_conformity_action_plans
+    WHERE id = ${actionId}
+    LIMIT 1
+  `;
+
+  return reply.code(201).send({
+    status: 'ok',
+    action: {
+      id: rows[0]?.id ?? actionId,
+      nonConformityId: rows[0]?.non_conformity_id ?? parsedParams.data.nonConformityId,
+      description: rows[0]?.description ?? parsedBody.data.description,
+      owner: rows[0]?.owner ?? parsedBody.data.owner,
+      dueDate: (rows[0]?.due_date ?? new Date(parsedBody.data.dueDate)).toISOString(),
+      status: rows[0]?.status ?? parsedBody.data.status,
+      createdAt: (rows[0]?.created_at ?? new Date()).toISOString(),
+    },
+  });
+});
+
+app.get('/non-conformities/:nonConformityId/actions', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = nonConformityParamsSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    non_conformity_id: string;
+    description: string;
+    owner: string;
+    due_date: Date;
+    status: string;
+    created_at: Date;
+  }>>`
+    SELECT id, non_conformity_id, description, owner, due_date, status, created_at
+    FROM non_conformity_action_plans
+    WHERE non_conformity_id = ${parsedParams.data.nonConformityId}
+      AND company_name = ${companyName}
+    ORDER BY created_at DESC
+    LIMIT 50
+  `;
+
+  return {
+    status: 'ok',
+    actions: rows.map((action) => ({
+      id: action.id,
+      nonConformityId: action.non_conformity_id,
+      description: action.description,
+      owner: action.owner,
+      dueDate: action.due_date.toISOString(),
+      status: action.status,
+      createdAt: action.created_at.toISOString(),
     })),
   };
 });
