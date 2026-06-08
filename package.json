@@ -10,14 +10,19 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "npm run dev --workspace apps/web",
     "dev:api": "npm run dev --workspace apps/api",
+    "dev:web": "npm run dev --workspace apps/web",
     "build": "npm run build --workspace apps/web",
-    "lint": "npm run lint --workspace apps/web"
+    "lint": "npm run lint --workspace apps/web",
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "prisma:generate": "npm run prisma:generate --workspace apps/api",
+    "prisma:migrate": "npm run prisma:migrate --workspace apps/api"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
-  "private": "true",
+  "private": true,
   "workspaces": [
     "apps/*"
   ]
