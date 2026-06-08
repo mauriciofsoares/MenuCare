@@ -285,6 +285,7 @@ Qualidade e testes (secao 3 e backlog item 10): EM EVOLUCAO.
 - Entregue neste ciclo:
   - Testes de integracao de API com Supertest para saude, login e protecao de rota.
   - Script de teste no workspace apps/api e ajuste de boot para testabilidade.
+  - Hardening de login com rate limit por email (bloqueio temporario por excesso de tentativas).
 
 - Pendente para fechamento completo do plano:
   - Suite de testes unitarios mais ampla.

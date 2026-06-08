@@ -181,8 +181,18 @@ const demoContext = {
 
 const demoPassword = process.env.DEMO_PASSWORD ?? 'Admin@123';
 const demoInviteToken = process.env.DEMO_INVITE_TOKEN ?? 'MENUCARE-PRIMEIRO-ACESSO';
+const parsedLoginAttemptLimit = Number(process.env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS ?? 5);
+const parsedLoginRateLimitWindowMs = Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS ?? 10 * 60 * 1000);
+const loginAttemptLimit = Number.isFinite(parsedLoginAttemptLimit) && parsedLoginAttemptLimit > 0
+  ? parsedLoginAttemptLimit
+  : 5;
+const loginRateLimitWindowMs =
+  Number.isFinite(parsedLoginRateLimitWindowMs) && parsedLoginRateLimitWindowMs > 0
+    ? parsedLoginRateLimitWindowMs
+    : 10 * 60 * 1000;
 const localeByCompany = new Map<string, SupportedLocale>();
 const scryptAsync = promisify(scrypt);
+const loginAttemptByKey = new Map<string, { attempts: number; blockedUntil: number }>();
 
 type PrismaLike = {
   $queryRaw: <T = unknown>(query: TemplateStringsArray, ...values: unknown[]) => Promise<T>;
@@ -631,6 +641,45 @@ const registerInviteAuditEvent = async (payload: {
   `;
 };
 
+const consumeLoginAttempt = (key: string, now: number) => {
+  const state = loginAttemptByKey.get(key);
+
+  if (!state) {
+    loginAttemptByKey.set(key, { attempts: 1, blockedUntil: 0 });
+    return false;
+  }
+
+  if (state.blockedUntil > 0 && now >= state.blockedUntil) {
+    loginAttemptByKey.set(key, { attempts: 1, blockedUntil: 0 });
+    return false;
+  }
+
+  const nextAttempts = state.attempts + 1;
+
+  if (nextAttempts >= loginAttemptLimit) {
+    loginAttemptByKey.set(key, { attempts: nextAttempts, blockedUntil: now + loginRateLimitWindowMs });
+    return true;
+  }
+
+  loginAttemptByKey.set(key, { attempts: nextAttempts, blockedUntil: state.blockedUntil });
+  return false;
+};
+
+const isLoginBlocked = (key: string, now: number) => {
+  const state = loginAttemptByKey.get(key);
+
+  if (!state) {
+    return false;
+  }
+
+  if (state.blockedUntil > 0 && now >= state.blockedUntil) {
+    loginAttemptByKey.delete(key);
+    return false;
+  }
+
+  return state.blockedUntil > 0 && now < state.blockedUntil;
+};
+
 app.post('/auth/login', async (request, reply) => {
   const parsed = authSchema.safeParse(request.body);
 
@@ -642,8 +691,27 @@ app.post('/auth/login', async (request, reply) => {
   }
 
   const { email, password } = parsed.data;
+  const normalizedEmail = email.trim().toLowerCase();
+  const loginKey = normalizedEmail;
+  const now = Date.now();
 
-  if (email !== demoUser.email) {
+  if (isLoginBlocked(loginKey, now)) {
+    return reply.code(429).send({
+      status: 'error',
+      message: apiMessage.auth.tooManyLoginAttempts,
+    });
+  }
+
+  if (normalizedEmail !== demoUser.email) {
+    const blocked = consumeLoginAttempt(loginKey, now);
+
+    if (blocked) {
+      return reply.code(429).send({
+        status: 'error',
+        message: apiMessage.auth.tooManyLoginAttempts,
+      });
+    }
+
     return reply.code(401).send({
       status: 'error',
       message: apiMessage.auth.wrongEmailOrPassword,
@@ -654,7 +722,7 @@ app.post('/auth/login', async (request, reply) => {
 
   if (prisma) {
     try {
-      const storedHash = await readPasswordOverride(email, demoUser.companyName);
+      const storedHash = await readPasswordOverride(normalizedEmail, demoUser.companyName);
 
       if (storedHash) {
         isValidPassword = await verifyPassword(password, storedHash);
@@ -665,11 +733,22 @@ app.post('/auth/login', async (request, reply) => {
   }
 
   if (!isValidPassword) {
+    const blocked = consumeLoginAttempt(loginKey, now);
+
+    if (blocked) {
+      return reply.code(429).send({
+        status: 'error',
+        message: apiMessage.auth.tooManyLoginAttempts,
+      });
+    }
+
     return reply.code(401).send({
       status: 'error',
       message: apiMessage.auth.wrongEmailOrPassword,
     });
   }
+
+  loginAttemptByKey.delete(loginKey);
 
   const token = await reply.jwtSign(
     {
