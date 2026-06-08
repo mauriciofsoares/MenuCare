@@ -195,6 +195,15 @@ type ComplianceExportAuditFilter = {
   to: string
 }
 
+type ComplianceExportAuditPreferences = {
+  typeFilter: 'all' | 'non_conformity_history' | 'action_plan_history' | 'compliance_export_audit'
+  filter: ComplianceExportAuditFilter
+  appliedFilter: ComplianceExportAuditFilter
+  page: number
+  limit: 30 | 50 | 100
+  exportScope: 'page' | 'all'
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -257,6 +266,11 @@ const APP_LOCALE_HINT =
 const getCompanyLocaleStorageKey = (companyName: string) => {
   const normalized = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
   return `menucare.locale.company.${normalized}`
+}
+
+const getCompanyComplianceExportAuditStorageKey = (companyName: string) => {
+  const normalized = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-')
+  return `menucare.audit.exports.company.${normalized}`
 }
 
 const getInitialLocale = (): UiLocale => {
@@ -981,6 +995,65 @@ function App() {
       isCancelled = true
     }
   }, [authState?.token, authState?.user.companyName])
+
+  useEffect(() => {
+    if (!authState || typeof window === 'undefined') {
+      return
+    }
+
+    const storageKey = getCompanyComplianceExportAuditStorageKey(authState.user.companyName)
+    const raw = window.localStorage.getItem(storageKey)
+
+    if (!raw) {
+      return
+    }
+
+    try {
+      const parsed = JSON.parse(raw) as ComplianceExportAuditPreferences
+      const isValidLimit = parsed.limit === 30 || parsed.limit === 50 || parsed.limit === 100
+      const isValidScope = parsed.exportScope === 'page' || parsed.exportScope === 'all'
+      const isValidPage = Number.isInteger(parsed.page) && parsed.page >= 1
+
+      if (!isValidLimit || !isValidScope || !isValidPage) {
+        return
+      }
+
+      setComplianceExportAuditTypeFilter(parsed.typeFilter)
+      setComplianceExportAuditFilter(parsed.filter)
+      setAppliedComplianceExportAuditFilter(parsed.appliedFilter)
+      setComplianceExportAuditPage(parsed.page)
+      setComplianceExportAuditLimit(parsed.limit)
+      setComplianceExportAuditExportScope(parsed.exportScope)
+    } catch {
+      window.localStorage.removeItem(storageKey)
+    }
+  }, [authState?.user.companyName])
+
+  useEffect(() => {
+    if (!authState || typeof window === 'undefined') {
+      return
+    }
+
+    const storageKey = getCompanyComplianceExportAuditStorageKey(authState.user.companyName)
+    const payload: ComplianceExportAuditPreferences = {
+      typeFilter: complianceExportAuditTypeFilter,
+      filter: complianceExportAuditFilter,
+      appliedFilter: appliedComplianceExportAuditFilter,
+      page: complianceExportAuditPage,
+      limit: complianceExportAuditLimit,
+      exportScope: complianceExportAuditExportScope,
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(payload))
+  }, [
+    appliedComplianceExportAuditFilter,
+    authState?.user.companyName,
+    complianceExportAuditExportScope,
+    complianceExportAuditFilter,
+    complianceExportAuditLimit,
+    complianceExportAuditPage,
+    complianceExportAuditTypeFilter,
+  ])
 
   useEffect(() => {
     if (!authState || !isServerLocaleHydrated) {
