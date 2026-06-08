@@ -330,6 +330,23 @@ const ensureDomainTables = async () => {
   `;
 
   await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS compliance_export_events (
+      id TEXT PRIMARY KEY,
+      export_id TEXT NOT NULL UNIQUE,
+      company_name TEXT NOT NULL,
+      export_type TEXT NOT NULL,
+      non_conformity_id TEXT,
+      action_plan_id TEXT,
+      filter_actor TEXT,
+      filter_from DATE,
+      filter_to DATE,
+      actor_id TEXT NOT NULL,
+      actor_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_contracts_company_created_at
     ON contracts (company_name, created_at DESC)
   `;
@@ -362,6 +379,16 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_non_conformity_events_non_conformity
     ON non_conformity_events (non_conformity_id, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_compliance_export_events_company_created_at
+    ON compliance_export_events (company_name, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_compliance_export_events_export_type
+    ON compliance_export_events (export_type, created_at DESC)
   `;
 
   domainTablesReady = true;
@@ -1666,6 +1693,7 @@ app.get('/non-conformities/:nonConformityId/history', { preHandler: authenticate
   }
 
   const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
   const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
   const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
   const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
@@ -1732,6 +1760,7 @@ app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authe
   }
 
   const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
   const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
   const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
   const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
@@ -1762,6 +1791,35 @@ app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authe
 
   const header = 'created_at,actor_name,previous_status,next_status';
   const exportId = randomUUID();
+
+  const exportEventId = randomUUID();
+  await prisma.$executeRaw`
+    INSERT INTO compliance_export_events (
+      id,
+      export_id,
+      company_name,
+      export_type,
+      non_conformity_id,
+      filter_actor,
+      filter_from,
+      filter_to,
+      actor_id,
+      actor_name
+    )
+    VALUES (
+      ${exportEventId},
+      ${exportId},
+      ${companyName},
+      ${'non_conformity_history'},
+      ${parsedParams.data.nonConformityId},
+      ${parsedQuery.data.actor?.trim() || null},
+      ${parsedQuery.data.from || null},
+      ${parsedQuery.data.to || null},
+      ${actor.id},
+      ${actor.name}
+    )
+  `;
+
   const metadata = [
     '# export_type,non_conformity_history',
     '# csv_schema_version,2',
@@ -1966,6 +2024,7 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history', { preHan
   }
 
   const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
   const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
   const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
   const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
@@ -2034,6 +2093,7 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', {
   }
 
   const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
   const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
   const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
   const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
@@ -2065,6 +2125,37 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', {
 
   const header = 'created_at,actor_name,previous_status,next_status';
   const exportId = randomUUID();
+
+  const exportEventId = randomUUID();
+  await prisma.$executeRaw`
+    INSERT INTO compliance_export_events (
+      id,
+      export_id,
+      company_name,
+      export_type,
+      non_conformity_id,
+      action_plan_id,
+      filter_actor,
+      filter_from,
+      filter_to,
+      actor_id,
+      actor_name
+    )
+    VALUES (
+      ${exportEventId},
+      ${exportId},
+      ${companyName},
+      ${'action_plan_history'},
+      ${parsedParams.data.nonConformityId},
+      ${parsedParams.data.actionId},
+      ${parsedQuery.data.actor?.trim() || null},
+      ${parsedQuery.data.from || null},
+      ${parsedQuery.data.to || null},
+      ${actor.id},
+      ${actor.name}
+    )
+  `;
+
   const metadata = [
     '# export_type,action_plan_history',
     '# csv_schema_version,2',
