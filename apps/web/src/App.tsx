@@ -331,6 +331,7 @@ function App() {
   const [isLoadingActionPlanHistory, setIsLoadingActionPlanHistory] = useState(false)
   const [isLoadingNonConformityHistory, setIsLoadingNonConformityHistory] = useState(false)
   const [complianceExportAuditPage, setComplianceExportAuditPage] = useState(1)
+  const [complianceExportAuditLimit, setComplianceExportAuditLimit] = useState<30 | 50 | 100>(30)
   const [complianceExportAuditHasNext, setComplianceExportAuditHasNext] = useState(false)
   const [complianceExportAuditTotal, setComplianceExportAuditTotal] = useState(0)
   const [complianceExportAuditExportScope, setComplianceExportAuditExportScope] =
@@ -679,7 +680,7 @@ function App() {
         exportType,
         sortOrder: filter.sortOrder,
         page: String(complianceExportAuditPage),
-        limit: '30',
+        limit: String(complianceExportAuditLimit),
       })
 
       if (filter.exportId.trim()) {
@@ -765,7 +766,7 @@ function App() {
         sortOrder: appliedComplianceExportAuditFilter.sortOrder,
         exportScope: complianceExportAuditExportScope,
         page: String(complianceExportAuditPage),
-        limit: '30',
+        limit: String(complianceExportAuditLimit),
       })
 
       if (appliedComplianceExportAuditFilter.exportId.trim()) {
@@ -1004,6 +1005,7 @@ function App() {
     appliedComplianceExportAuditFilter.sortOrder,
     appliedComplianceExportAuditFilter.to,
     authState?.token,
+    complianceExportAuditLimit,
     complianceExportAuditPage,
     complianceExportAuditTypeFilter,
     inviteHistoryFilter,
@@ -2526,6 +2528,21 @@ function App() {
               {uiMessage.auth.complianceExportAuditPageLabel} {complianceExportAuditPage} · {complianceExportAuditTotal}
             </small>
             <div className="history-filter-actions">
+              <label>
+                <span>{uiMessage.auth.complianceExportAuditLimitLabel}</span>
+                <select
+                  value={String(complianceExportAuditLimit)}
+                  onChange={(event) => {
+                    setComplianceExportAuditLimit(Number(event.target.value) as 30 | 50 | 100)
+                    setComplianceExportAuditPage(1)
+                  }}
+                  disabled={isExportingComplianceExportAudit || isLoadingComplianceExportAudit}
+                >
+                  <option value="30">30</option>
+                  <option value="50">50</option>
+                  <option value="100">100</option>
+                </select>
+              </label>
               <label>
                 <span>{uiMessage.auth.complianceExportAuditExportScopeLabel}</span>
                 <select
