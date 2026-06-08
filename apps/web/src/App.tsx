@@ -103,6 +103,7 @@ type ComplianceExportAuditEvent = {
   filterNonConformityId: string | null
   filterActionPlanId: string | null
   filterSortOrder: string | null
+  filterExportScope: string | null
   filterActor: string | null
   filterFrom: string | null
   filterTo: string | null
@@ -332,6 +333,8 @@ function App() {
   const [complianceExportAuditPage, setComplianceExportAuditPage] = useState(1)
   const [complianceExportAuditHasNext, setComplianceExportAuditHasNext] = useState(false)
   const [complianceExportAuditTotal, setComplianceExportAuditTotal] = useState(0)
+  const [complianceExportAuditExportScope, setComplianceExportAuditExportScope] =
+    useState<'page' | 'all'>('page')
   const [isExportingNonConformityHistory, setIsExportingNonConformityHistory] = useState(false)
   const [isExportingActionPlanHistory, setIsExportingActionPlanHistory] = useState(false)
   const [loginForm, setLoginForm] = useState({
@@ -760,6 +763,7 @@ function App() {
       const query = new URLSearchParams({
         exportType: complianceExportAuditTypeFilter,
         sortOrder: appliedComplianceExportAuditFilter.sortOrder,
+        exportScope: complianceExportAuditExportScope,
         page: String(complianceExportAuditPage),
         limit: '30',
       })
@@ -2522,6 +2526,19 @@ function App() {
               {uiMessage.auth.complianceExportAuditPageLabel} {complianceExportAuditPage} · {complianceExportAuditTotal}
             </small>
             <div className="history-filter-actions">
+              <label>
+                <span>{uiMessage.auth.complianceExportAuditExportScopeLabel}</span>
+                <select
+                  value={complianceExportAuditExportScope}
+                  onChange={(event) =>
+                    setComplianceExportAuditExportScope(event.target.value as 'page' | 'all')
+                  }
+                  disabled={isExportingComplianceExportAudit || isLoadingComplianceExportAudit}
+                >
+                  <option value="page">{uiMessage.auth.complianceExportAuditExportScopePage}</option>
+                  <option value="all">{uiMessage.auth.complianceExportAuditExportScopeAll}</option>
+                </select>
+              </label>
               <button
                 type="button"
                 className="logout-button"
@@ -2565,7 +2582,7 @@ function App() {
                     {uiMessage.auth.complianceExportAuditExportIdLabel}: {event.exportId}
                   </small>
                   <small>
-                    {uiMessage.auth.complianceExportAuditFiltersLabel}: exportId={event.filterExportId ?? '-'} | ncId={event.filterNonConformityId ?? '-'} | apId={event.filterActionPlanId ?? '-'} | sort={event.filterSortOrder ?? '-'} | actor={event.filterActor ?? '-'} | from={event.filterFrom ? new Date(event.filterFrom).toLocaleDateString(locale) : '-'} | to={event.filterTo ? new Date(event.filterTo).toLocaleDateString(locale) : '-'}
+                    {uiMessage.auth.complianceExportAuditFiltersLabel}: exportId={event.filterExportId ?? '-'} | ncId={event.filterNonConformityId ?? '-'} | apId={event.filterActionPlanId ?? '-'} | sort={event.filterSortOrder ?? '-'} | scope={event.filterExportScope ?? '-'} | actor={event.filterActor ?? '-'} | from={event.filterFrom ? new Date(event.filterFrom).toLocaleDateString(locale) : '-'} | to={event.filterTo ? new Date(event.filterTo).toLocaleDateString(locale) : '-'}
                   </small>
                   <small>
                     NC={event.nonConformityId ?? '-'} · AP={event.actionPlanId ?? '-'} · {new Date(event.createdAt).toLocaleString(locale)}
