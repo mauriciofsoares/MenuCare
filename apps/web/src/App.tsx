@@ -213,6 +213,7 @@ function App() {
   const [isSubmittingRule, setIsSubmittingRule] = useState(false)
   const [isSubmittingNonConformity, setIsSubmittingNonConformity] = useState(false)
   const [isSubmittingActionPlan, setIsSubmittingActionPlan] = useState(false)
+  const [isUpdatingActionPlanId, setIsUpdatingActionPlanId] = useState<string | null>(null)
   const [loginForm, setLoginForm] = useState({
     email: 'admin@menucare.local',
     password: 'Admin@123',
@@ -1221,6 +1222,45 @@ function App() {
     }
   }
 
+  const handleUpdateActionPlanStatus = async (actionId: string, status: 'pending' | 'in_progress' | 'done') => {
+    if (!authState || !selectedNonConformityId) {
+      return
+    }
+
+    setDomainError(null)
+    setIsUpdatingActionPlanId(actionId)
+
+    try {
+      const response = await fetch(
+        `${API_URL}/non-conformities/${selectedNonConformityId}/actions/${actionId}/status`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${authState.token}`,
+          },
+          body: JSON.stringify({ status }),
+        },
+      )
+
+      const payload = (await response.json()) as
+        | { status: 'ok' }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao atualizar acao.')
+      }
+
+      setActionPlans((current) =>
+        current.map((item) => (item.id === actionId ? { ...item, status } : item)),
+      )
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao atualizar acao.')
+    } finally {
+      setIsUpdatingActionPlanId(null)
+    }
+  }
+
   const handleLogout = async () => {
     if (authState) {
       await fetch(`${API_URL}/auth/logout`, {
@@ -2125,6 +2165,41 @@ function App() {
                   <span className={getActionPlanStatusBadgeClass(item.status)}>
                     {getActionPlanStatusLabel(item.status)}
                   </span>
+                  <small>
+                    {item.owner} · {new Date(item.dueDate).toLocaleDateString(locale)}
+                  </small>
+                  <div className="invite-history-actions">
+                    {item.status === 'pending' ? (
+                      <button
+                        type="button"
+                        className="logout-button"
+                        disabled={isUpdatingActionPlanId === item.id}
+                        onClick={() => handleUpdateActionPlanStatus(item.id, 'in_progress')}
+                      >
+                        {uiMessage.auth.actionPlanStartButton}
+                      </button>
+                    ) : null}
+                    {item.status === 'in_progress' ? (
+                      <button
+                        type="button"
+                        className="logout-button"
+                        disabled={isUpdatingActionPlanId === item.id}
+                        onClick={() => handleUpdateActionPlanStatus(item.id, 'done')}
+                      >
+                        {uiMessage.auth.actionPlanDoneButton}
+                      </button>
+                    ) : null}
+                    {item.status === 'done' ? (
+                      <button
+                        type="button"
+                        className="logout-button"
+                        disabled={isUpdatingActionPlanId === item.id}
+                        onClick={() => handleUpdateActionPlanStatus(item.id, 'pending')}
+                      >
+                        {uiMessage.auth.actionPlanReopenButton}
+                      </button>
+                    ) : null}
+                  </div>
                 </li>
               ))
             ) : (

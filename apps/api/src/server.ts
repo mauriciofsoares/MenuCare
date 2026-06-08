@@ -93,6 +93,15 @@ const actionPlanSchema = z.object({
   status: z.enum(['pending', 'in_progress', 'done']).default('pending'),
 });
 
+const actionPlanStatusSchema = z.object({
+  status: z.enum(['pending', 'in_progress', 'done']),
+});
+
+const actionPlanParamsSchema = z.object({
+  nonConformityId: z.string().min(1),
+  actionId: z.string().min(1),
+});
+
 type SupportedLocale = z.infer<typeof localeSchema>['locale'];
 
 const normalizeLocale = (locale?: string): SupportedLocale => {
@@ -1606,6 +1615,46 @@ app.post('/non-conformities/:nonConformityId/actions', { preHandler: authenticat
       createdAt: (rows[0]?.created_at ?? new Date()).toISOString(),
     },
   });
+});
+
+app.patch('/non-conformities/:nonConformityId/actions/:actionId/status', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = actionPlanParamsSchema.safeParse(request.params);
+  const parsedBody = actionPlanStatusSchema.safeParse(request.body);
+
+  if (!parsedParams.success || !parsedBody.success) {
+    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const existing = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM non_conformity_action_plans
+    WHERE id = ${parsedParams.data.actionId}
+      AND non_conformity_id = ${parsedParams.data.nonConformityId}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  if (!existing.length) {
+    return reply.code(404).send({ status: 'error', message: 'Acao nao encontrada.' });
+  }
+
+  await prisma.$executeRaw`
+    UPDATE non_conformity_action_plans
+    SET status = ${parsedBody.data.status}
+    WHERE id = ${parsedParams.data.actionId}
+      AND non_conformity_id = ${parsedParams.data.nonConformityId}
+      AND company_name = ${companyName}
+  `;
+
+  return { status: 'ok' };
 });
 
 app.get('/non-conformities/:nonConformityId/actions', { preHandler: authenticate }, async (request, reply) => {
