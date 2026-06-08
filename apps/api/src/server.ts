@@ -3,6 +3,9 @@ import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
 import type { FastifyReply, FastifyRequest } from 'fastify';
+import { randomUUID } from 'node:crypto';
+import { scrypt, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
 import { z } from 'zod';
 import { getApiMessage } from './messages.js';
 
@@ -14,8 +17,42 @@ const authSchema = z.object({
   password: z.string().min(1),
 });
 
+const inviteActivationSchema = z.object({
+  token: z.string().min(6),
+  password: z.string().min(6),
+});
+
+const inviteCreationSchema = z.object({
+  email: z.string().email(),
+});
+
+const inviteListQuerySchema = z.object({
+  status: z.enum(['all', 'active', 'used']).default('all'),
+  limit: z.coerce.number().int().min(1).max(100).default(30),
+});
+
+const inviteTokenParamSchema = z.object({
+  token: z.string().min(6),
+});
+
 const localeSchema = z.object({
   locale: z.enum(['pt-BR', 'en-US']),
+});
+
+const contractSchema = z.object({
+  title: z.string().min(3),
+  sourceType: z.enum(['contract', 'bid_notice', 'reference_term', 'regulation']),
+  status: z.enum(['draft', 'processing', 'active', 'archived']).default('processing'),
+});
+
+const ruleSchema = z.object({
+  contractId: z.string().min(1),
+  title: z.string().min(3),
+  description: z.string().min(3),
+  category: z.string().min(2),
+  status: z
+    .enum(['identified', 'under_review', 'approved', 'rejected', 'archived'])
+    .default('identified'),
 });
 
 type SupportedLocale = z.infer<typeof localeSchema>['locale'];
@@ -52,7 +89,9 @@ const demoContext = {
 } as const;
 
 const demoPassword = process.env.DEMO_PASSWORD ?? 'Admin@123';
+const demoInviteToken = process.env.DEMO_INVITE_TOKEN ?? 'MENUCARE-PRIMEIRO-ACESSO';
 const localeByCompany = new Map<string, SupportedLocale>();
+const scryptAsync = promisify(scrypt);
 
 type PrismaLike = {
   $queryRaw: <T = unknown>(query: TemplateStringsArray, ...values: unknown[]) => Promise<T>;
@@ -61,6 +100,8 @@ type PrismaLike = {
 
 let prisma: PrismaLike | null = null;
 let localeTableReady = false;
+let domainTablesReady = false;
+let authTablesReady = false;
 
 try {
   const prismaModule = (await import('@prisma/client')) as {
@@ -115,6 +156,130 @@ const ensureLocalePreferencesTable = async () => {
   localeTableReady = true;
 };
 
+const ensureDomainTables = async () => {
+  if (!prisma || domainTablesReady) {
+    return;
+  }
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS contracts (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      title TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS extracted_rules (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      contract_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL,
+      category TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_contracts_company_created_at
+    ON contracts (company_name, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_rules_company_status
+    ON extracted_rules (company_name, status)
+  `;
+
+  domainTablesReady = true;
+};
+
+const ensureAuthTables = async () => {
+  if (!prisma || authTablesReady) {
+    return;
+  }
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS first_access_invites (
+      token TEXT PRIMARY KEY,
+      email TEXT NOT NULL,
+      company_name TEXT NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      used_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS auth_password_overrides (
+      email TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      password_hash TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_first_access_invites_company
+    ON first_access_invites (company_name, is_active)
+  `;
+
+  await prisma.$executeRaw`
+    INSERT INTO first_access_invites (token, email, company_name, is_active)
+    VALUES (${demoInviteToken}, ${demoUser.email}, ${demoUser.companyName}, TRUE)
+    ON CONFLICT (token)
+    DO NOTHING
+  `;
+
+  authTablesReady = true;
+};
+
+const hashPassword = async (password: string): Promise<string> => {
+  const salt = randomUUID();
+  const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
+  return `${salt}:${derivedKey.toString('hex')}`;
+};
+
+const verifyPassword = async (password: string, storedHash: string): Promise<boolean> => {
+  const [salt, keyHex] = storedHash.split(':');
+
+  if (!salt || !keyHex) {
+    return false;
+  }
+
+  const derivedKey = (await scryptAsync(password, salt, 64)) as Buffer;
+  const expectedKey = Buffer.from(keyHex, 'hex');
+
+  if (derivedKey.length !== expectedKey.length) {
+    return false;
+  }
+
+  return timingSafeEqual(derivedKey, expectedKey);
+};
+
+const readPasswordOverride = async (email: string, companyName: string): Promise<string | null> => {
+  if (!prisma) {
+    return null;
+  }
+
+  await ensureAuthTables();
+
+  const rows = await prisma.$queryRaw<Array<{ password_hash: string }>>`
+    SELECT password_hash
+    FROM auth_password_overrides
+    WHERE email = ${email}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  return rows[0]?.password_hash ?? null;
+};
+
 const readLocaleFromDatabase = async (companyName: string): Promise<SupportedLocale | null> => {
   if (!prisma) {
     return null;
@@ -153,6 +318,15 @@ const saveLocaleInDatabase = async (companyName: string, locale: SupportedLocale
   `;
 };
 
+const getUserFromJwt = (request: FastifyRequest) => {
+  const payload = request.user as { sub?: string; name?: string };
+
+  return {
+    id: payload.sub ?? demoUser.id,
+    name: payload.name ?? demoUser.name,
+  };
+};
+
 app.post('/auth/login', async (request, reply) => {
   const parsed = authSchema.safeParse(request.body);
 
@@ -165,7 +339,28 @@ app.post('/auth/login', async (request, reply) => {
 
   const { email, password } = parsed.data;
 
-  if (email !== demoUser.email || password !== demoPassword) {
+  if (email !== demoUser.email) {
+    return reply.code(401).send({
+      status: 'error',
+      message: apiMessage.auth.wrongEmailOrPassword,
+    });
+  }
+
+  let isValidPassword = password === demoPassword;
+
+  if (prisma) {
+    try {
+      const storedHash = await readPasswordOverride(email, demoUser.companyName);
+
+      if (storedHash) {
+        isValidPassword = await verifyPassword(password, storedHash);
+      }
+    } catch (error) {
+      app.log.warn({ error }, 'Falha ao validar credencial persistida.');
+    }
+  }
+
+  if (!isValidPassword) {
     return reply.code(401).send({
       status: 'error',
       message: apiMessage.auth.wrongEmailOrPassword,
@@ -220,6 +415,300 @@ app.post('/auth/logout', { preHandler: authenticate }, async () => ({
   message: apiMessage.auth.signedOut,
 }));
 
+app.post('/auth/first-access/activate', async (request, reply) => {
+  const parsed = inviteActivationSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: apiMessage.auth.invalidInvitePayload,
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  await ensureAuthTables();
+
+  const normalizedToken = parsed.data.token.trim();
+  const inviteRows = await prisma.$queryRaw<Array<{ email: string; company_name: string }>>`
+    SELECT email, company_name
+    FROM first_access_invites
+    WHERE token = ${normalizedToken}
+      AND is_active = TRUE
+    LIMIT 1
+  `;
+
+  const invite = inviteRows[0];
+
+  if (!invite) {
+    return reply.code(400).send({
+      status: 'error',
+      message: apiMessage.auth.invalidOrExpiredInvite,
+    });
+  }
+
+  const passwordHash = await hashPassword(parsed.data.password);
+
+  await prisma.$executeRaw`
+    INSERT INTO auth_password_overrides (email, company_name, password_hash)
+    VALUES (${invite.email}, ${invite.company_name}, ${passwordHash})
+    ON CONFLICT (email)
+    DO UPDATE SET
+      company_name = EXCLUDED.company_name,
+      password_hash = EXCLUDED.password_hash,
+      updated_at = NOW()
+  `;
+
+  await prisma.$executeRaw`
+    UPDATE first_access_invites
+    SET is_active = FALSE,
+        used_at = NOW()
+    WHERE token = ${normalizedToken}
+  `;
+
+  return {
+    status: 'ok',
+    message: apiMessage.auth.inviteActivated,
+    email: invite.email,
+  };
+});
+
+app.post('/auth/invites', { preHandler: authenticate }, async (request, reply) => {
+  const parsed = inviteCreationSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: apiMessage.auth.invalidInvitePayload,
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  await ensureAuthTables();
+
+  const companyName = getCompanyFromJwt(request);
+  const normalizedEmail = parsed.data.email.trim().toLowerCase();
+  const inviteToken = `INV-${randomUUID().replace(/-/g, '').slice(0, 20).toUpperCase()}`;
+
+  await prisma.$executeRaw`
+    UPDATE first_access_invites
+    SET is_active = FALSE,
+        used_at = NOW()
+    WHERE email = ${normalizedEmail}
+      AND company_name = ${companyName}
+      AND is_active = TRUE
+  `;
+
+  await prisma.$executeRaw`
+    INSERT INTO first_access_invites (token, email, company_name, is_active)
+    VALUES (${inviteToken}, ${normalizedEmail}, ${companyName}, TRUE)
+  `;
+
+  return reply.code(201).send({
+    status: 'ok',
+    message: apiMessage.auth.inviteGenerated,
+    invite: {
+      token: inviteToken,
+      email: normalizedEmail,
+      companyName,
+      active: true,
+    },
+  });
+});
+
+app.get('/auth/invites', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const parsedQuery = inviteListQuerySchema.safeParse(request.query);
+  const status = parsedQuery.success ? parsedQuery.data.status : 'all';
+  const limit = parsedQuery.success ? parsedQuery.data.limit : 30;
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureAuthTables();
+
+  const invites =
+    status === 'all'
+      ? await prisma.$queryRaw<
+          Array<{
+            token: string;
+            email: string;
+            is_active: boolean;
+            used_at: Date | null;
+            created_at: Date;
+          }>
+        >`
+          SELECT token, email, is_active, used_at, created_at
+          FROM first_access_invites
+          WHERE company_name = ${companyName}
+          ORDER BY created_at DESC
+          LIMIT ${limit}
+        `
+      : await prisma.$queryRaw<
+          Array<{
+            token: string;
+            email: string;
+            is_active: boolean;
+            used_at: Date | null;
+            created_at: Date;
+          }>
+        >`
+          SELECT token, email, is_active, used_at, created_at
+          FROM first_access_invites
+          WHERE company_name = ${companyName}
+            AND is_active = ${status === 'active'}
+          ORDER BY created_at DESC
+          LIMIT ${limit}
+        `;
+
+  return {
+    status: 'ok',
+    invites: invites.map((invite) => ({
+      token: invite.token,
+      email: invite.email,
+      active: invite.is_active,
+      usedAt: invite.used_at ? invite.used_at.toISOString() : null,
+      createdAt: invite.created_at.toISOString(),
+    })),
+  };
+});
+
+app.post('/auth/invites/:token/revoke', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const parsedParams = inviteTokenParamSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: apiMessage.auth.invalidInvitePayload,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const inviteRows = await prisma.$queryRaw<Array<{ token: string; is_active: boolean }>>`
+    SELECT token, is_active
+    FROM first_access_invites
+    WHERE token = ${parsedParams.data.token}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  const invite = inviteRows[0];
+
+  if (!invite) {
+    return reply.code(404).send({
+      status: 'error',
+      message: apiMessage.auth.inviteNotFound,
+    });
+  }
+
+  if (!invite.is_active) {
+    return reply.code(409).send({
+      status: 'error',
+      message: apiMessage.auth.inviteAlreadyInactive,
+    });
+  }
+
+  await prisma.$executeRaw`
+    UPDATE first_access_invites
+    SET is_active = FALSE,
+        used_at = NOW()
+    WHERE token = ${parsedParams.data.token}
+      AND company_name = ${companyName}
+  `;
+
+  return {
+    status: 'ok',
+    message: apiMessage.auth.inviteRevoked,
+  };
+});
+
+app.post('/auth/invites/:token/regenerate', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const parsedParams = inviteTokenParamSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: apiMessage.auth.invalidInvitePayload,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const inviteRows = await prisma.$queryRaw<Array<{ email: string }>>`
+    SELECT email
+    FROM first_access_invites
+    WHERE token = ${parsedParams.data.token}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  const invite = inviteRows[0];
+
+  if (!invite) {
+    return reply.code(404).send({
+      status: 'error',
+      message: apiMessage.auth.inviteNotFound,
+    });
+  }
+
+  await ensureAuthTables();
+
+  const inviteToken = `INV-${randomUUID().replace(/-/g, '').slice(0, 20).toUpperCase()}`;
+
+  await prisma.$executeRaw`
+    UPDATE first_access_invites
+    SET is_active = FALSE,
+        used_at = NOW()
+    WHERE email = ${invite.email}
+      AND company_name = ${companyName}
+      AND is_active = TRUE
+  `;
+
+  await prisma.$executeRaw`
+    INSERT INTO first_access_invites (token, email, company_name, is_active)
+    VALUES (${inviteToken}, ${invite.email}, ${companyName}, TRUE)
+  `;
+
+  return reply.code(201).send({
+    status: 'ok',
+    message: apiMessage.auth.inviteGenerated,
+    invite: {
+      token: inviteToken,
+      email: invite.email,
+      companyName,
+      active: true,
+    },
+  });
+});
+
 app.get('/preferences/locale', { preHandler: authenticate }, async (request) => {
   const companyName = getCompanyFromJwt(request);
   const fallbackLocale =
@@ -269,6 +758,315 @@ app.post('/preferences/locale', { preHandler: authenticate }, async (request, re
   return {
     status: 'ok',
     locale: resolvedLocale,
+  };
+});
+
+app.post('/contracts', { preHandler: authenticate }, async (request, reply) => {
+  const parsed = contractSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: apiMessage.auth.invalidCredentials,
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
+  const payload = parsed.data;
+  const contractId = randomUUID();
+
+  await ensureDomainTables();
+
+  await prisma.$executeRaw`
+    INSERT INTO contracts (id, company_name, title, source_type, status, created_by)
+    VALUES (${contractId}, ${companyName}, ${payload.title}, ${payload.sourceType}, ${payload.status}, ${actor.id})
+  `;
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    title: string;
+    source_type: string;
+    status: string;
+    created_at: Date;
+  }>>`
+    SELECT id, title, source_type, status, created_at
+    FROM contracts
+    WHERE id = ${contractId}
+    LIMIT 1
+  `;
+
+  return reply.code(201).send({
+    status: 'ok',
+    contract: {
+      id: rows[0]?.id ?? contractId,
+      title: rows[0]?.title ?? payload.title,
+      sourceType: rows[0]?.source_type ?? payload.sourceType,
+      status: rows[0]?.status ?? payload.status,
+      createdAt: (rows[0]?.created_at ?? new Date()).toISOString(),
+      createdBy: actor.name,
+    },
+  });
+});
+
+app.get('/contracts', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const query = z
+    .object({ limit: z.coerce.number().int().min(1).max(50).default(20) })
+    .safeParse(request.query);
+
+  const limit = query.success ? query.data.limit : 20;
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const contracts = await prisma.$queryRaw<Array<{
+    id: string;
+    title: string;
+    source_type: string;
+    status: string;
+    created_at: Date;
+  }>>`
+    SELECT id, title, source_type, status, created_at
+    FROM contracts
+    WHERE company_name = ${companyName}
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `;
+
+  return {
+    status: 'ok',
+    contracts: contracts.map((item) => ({
+      id: item.id,
+      title: item.title,
+      sourceType: item.source_type,
+      status: item.status,
+      createdAt: item.created_at.toISOString(),
+    })),
+  };
+});
+
+app.post('/rules', { preHandler: authenticate }, async (request, reply) => {
+  const parsed = ruleSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: apiMessage.auth.invalidCredentials,
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const payload = parsed.data;
+  const ruleId = randomUUID();
+
+  await ensureDomainTables();
+
+  const contractExists = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM contracts
+    WHERE id = ${payload.contractId}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  if (!contractExists.length) {
+    return reply.code(404).send({
+      status: 'error',
+      message: 'Contrato nao encontrado para esta empresa.',
+    });
+  }
+
+  await prisma.$executeRaw`
+    INSERT INTO extracted_rules (id, company_name, contract_id, title, description, category, status)
+    VALUES (
+      ${ruleId},
+      ${companyName},
+      ${payload.contractId},
+      ${payload.title},
+      ${payload.description},
+      ${payload.category},
+      ${payload.status}
+    )
+  `;
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    contract_id: string;
+    title: string;
+    description: string;
+    category: string;
+    status: string;
+    created_at: Date;
+  }>>`
+    SELECT id, contract_id, title, description, category, status, created_at
+    FROM extracted_rules
+    WHERE id = ${ruleId}
+    LIMIT 1
+  `;
+
+  return reply.code(201).send({
+    status: 'ok',
+    rule: {
+      id: rows[0]?.id ?? ruleId,
+      contractId: rows[0]?.contract_id ?? payload.contractId,
+      title: rows[0]?.title ?? payload.title,
+      description: rows[0]?.description ?? payload.description,
+      category: rows[0]?.category ?? payload.category,
+      status: rows[0]?.status ?? payload.status,
+      createdAt: (rows[0]?.created_at ?? new Date()).toISOString(),
+    },
+  });
+});
+
+app.get('/rules', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const query = z
+    .object({
+      status: z
+        .enum(['identified', 'under_review', 'approved', 'rejected', 'archived'])
+        .optional(),
+      limit: z.coerce.number().int().min(1).max(100).default(50),
+    })
+    .safeParse(request.query);
+
+  const companyName = getCompanyFromJwt(request);
+  const limit = query.success ? query.data.limit : 50;
+  const status = query.success ? query.data.status : undefined;
+
+  await ensureDomainTables();
+
+  const rules = status
+    ? await prisma.$queryRaw<Array<{
+        id: string;
+        contract_id: string;
+        title: string;
+        description: string;
+        category: string;
+        status: string;
+        created_at: Date;
+      }>>`
+        SELECT id, contract_id, title, description, category, status, created_at
+        FROM extracted_rules
+        WHERE company_name = ${companyName}
+          AND status = ${status}
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `
+    : await prisma.$queryRaw<Array<{
+        id: string;
+        contract_id: string;
+        title: string;
+        description: string;
+        category: string;
+        status: string;
+        created_at: Date;
+      }>>`
+        SELECT id, contract_id, title, description, category, status, created_at
+        FROM extracted_rules
+        WHERE company_name = ${companyName}
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `;
+
+  return {
+    status: 'ok',
+    rules: rules.map((item) => ({
+      id: item.id,
+      contractId: item.contract_id,
+      title: item.title,
+      description: item.description,
+      category: item.category,
+      status: item.status,
+      createdAt: item.created_at.toISOString(),
+    })),
+  };
+});
+
+app.get('/dashboard/summary', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const [contractsCount] = await prisma.$queryRaw<Array<{ total: number }>>`
+    SELECT COUNT(*)::int AS total
+    FROM contracts
+    WHERE company_name = ${companyName}
+  `;
+
+  const [rulesApprovedCount] = await prisma.$queryRaw<Array<{ total: number }>>`
+    SELECT COUNT(*)::int AS total
+    FROM extracted_rules
+    WHERE company_name = ${companyName}
+      AND status = 'approved'
+  `;
+
+  const [rulesPendingCount] = await prisma.$queryRaw<Array<{ total: number }>>`
+    SELECT COUNT(*)::int AS total
+    FROM extracted_rules
+    WHERE company_name = ${companyName}
+      AND status IN ('identified', 'under_review')
+  `;
+
+  const recentContracts = await prisma.$queryRaw<Array<{
+    id: string;
+    title: string;
+    status: string;
+    created_at: Date;
+  }>>`
+    SELECT id, title, status, created_at
+    FROM contracts
+    WHERE company_name = ${companyName}
+    ORDER BY created_at DESC
+    LIMIT 5
+  `;
+
+  return {
+    status: 'ok',
+    summary: {
+      contractsCount: contractsCount?.total ?? 0,
+      rulesApprovedCount: rulesApprovedCount?.total ?? 0,
+      rulesPendingCount: rulesPendingCount?.total ?? 0,
+      recentContracts: recentContracts.map((item) => ({
+        id: item.id,
+        title: item.title,
+        status: item.status,
+        createdAt: item.created_at.toISOString(),
+      })),
+    },
   };
 });
 
