@@ -91,6 +91,7 @@ const nonConformityHistoryQuerySchema = z
     actor: z.string().trim().max(120).optional(),
     from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    page: z.coerce.number().int().min(1).default(1),
     limit: z.coerce.number().int().min(1).max(100).default(50),
   })
   .refine((data) => !data.from || !data.to || data.from <= data.to, {
@@ -1656,8 +1657,20 @@ app.get('/non-conformities/:nonConformityId/history', { preHandler: authenticate
   const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
   const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
   const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
+  const offset = (parsedQuery.data.page - 1) * parsedQuery.data.limit;
 
   await ensureDomainTables();
+
+  const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>`
+    SELECT COUNT(*)::bigint AS total
+    FROM non_conformity_events
+    WHERE company_name = ${companyName}
+      AND non_conformity_id = ${parsedParams.data.nonConformityId}
+      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
+      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
+      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
+  `;
+  const total = Number(countRows[0]?.total ?? 0);
 
   const rows = await prisma.$queryRaw<Array<{
     id: string;
@@ -1675,6 +1688,7 @@ app.get('/non-conformities/:nonConformityId/history', { preHandler: authenticate
       AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
     ORDER BY created_at DESC
     LIMIT ${parsedQuery.data.limit}
+    OFFSET ${offset}
   `;
 
   return {
@@ -1686,6 +1700,10 @@ app.get('/non-conformities/:nonConformityId/history', { preHandler: authenticate
       actorName: event.actor_name,
       createdAt: event.created_at.toISOString(),
     })),
+    page: parsedQuery.data.page,
+    limit: parsedQuery.data.limit,
+    total,
+    hasNext: offset + rows.length < total,
   };
 });
 

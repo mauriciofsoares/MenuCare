@@ -131,6 +131,14 @@ type NonConformityEvent = {
   createdAt: string
 }
 
+type NonConformityHistoryResponse = {
+  events?: NonConformityEvent[]
+  page?: number
+  limit?: number
+  total?: number
+  hasNext?: boolean
+}
+
 type NonConformityHistoryFilter = {
   actor: string
   from: string
@@ -222,6 +230,9 @@ function App() {
   const [actionPlans, setActionPlans] = useState<ActionPlanItem[]>([])
   const [actionPlanEvents, setActionPlanEvents] = useState<ActionPlanEvent[]>([])
   const [nonConformityEvents, setNonConformityEvents] = useState<NonConformityEvent[]>([])
+  const [nonConformityHistoryPage, setNonConformityHistoryPage] = useState(1)
+  const [nonConformityHistoryHasNext, setNonConformityHistoryHasNext] = useState(false)
+  const [nonConformityHistoryTotal, setNonConformityHistoryTotal] = useState(0)
   const [nonConformityHistoryFilter, setNonConformityHistoryFilter] =
     useState<NonConformityHistoryFilter>({
       actor: '',
@@ -849,6 +860,8 @@ function App() {
   useEffect(() => {
     if (!authState || !selectedNonConformityId) {
       setNonConformityEvents([])
+      setNonConformityHistoryHasNext(false)
+      setNonConformityHistoryTotal(0)
       return
     }
 
@@ -856,7 +869,10 @@ function App() {
       setIsLoadingNonConformityHistory(true)
 
       try {
-        const query = new URLSearchParams({ limit: '50' })
+        const query = new URLSearchParams({
+          limit: '20',
+          page: String(nonConformityHistoryPage),
+        })
 
         if (appliedNonConformityHistoryFilter.actor.trim()) {
           query.set('actor', appliedNonConformityHistoryFilter.actor.trim())
@@ -879,11 +895,15 @@ function App() {
 
         if (!response.ok) {
           setNonConformityEvents([])
+          setNonConformityHistoryHasNext(false)
+          setNonConformityHistoryTotal(0)
           return
         }
 
-        const payload = (await response.json()) as { events?: NonConformityEvent[] }
+        const payload = (await response.json()) as NonConformityHistoryResponse
         setNonConformityEvents(payload.events ?? [])
+        setNonConformityHistoryHasNext(Boolean(payload.hasNext))
+        setNonConformityHistoryTotal(payload.total ?? 0)
       } finally {
         setIsLoadingNonConformityHistory(false)
       }
@@ -895,8 +915,13 @@ function App() {
     appliedNonConformityHistoryFilter.from,
     appliedNonConformityHistoryFilter.to,
     authState?.token,
+    nonConformityHistoryPage,
     selectedNonConformityId,
   ])
+
+  useEffect(() => {
+    setNonConformityHistoryPage(1)
+  }, [selectedNonConformityId])
 
   useEffect(() => {
     if (!selectedActionPlanId && actionPlans.length > 0) {
@@ -1444,7 +1469,10 @@ function App() {
       )
 
       if (selectedNonConformityId === nonConformityId) {
-        const query = new URLSearchParams({ limit: '50' })
+        const query = new URLSearchParams({
+          limit: '20',
+          page: String(nonConformityHistoryPage),
+        })
 
         if (appliedNonConformityHistoryFilter.actor.trim()) {
           query.set('actor', appliedNonConformityHistoryFilter.actor.trim())
@@ -1466,10 +1494,10 @@ function App() {
         )
 
         if (historyResponse.ok) {
-          const historyPayload = (await historyResponse.json()) as {
-            events?: NonConformityEvent[]
-          }
+          const historyPayload = (await historyResponse.json()) as NonConformityHistoryResponse
           setNonConformityEvents(historyPayload.events ?? [])
+          setNonConformityHistoryHasNext(Boolean(historyPayload.hasNext))
+          setNonConformityHistoryTotal(historyPayload.total ?? 0)
         }
       }
     } catch (error) {
@@ -2394,13 +2422,14 @@ function App() {
               <button
                 type="button"
                 className="logout-button"
-                onClick={() =>
+                onClick={() => {
+                  setNonConformityHistoryPage(1)
                   setAppliedNonConformityHistoryFilter({
                     actor: nonConformityHistoryFilter.actor.trim(),
                     from: nonConformityHistoryFilter.from,
                     to: nonConformityHistoryFilter.to,
                   })
-                }
+                }}
               >
                 {uiMessage.auth.nonConformityHistoryApplyButton}
               </button>
@@ -2410,9 +2439,34 @@ function App() {
                 onClick={() => {
                   setNonConformityHistoryFilter({ actor: '', from: '', to: '' })
                   setAppliedNonConformityHistoryFilter({ actor: '', from: '', to: '' })
+                  setNonConformityHistoryPage(1)
                 }}
               >
                 {uiMessage.auth.nonConformityHistoryClearButton}
+              </button>
+            </div>
+          </div>
+
+          <div className="history-pagination">
+            <small>
+              {uiMessage.auth.nonConformityHistoryPageLabel} {nonConformityHistoryPage} · {nonConformityHistoryTotal}
+            </small>
+            <div className="history-filter-actions">
+              <button
+                type="button"
+                className="logout-button"
+                disabled={nonConformityHistoryPage <= 1 || isLoadingNonConformityHistory}
+                onClick={() => setNonConformityHistoryPage((current) => Math.max(1, current - 1))}
+              >
+                {uiMessage.auth.nonConformityHistoryPrevButton}
+              </button>
+              <button
+                type="button"
+                className="logout-button"
+                disabled={!nonConformityHistoryHasNext || isLoadingNonConformityHistory}
+                onClick={() => setNonConformityHistoryPage((current) => current + 1)}
+              >
+                {uiMessage.auth.nonConformityHistoryNextButton}
               </button>
             </div>
           </div>
