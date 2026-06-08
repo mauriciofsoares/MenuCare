@@ -2,7 +2,11 @@
 
 ## Visão Geral
 
-O MenuCare é uma plataforma SaaS de gestão contratual, conformidade e geração de cardápios para serviços de alimentação.
+O MenuCare é uma plataforma SaaS de gestão contratual, conformidade, auditoria e otimização de cardápios para serviços de alimentação.
+
+O MenuCare não substitui o sistema Genial.
+
+O MenuCare opera como uma camada de governança sobre os cardápios produzidos pela Genial.
 
 O objetivo principal do sistema é transformar contratos, editais, termos de referência, procedimentos operacionais e documentos regulatórios em uma base estruturada de regras de negócio que servirá como fundamento para a criação e validação de cardápios.
 
@@ -32,6 +36,12 @@ Em vez disso utilizar:
 ---
 
 # Fluxo Principal do Produto
+
+## Ciclo estratégico de melhoria contínua
+
+Contrato -> Regras aprovadas -> Cardápio atual (Genial) -> Auditoria contratual -> Sugestões de ajuste -> Novo cardápio -> Avaliação dos pacientes/clientes -> Aprendizado das combinações -> Próximo cardápio melhor
+
+---
 
 ## Etapa 1 - Cadastro de Contrato
 
@@ -108,23 +118,28 @@ A base contratual é o principal ativo do sistema.
 
 ---
 
-## Etapa 5 - Geração de Cardápios
+## Etapa 5 - Importação de Cardápio Operacional (Genial)
 
-Ao solicitar um novo cardápio, o sistema utiliza:
+O sistema importa o cardápio operacional produzido na Genial, incluindo estrutura de serviços, receitas e pré-custo.
 
-* Regras aprovadas
-* Base contratual
-* Fichas técnicas
-* Cadastro de preparações
-* Restrições alimentares
-* Calendário
-* Regras nutricionais
+Dados esperados:
 
-O resultado é um cardápio aderente aos requisitos previamente aprovados.
+* Unidade
+* Serviço
+* Meta financeira
+* Data
+* Dia da semana
+* Receitas
+* Custo individual
+* Custo total da refeição
+
+Regra crítica:
+
+* O custo total da refeição não deve ultrapassar a meta financeira definida.
 
 ---
 
-## Etapa 6 - Conformidade
+## Etapa 6 - Conformidade Contratual e Financeira
 
 Todo cardápio deve passar por uma análise de conformidade.
 
@@ -145,6 +160,100 @@ Conformidade Geral: 98%
 ✓ Frutas cítricas 3x por semana
 
 ✗ Repetição de peixe antes do prazo mínimo
+
+Também deve validar:
+
+* Refeições acima da meta financeira
+* Valor excedido e percentual de excedente
+* Impacto financeiro mensal
+
+---
+
+## Etapa 7 - Sugestões de Ajuste e Nova Versão
+
+Com base na auditoria contratual e financeira, o sistema sugere ajustes para:
+
+* elevar conformidade
+* reduzir excedentes de custo
+* manter aderência nutricional
+
+Ao gerar versão ajustada, cada alteração deve informar:
+
+* regra que motivou a alteração
+* impacto financeiro
+* impacto nutricional
+
+---
+
+## Etapa 8 - Importação e Cruzamento de Avaliações
+
+O sistema importa avaliações das refeições (PDF) e relaciona cada avaliação ao cardápio servido no mesmo contexto (data, hora, unidade e serviço).
+
+Campos relevantes:
+
+* Nota
+* Quantidade de avaliações
+* Observações e comentários
+
+---
+
+## Etapa 9 - Inteligência de Combinações
+
+Cada combinação passa a ter histórico operacional:
+
+* nota média
+* quantidade de avaliações
+* última utilização
+* tendência
+
+---
+
+## Etapa 10 - Recomendações Futuras
+
+Ao apoiar o próximo cardápio, considerar simultaneamente:
+
+* regras contratuais aprovadas
+* metas financeiras
+* restrições nutricionais
+* histórico de aceitação
+
+Regra de governança:
+
+* histórico de avaliações é fator de recomendação, não fator de bloqueio.
+
+Ordem de prioridade decisória:
+
+1. regras contratuais aprovadas
+2. metas financeiras
+3. restrições nutricionais
+4. regras operacionais
+5. histórico de avaliações
+
+---
+
+## Política do Motor de Recomendações
+
+O motor de recomendações deve operar com três camadas:
+
+* Obrigatório: contrato, custo, restrição obrigatória e regra operacional crítica.
+* Recomendado: histórico de aceitação de combinações.
+* Informativo: ausência de histórico e sinais contextuais.
+
+Regras essenciais:
+
+* Nota baixa não invalida combinação.
+* Ausência de histórico não gera erro.
+* Combinação com baixa aceitação continua válida se estiver conforme em contrato, custo e nutrição.
+* Sistema pode sugerir alternativa melhor avaliada, mas não bloquear decisão do nutricionista.
+
+Criterios que podem bloquear aprovação:
+
+* descumprimento de regra contratual obrigatória
+* violação de restrição alimentar obrigatória
+* ultrapassagem da meta financeira definida
+* violação de regra operacional crítica
+
+Avaliações históricas nunca podem bloquear geração ou aprovação de cardápio.
 
 ---
 
@@ -180,13 +289,15 @@ Representa a verdade oficial utilizada pelo sistema.
 
 ## Cardápio
 
-Planejamento alimentar gerado a partir da Base Contratual.
+Planejamento alimentar operacional gerado no sistema parceiro (Genial), auditado e otimizado no MenuCare.
 
 ---
 
 ## Conformidade
 
 Indicador que mede aderência do cardápio às regras aprovadas.
+
+Inclui também aderência financeira à meta por refeição.
 
 ---
 

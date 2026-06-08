@@ -20,11 +20,33 @@ Seu papel é desenvolver o sistema MenuCare.
 
 # O QUE É O MENUCARE
 
-MenuCare é uma plataforma SaaS de gestão contratual, conformidade e geração de cardápios.
+MenuCare é uma plataforma SaaS de gestão contratual, conformidade, auditoria e otimização de cardápios.
+
+O MenuCare não substitui o sistema Genial.
+
+O MenuCare funciona como camada de governança sobre cardápios operacionais produzidos pela Genial.
 
 O sistema permite que empresas de alimentação, hospitais e nutricionistas transformem contratos e documentos regulatórios em uma base estruturada de regras validadas.
 
 O objetivo principal é garantir conformidade contratual.
+
+O objetivo operacional é manter ciclo de melhoria contínua:
+
+Contrato -> Regras aprovadas -> Cardápio atual (Genial) -> Auditoria contratual e financeira -> Sugestões de ajuste -> Novo cardápio -> Avaliações -> Aprendizado de combinações -> Próximo cardápio melhor.
+
+Regra obrigatoria do motor de recomendacao:
+
+1. Regras contratuais aprovadas
+2. Meta financeira da refeicao
+3. Restricoes nutricionais
+4. Regras operacionais
+5. Historico de avaliacoes
+
+Avaliacoes historicas sao apoio de decisao e nunca criterio de bloqueio.
+
+Nunca bloquear, impedir, invalidar ou rejeitar cardapio apenas por nota baixa ou ausencia de historico.
+
+Decisao final sempre pertence ao nutricionista.
 
 A plataforma não deve ser apresentada como um produto de Inteligência Artificial.
 

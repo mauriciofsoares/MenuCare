@@ -23,7 +23,11 @@ Transformar o prototipo atual em uma base SaaS pronta para evolucao com:
 - Backend com API segura.
 - Banco PostgreSQL.
 - Login com sessao e papeis.
-- Fundacoes para contratos, regras, cardapios e conformidade.
+- Fundacoes para contratos, regras, auditoria de cardapios, controle financeiro e conformidade.
+
+Importante:
+- O MenuCare nao substitui a Genial.
+- O MenuCare atua como camada de governanca, conformidade e otimizacao sobre o cardapio operacional da Genial.
 
 ---
 
@@ -167,6 +171,40 @@ Transformar o prototipo atual em uma base SaaS pronta para evolucao com:
 
 ---
 
+## Fase 6 - Integracao operacional com relatorio da Genial (4-7 dias)
+### Escopo
+- Importacao de PDF de cardapio com pre-custo gerado pela Genial.
+- Extracao de unidade, servico, data, receitas, meta e custo.
+- Validacao financeira por refeicao (meta x custo).
+
+### Criterio de pronto
+- Relatorio importado gera itens auditaveis por unidade/servico/data com status financeiro.
+
+---
+
+## Fase 7 - Auditoria contratual + sugestoes de ajuste (5-8 dias)
+### Escopo
+- Comparar cardapio importado x regras aprovadas.
+- Gerar nao conformidades contratuais e financeiras.
+- Produzir sugestoes de ajuste rastreaveis por regra e impacto.
+
+### Criterio de pronto
+- Nutricionista visualiza divergencias e consegue gerar versao ajustada com justificativa.
+
+---
+
+## Fase 8 - Avaliacoes e inteligencia de combinacoes (5-8 dias)
+### Escopo
+- Importacao de PDF de avaliacoes das refeicoes.
+- Cruzamento avaliacao x combinacao servida.
+- Historico de desempenho por combinacao (nota media, volume, tendencia).
+- Motor de recomendacao com prioridade inferior para avaliacoes historicas (nao bloqueante).
+
+### Criterio de pronto
+- Recomendacoes futuras consideram contrato, custo, nutricao e aceitacao historica sem bloquear decisao do nutricionista por nota baixa ou ausencia de historico.
+
+---
+
 ## 5. Modelo de dados inicial (MVP)
 
 ## Autenticacao e conta
@@ -232,6 +270,10 @@ Indices obrigatorios:
 8. Dashboard com dados reais.
 9. Auditoria de validacao de regras.
 10. Hardening de seguranca + testes E2E.
+11. Importacao de relatorio de cardapio da Genial com pre-custo.
+12. Auditoria contratual/financeira do cardapio importado.
+13. Motor de sugestoes de ajuste e geracao de versao ajustada.
+14. Importacao de avaliacoes e inteligencia de combinacoes.
 
 ---
 
@@ -241,6 +283,8 @@ Indices obrigatorios:
 - Dados persistem no PostgreSQL por tenant.
 - Dashboard mostra indicadores reais.
 - Regras contratuais podem ser validadas com rastreabilidade.
+- Cardapio importado da Genial pode ser auditado por conformidade e custo.
+- Recomendacoes de ajuste consideram historico de aceitacao sem transformar avaliacao em criterio de bloqueio.
 - UI permanece com padrao SaaS premium aprovado.
 
 ---
