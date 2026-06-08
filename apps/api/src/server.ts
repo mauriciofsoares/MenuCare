@@ -1143,6 +1143,134 @@ app.get('/governance/recommendations/:importId', { preHandler: authenticate }, a
   };
 });
 
+app.post('/governance/recommendations/:importId/next-menu', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = menuImportParamsSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Identificador de importacao invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const importId = parsedParams.data.importId;
+
+  await ensureDomainTables();
+
+  const importRows = await prisma.$queryRaw<Array<{
+    id: string;
+    unit_name: string;
+    service_name: string;
+    financial_goal: number | string;
+    meal_cost: number | string;
+    recipes_json: string;
+  }>>`
+    SELECT id, unit_name, service_name, financial_goal, meal_cost, recipes_json
+    FROM menu_pdf_imports
+    WHERE id = ${importId}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  const imported = importRows[0];
+
+  if (!imported) {
+    return reply.code(404).send({
+      status: 'error',
+      message: 'Importacao de cardapio nao encontrada para esta empresa.',
+    });
+  }
+
+  const parseNumber = (value: number | string) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number(parsed.toFixed(2));
+  };
+
+  const mealCost = parseNumber(imported.meal_cost);
+  const financialGoal = parseNumber(imported.financial_goal);
+
+  const ruleAuditRows = await prisma.$queryRaw<Array<{ result_status: 'compliant' | 'non_compliant' }>>`
+    SELECT result_status
+    FROM menu_import_rule_audits
+    WHERE menu_import_id = ${importId}
+      AND company_name = ${companyName}
+  `;
+
+  const hasMandatoryRuleViolation = ruleAuditRows.some((item) => item.result_status === 'non_compliant');
+  const hasFinancialViolation = mealCost > financialGoal;
+  const mandatoryBlocksApproval = hasMandatoryRuleViolation || hasFinancialViolation;
+
+  const combinationRows = await prisma.$queryRaw<Array<{
+    id: string;
+    recipes_json: string;
+    average_rating: number | string;
+    evaluations_count: number;
+    trend: 'positive' | 'stable' | 'negative';
+  }>>`
+    SELECT id, recipes_json, average_rating, evaluations_count, trend
+    FROM menu_combination_intelligence
+    WHERE company_name = ${companyName}
+      AND unit_name = ${imported.unit_name}
+      AND service_name = ${imported.service_name}
+    ORDER BY average_rating DESC, evaluations_count DESC
+    LIMIT 1
+  `;
+
+  const currentRecipes = JSON.parse(imported.recipes_json) as string[];
+  const topHistorical = combinationRows[0];
+  const recommendedRecipes = topHistorical
+    ? (JSON.parse(topHistorical.recipes_json) as string[])
+    : currentRecipes;
+
+  const estimatedCost = Number(
+    Math.max(
+      hasFinancialViolation ? financialGoal : mealCost,
+      financialGoal * 0.85,
+    ).toFixed(2),
+  );
+
+  return {
+    status: 'ok',
+    nextMenuProposal: {
+      importId,
+      unitName: imported.unit_name,
+      serviceName: imported.service_name,
+      proposalType: topHistorical ? 'historical_recommended' : 'current_baseline',
+      recipes: recommendedRecipes,
+      estimatedCost,
+      financialGoal,
+      historicalLayer: {
+        nonBlocking: true,
+        sourceCombinationId: topHistorical?.id ?? null,
+        sourceAverageRating: topHistorical ? parseNumber(topHistorical.average_rating) : null,
+        sourceEvaluationsCount: topHistorical?.evaluations_count ?? 0,
+        note: 'Historico de avaliacoes recomenda combinacoes, mas nunca bloqueia aprovacao.',
+      },
+      governance: {
+        blocksApproval: mandatoryBlocksApproval,
+        mandatoryFindings: [
+          {
+            criterion: 'contract_rule_violation',
+            status: hasMandatoryRuleViolation ? 'violation' : 'ok',
+          },
+          {
+            criterion: 'financial_goal_exceeded',
+            status: hasFinancialViolation ? 'violation' : 'ok',
+          },
+        ],
+      },
+    },
+  };
+});
+
 app.post('/auth/first-access/activate', async (request, reply) => {
   const parsed = inviteActivationSchema.safeParse(request.body);
 

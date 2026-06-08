@@ -337,6 +337,30 @@ type MenuRecommendationPreview = {
   }
 }
 
+type NextMenuProposal = {
+  importId: string
+  unitName: string
+  serviceName: string
+  proposalType: 'historical_recommended' | 'current_baseline'
+  recipes: string[]
+  estimatedCost: number
+  financialGoal: number
+  historicalLayer: {
+    nonBlocking: boolean
+    sourceCombinationId: string | null
+    sourceAverageRating: number | null
+    sourceEvaluationsCount: number
+    note: string
+  }
+  governance: {
+    blocksApproval: boolean
+    mandatoryFindings: Array<{
+      criterion: string
+      status: 'ok' | 'violation'
+    }>
+  }
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -504,6 +528,8 @@ function App() {
   const [isRebuildingMenuCombinationIntelligence, setIsRebuildingMenuCombinationIntelligence] = useState(false)
   const [menuRecommendationPreview, setMenuRecommendationPreview] = useState<MenuRecommendationPreview | null>(null)
   const [isLoadingMenuRecommendationPreview, setIsLoadingMenuRecommendationPreview] = useState(false)
+  const [nextMenuProposal, setNextMenuProposal] = useState<NextMenuProposal | null>(null)
+  const [isGeneratingNextMenuProposal, setIsGeneratingNextMenuProposal] = useState(false)
   const [complianceExportAuditExportScope, setComplianceExportAuditExportScope] =
     useState<'page' | 'all'>('page')
   const [isExportingNonConformityHistory, setIsExportingNonConformityHistory] = useState(false)
@@ -1646,6 +1672,7 @@ function App() {
       setMenuEvaluationImports([])
       setMenuCombinationIntelligence([])
       setMenuRecommendationPreview(null)
+      setNextMenuProposal(null)
       return
     }
 
@@ -1667,6 +1694,7 @@ function App() {
       setMenuImportSuggestions([])
       setMenuAdjustedVersions([])
       setMenuRecommendationPreview(null)
+      setNextMenuProposal(null)
       return
     }
 
@@ -1675,6 +1703,43 @@ function App() {
     void fetchMenuAdjustedVersions(authState.token, selectedMenuImportId)
     void fetchMenuRecommendationPreview(authState.token, selectedMenuImportId)
   }, [authState?.token, selectedMenuImportId])
+
+  const handleGenerateNextMenuProposal = async () => {
+    if (!authState || !selectedMenuImportId) {
+      return
+    }
+
+    setDomainError(null)
+    setIsGeneratingNextMenuProposal(true)
+
+    try {
+      const response = await fetch(
+        `${API_URL}/governance/recommendations/${selectedMenuImportId}/next-menu`,
+        {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${authState.token}` },
+        },
+      )
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; nextMenuProposal: NextMenuProposal }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error(
+          'message' in payload ? payload.message : 'Falha ao gerar proposta do proximo cardapio.',
+        )
+      }
+
+      setNextMenuProposal(payload.nextMenuProposal)
+    } catch (error) {
+      setDomainError(
+        error instanceof Error ? error.message : 'Falha ao gerar proposta do proximo cardapio.',
+      )
+    } finally {
+      setIsGeneratingNextMenuProposal(false)
+    }
+  }
 
   useEffect(() => {
     if (!authState) {
@@ -4120,6 +4185,47 @@ function App() {
           ) : (
             <p className="empty-note">Sem previa de recomendacao para a importacao selecionada.</p>
           )}
+
+          <div className="history-filter-actions">
+            <button
+              type="button"
+              className="logout-button"
+              disabled={!selectedMenuImportId || isGeneratingNextMenuProposal}
+              onClick={handleGenerateNextMenuProposal}
+            >
+              {isGeneratingNextMenuProposal
+                ? 'Gerando proposta...'
+                : 'Gerar proposta do proximo cardapio'}
+            </button>
+          </div>
+
+          {nextMenuProposal ? (
+            <ul className="validation-history-list">
+              <li>
+                <div className="validation-history-row">
+                  <strong>
+                    {nextMenuProposal.proposalType === 'historical_recommended'
+                      ? 'Proposta baseada em historico de combinacoes'
+                      : 'Proposta baseada no cardapio atual'}
+                  </strong>
+                  <span className="status-badge is-progress">Nao bloqueante por historico</span>
+                </div>
+                <small>Receitas propostas: {nextMenuProposal.recipes.join(' | ')}</small>
+                <small>
+                  Custo estimado R$ {nextMenuProposal.estimatedCost.toFixed(2)} | Meta R${' '}
+                  {nextMenuProposal.financialGoal.toFixed(2)}
+                </small>
+                {nextMenuProposal.historicalLayer.sourceAverageRating !== null ? (
+                  <small>
+                    Base historica: nota {nextMenuProposal.historicalLayer.sourceAverageRating.toFixed(2)}
+                    {' '}· {nextMenuProposal.historicalLayer.sourceEvaluationsCount} avaliacoes
+                  </small>
+                ) : (
+                  <small>Sem base historica para esta combinacao; proposta mantida por contexto atual.</small>
+                )}
+              </li>
+            </ul>
+          ) : null}
         </article>
 
         <article className="panel">
