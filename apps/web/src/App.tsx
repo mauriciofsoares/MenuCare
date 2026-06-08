@@ -264,6 +264,22 @@ type MenuImportSuggestionItem = {
   createdAt: string
 }
 
+type MenuAdjustedVersionItem = {
+  id: string
+  versionLabel: string
+  adjustedMealCost: number
+  totalFinancialImpact: number
+  nutritionalImpactSummary: string
+  appliedSuggestions: Array<{
+    id: string
+    suggestionText: string
+    estimatedFinancialImpact: number
+    estimatedNutritionalImpact: string
+    priorityLevel: 'high' | 'medium'
+  }>
+  createdAt: string
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -420,6 +436,9 @@ function App() {
   const [menuImportSuggestions, setMenuImportSuggestions] = useState<MenuImportSuggestionItem[]>([])
   const [isLoadingMenuImportSuggestions, setIsLoadingMenuImportSuggestions] = useState(false)
   const [isGeneratingMenuImportSuggestions, setIsGeneratingMenuImportSuggestions] = useState(false)
+  const [menuAdjustedVersions, setMenuAdjustedVersions] = useState<MenuAdjustedVersionItem[]>([])
+  const [isLoadingMenuAdjustedVersions, setIsLoadingMenuAdjustedVersions] = useState(false)
+  const [isGeneratingAdjustedVersion, setIsGeneratingAdjustedVersion] = useState(false)
   const [complianceExportAuditExportScope, setComplianceExportAuditExportScope] =
     useState<'page' | 'all'>('page')
   const [isExportingNonConformityHistory, setIsExportingNonConformityHistory] = useState(false)
@@ -901,6 +920,35 @@ function App() {
       setMenuImportSuggestions([])
     } finally {
       setIsLoadingMenuImportSuggestions(false)
+    }
+  }
+
+  const fetchMenuAdjustedVersions = async (token: string, importId: string) => {
+    if (!importId) {
+      setMenuAdjustedVersions([])
+      return
+    }
+
+    setIsLoadingMenuAdjustedVersions(true)
+
+    try {
+      const response = await fetch(`${API_URL}/menus/imports/${importId}/adjusted-versions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; versions: MenuAdjustedVersionItem[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error()
+      }
+
+      setMenuAdjustedVersions(payload.versions ?? [])
+    } catch {
+      setMenuAdjustedVersions([])
+    } finally {
+      setIsLoadingMenuAdjustedVersions(false)
     }
   }
 
@@ -1411,6 +1459,7 @@ function App() {
       setSelectedMenuImportId('')
       setMenuImportAuditItems([])
       setMenuImportSuggestions([])
+      setMenuAdjustedVersions([])
       return
     }
 
@@ -1428,11 +1477,13 @@ function App() {
     if (!authState || !selectedMenuImportId) {
       setMenuImportAuditItems([])
       setMenuImportSuggestions([])
+      setMenuAdjustedVersions([])
       return
     }
 
     void fetchMenuImportAudit(authState.token, selectedMenuImportId)
     void fetchMenuImportSuggestions(authState.token, selectedMenuImportId)
+    void fetchMenuAdjustedVersions(authState.token, selectedMenuImportId)
   }, [authState?.token, selectedMenuImportId])
 
   useEffect(() => {
@@ -1929,6 +1980,36 @@ function App() {
       setDomainError(error instanceof Error ? error.message : 'Falha ao gerar sugestoes.')
     } finally {
       setIsGeneratingMenuImportSuggestions(false)
+    }
+  }
+
+  const handleGenerateAdjustedVersion = async () => {
+    if (!authState || !selectedMenuImportId) {
+      return
+    }
+
+    setDomainError(null)
+    setIsGeneratingAdjustedVersion(true)
+
+    try {
+      const response = await fetch(`${API_URL}/menus/imports/${selectedMenuImportId}/adjusted-version`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authState.token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; adjustedVersion: MenuAdjustedVersionItem }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao gerar versao ajustada.')
+      }
+
+      await fetchMenuAdjustedVersions(authState.token, selectedMenuImportId)
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao gerar versao ajustada.')
+    } finally {
+      setIsGeneratingAdjustedVersion(false)
     }
   }
 
@@ -3499,6 +3580,44 @@ function App() {
             </ul>
           ) : (
             <p className="empty-note">Sem sugestoes geradas para a importacao selecionada.</p>
+          )}
+
+          <div className="invite-history-head">
+            <h3>Versoes ajustadas</h3>
+          </div>
+
+          <div className="history-filter-actions">
+            <button
+              type="button"
+              className="logout-button"
+              disabled={!selectedMenuImportId || isGeneratingAdjustedVersion}
+              onClick={handleGenerateAdjustedVersion}
+            >
+              {isGeneratingAdjustedVersion ? 'Gerando versao...' : 'Gerar nova versao ajustada'}
+            </button>
+          </div>
+
+          {isLoadingMenuAdjustedVersions ? (
+            <p className="empty-note">Carregando versoes ajustadas...</p>
+          ) : menuAdjustedVersions.length ? (
+            <ul className="validation-history-list">
+              {menuAdjustedVersions.map((item) => (
+                <li key={item.id}>
+                  <div className="validation-history-row">
+                    <strong>{item.versionLabel}</strong>
+                    <span className="status-badge is-progress">
+                      {item.appliedSuggestions.length} sugestoes aplicadas
+                    </span>
+                  </div>
+                  <small>
+                    Custo ajustado: R$ {item.adjustedMealCost.toFixed(2)} | Impacto financeiro total: R$ {item.totalFinancialImpact.toFixed(2)}
+                  </small>
+                  <small>{item.nutritionalImpactSummary}</small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">Nenhuma versao ajustada gerada ainda.</p>
           )}
         </article>
 

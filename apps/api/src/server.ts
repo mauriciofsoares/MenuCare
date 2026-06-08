@@ -479,6 +479,20 @@ const ensureDomainTables = async () => {
   `;
 
   await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS menu_adjusted_versions (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      menu_import_id TEXT NOT NULL,
+      version_label TEXT NOT NULL,
+      adjusted_meal_cost NUMERIC(12, 2) NOT NULL,
+      total_financial_impact NUMERIC(12, 2) NOT NULL,
+      nutritional_impact_summary TEXT NOT NULL,
+      applied_suggestions_json TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
     ALTER TABLE compliance_export_events
     ADD COLUMN IF NOT EXISTS filter_export_id TEXT
   `;
@@ -561,6 +575,11 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_menu_import_adjustment_suggestions_import_created_at
     ON menu_import_adjustment_suggestions (menu_import_id, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_menu_adjusted_versions_import_created_at
+    ON menu_adjusted_versions (menu_import_id, created_at DESC)
   `;
 
   domainTablesReady = true;
@@ -2104,6 +2123,219 @@ app.get('/menus/imports/:importId/suggestions', { preHandler: authenticate }, as
       estimatedFinancialImpact: parseNumber(item.estimated_financial_impact),
       estimatedNutritionalImpact: item.estimated_nutritional_impact,
       priorityLevel: item.priority_level,
+      createdAt: item.created_at.toISOString(),
+    })),
+  };
+});
+
+app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = menuImportParamsSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Identificador de importacao invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const importId = parsedParams.data.importId;
+
+  await ensureDomainTables();
+
+  const importRows = await prisma.$queryRaw<Array<{
+    meal_cost: number | string;
+    financial_goal: number | string;
+  }>>`
+    SELECT meal_cost, financial_goal
+    FROM menu_pdf_imports
+    WHERE id = ${importId}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  const imported = importRows[0];
+
+  if (!imported) {
+    return reply.code(404).send({
+      status: 'error',
+      message: 'Importacao de cardapio nao encontrada para esta empresa.',
+    });
+  }
+
+  const suggestionRows = await prisma.$queryRaw<Array<{
+    id: string;
+    suggestion_text: string;
+    estimated_financial_impact: number | string;
+    estimated_nutritional_impact: string;
+    priority_level: 'high' | 'medium';
+  }>>`
+    SELECT
+      id,
+      suggestion_text,
+      estimated_financial_impact,
+      estimated_nutritional_impact,
+      priority_level
+    FROM menu_import_adjustment_suggestions
+    WHERE menu_import_id = ${importId}
+      AND company_name = ${companyName}
+    ORDER BY created_at DESC
+  `;
+
+  if (!suggestionRows.length) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Nao existem sugestoes para gerar versao ajustada.',
+    });
+  }
+
+  const parseNumber = (value: number | string) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number(parsed.toFixed(2));
+  };
+
+  const currentMealCost = parseNumber(imported.meal_cost);
+  const financialGoal = parseNumber(imported.financial_goal);
+  const totalFinancialImpact = Number(
+    suggestionRows
+      .reduce((sum, item) => sum + parseNumber(item.estimated_financial_impact), 0)
+      .toFixed(2),
+  );
+  const adjustedMealCost = Number(
+    Math.max(currentMealCost + totalFinancialImpact, financialGoal * 0.85).toFixed(2),
+  );
+
+  const versionCountRows = await prisma.$queryRaw<Array<{ total: number }>>`
+    SELECT COUNT(*)::int AS total
+    FROM menu_adjusted_versions
+    WHERE menu_import_id = ${importId}
+      AND company_name = ${companyName}
+  `;
+
+  const nextVersionNumber = (versionCountRows[0]?.total ?? 0) + 1;
+  const versionId = randomUUID();
+  const versionLabel = `v${nextVersionNumber}`;
+  const nutritionalImpactSummary = suggestionRows
+    .map((item) => item.estimated_nutritional_impact)
+    .filter((value, index, source) => source.indexOf(value) === index)
+    .join(' | ');
+  const appliedSuggestions = suggestionRows.map((item) => ({
+    id: item.id,
+    suggestionText: item.suggestion_text,
+    estimatedFinancialImpact: parseNumber(item.estimated_financial_impact),
+    estimatedNutritionalImpact: item.estimated_nutritional_impact,
+    priorityLevel: item.priority_level,
+  }));
+
+  await prisma.$executeRaw`
+    INSERT INTO menu_adjusted_versions (
+      id,
+      company_name,
+      menu_import_id,
+      version_label,
+      adjusted_meal_cost,
+      total_financial_impact,
+      nutritional_impact_summary,
+      applied_suggestions_json
+    )
+    VALUES (
+      ${versionId},
+      ${companyName},
+      ${importId},
+      ${versionLabel},
+      ${adjustedMealCost},
+      ${totalFinancialImpact},
+      ${nutritionalImpactSummary || 'Sem alteracoes nutricionais relevantes.'},
+      ${JSON.stringify(appliedSuggestions)}
+    )
+  `;
+
+  return reply.code(201).send({
+    status: 'ok',
+    adjustedVersion: {
+      id: versionId,
+      versionLabel,
+      adjustedMealCost,
+      totalFinancialImpact,
+      nutritionalImpactSummary: nutritionalImpactSummary || 'Sem alteracoes nutricionais relevantes.',
+      appliedSuggestions,
+      createdAt: new Date().toISOString(),
+    },
+  });
+});
+
+app.get('/menus/imports/:importId/adjusted-versions', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = menuImportParamsSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Identificador de importacao invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const importId = parsedParams.data.importId;
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    version_label: string;
+    adjusted_meal_cost: number | string;
+    total_financial_impact: number | string;
+    nutritional_impact_summary: string;
+    applied_suggestions_json: string;
+    created_at: Date;
+  }>>`
+    SELECT
+      id,
+      version_label,
+      adjusted_meal_cost,
+      total_financial_impact,
+      nutritional_impact_summary,
+      applied_suggestions_json,
+      created_at
+    FROM menu_adjusted_versions
+    WHERE menu_import_id = ${importId}
+      AND company_name = ${companyName}
+    ORDER BY created_at DESC
+  `;
+
+  const parseNumber = (value: number | string) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number(parsed.toFixed(2));
+  };
+
+  return {
+    status: 'ok',
+    versions: rows.map((item) => ({
+      id: item.id,
+      versionLabel: item.version_label,
+      adjustedMealCost: parseNumber(item.adjusted_meal_cost),
+      totalFinancialImpact: parseNumber(item.total_financial_impact),
+      nutritionalImpactSummary: item.nutritional_impact_summary,
+      appliedSuggestions: JSON.parse(item.applied_suggestions_json) as Array<{
+        id: string;
+        suggestionText: string;
+        estimatedFinancialImpact: number;
+        estimatedNutritionalImpact: string;
+        priorityLevel: 'high' | 'medium';
+      }>,
       createdAt: item.created_at.toISOString(),
     })),
   };

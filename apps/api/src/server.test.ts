@@ -271,6 +271,92 @@ describe('API integration', () => {
     assert.equal(Array.isArray(listSuggestionsResponse.body.suggestions), true)
   })
 
+  it('menu adjusted version should track applied suggestions and impacts', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const contractResponse = await request(app.server)
+      .post('/contracts')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        title: 'Contrato Versao Ajustada',
+        sourceType: 'contract',
+        status: 'active',
+      })
+
+    if (contractResponse.status === 503) {
+      assert.equal(contractResponse.body.status, 'error')
+      return
+    }
+
+    const ruleResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId: contractResponse.body.contract?.id as string,
+        title: 'Fruta citrica obrigatoria no almoco',
+        description: 'Cardapio de almoco deve conter fruta citrica',
+        category: 'fruta',
+        status: 'approved',
+      })
+
+    assert.equal(ruleResponse.status, 201)
+
+    const importResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-08',
+        mealType: 'Almoco',
+        financialGoal: 11,
+        mealCost: 13,
+        recipes: ['Arroz', 'Feijao', 'Frango'],
+      })
+
+    assert.equal(importResponse.status, 201)
+
+    const importId = importResponse.body.import?.id as string
+
+    const auditResponse = await request(app.server)
+      .post(`/menus/imports/${importId}/audit`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(auditResponse.status, 200)
+
+    const suggestionsResponse = await request(app.server)
+      .post(`/menus/imports/${importId}/suggestions`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(suggestionsResponse.status, 200)
+
+    const adjustedVersionResponse = await request(app.server)
+      .post(`/menus/imports/${importId}/adjusted-version`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(adjustedVersionResponse.status, 201)
+    assert.equal(adjustedVersionResponse.body.status, 'ok')
+    assert.equal(typeof adjustedVersionResponse.body.adjustedVersion?.versionLabel, 'string')
+    assert.equal(Array.isArray(adjustedVersionResponse.body.adjustedVersion?.appliedSuggestions), true)
+
+    const listAdjustedVersionsResponse = await request(app.server)
+      .get(`/menus/imports/${importId}/adjusted-versions`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(listAdjustedVersionsResponse.status, 200)
+    assert.equal(listAdjustedVersionsResponse.body.status, 'ok')
+    assert.ok((listAdjustedVersionsResponse.body.versions as Array<{ id: string }>).length >= 1)
+  })
+
   it('login should return 429 after too many failed attempts', async () => {
     const targetEmail = 'blocked@menucare.local'
 
