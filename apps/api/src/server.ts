@@ -114,6 +114,16 @@ const actionPlanParamsSchema = z.object({
   actionId: z.string().min(1),
 });
 
+const actionPlanHistoryQuerySchema = z
+  .object({
+    actor: z.string().trim().max(120).optional(),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  })
+  .refine((data) => !data.from || !data.to || data.from <= data.to, {
+    message: 'Invalid history date range.',
+  });
+
 type SupportedLocale = z.infer<typeof localeSchema>['locale'];
 
 const normalizeLocale = (locale?: string): SupportedLocale => {
@@ -1930,8 +1940,9 @@ app.patch('/non-conformities/:nonConformityId/actions/:actionId/status', { preHa
 
 app.get('/non-conformities/:nonConformityId/actions/:actionId/history', { preHandler: authenticate }, async (request, reply) => {
   const parsedParams = actionPlanParamsSchema.safeParse(request.params);
+  const parsedQuery = actionPlanHistoryQuerySchema.safeParse(request.query);
 
-  if (!parsedParams.success) {
+  if (!parsedParams.success || !parsedQuery.success) {
     return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
   }
 
@@ -1940,6 +1951,9 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history', { preHan
   }
 
   const companyName = getCompanyFromJwt(request);
+  const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
+  const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
+  const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
 
   await ensureDomainTables();
 
@@ -1955,6 +1969,9 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history', { preHan
     WHERE company_name = ${companyName}
       AND non_conformity_id = ${parsedParams.data.nonConformityId}
       AND action_plan_id = ${parsedParams.data.actionId}
+      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
+      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
+      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
     ORDER BY created_at DESC
     LIMIT 50
   `;
@@ -1969,6 +1986,69 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history', { preHan
       createdAt: event.created_at.toISOString(),
     })),
   };
+});
+
+app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = actionPlanParamsSchema.safeParse(request.params);
+  const parsedQuery = actionPlanHistoryQuerySchema.safeParse(request.query);
+
+  if (!parsedParams.success || !parsedQuery.success) {
+    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
+  const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
+  const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    previous_status: string;
+    next_status: string;
+    actor_name: string;
+    created_at: Date;
+  }>>`
+    SELECT previous_status, next_status, actor_name, created_at
+    FROM non_conformity_action_events
+    WHERE company_name = ${companyName}
+      AND non_conformity_id = ${parsedParams.data.nonConformityId}
+      AND action_plan_id = ${parsedParams.data.actionId}
+      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
+      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
+      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
+    ORDER BY created_at DESC
+    LIMIT 5000
+  `;
+
+  const csvEscape = (value: string) => {
+    const escaped = value.replace(/"/g, '""');
+    return `"${escaped}"`;
+  };
+
+  const header = 'created_at,actor_name,previous_status,next_status';
+  const lines = rows.map((row) =>
+    [
+      csvEscape(row.created_at.toISOString()),
+      csvEscape(row.actor_name),
+      csvEscape(row.previous_status),
+      csvEscape(row.next_status),
+    ].join(','),
+  );
+
+  const csv = [header, ...lines].join('\n');
+
+  reply.header('Content-Type', 'text/csv; charset=utf-8');
+  reply.header(
+    'Content-Disposition',
+    `attachment; filename="action-plan-history-${parsedParams.data.actionId}.csv"`,
+  );
+
+  return reply.send(csv);
 });
 
 app.get('/non-conformities/:nonConformityId/actions', { preHandler: authenticate }, async (request, reply) => {

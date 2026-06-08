@@ -145,6 +145,12 @@ type NonConformityHistoryFilter = {
   to: string
 }
 
+type ActionPlanHistoryFilter = {
+  actor: string
+  from: string
+  to: string
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -245,6 +251,17 @@ function App() {
       from: '',
       to: '',
     })
+  const [actionPlanHistoryFilter, setActionPlanHistoryFilter] = useState<ActionPlanHistoryFilter>({
+    actor: '',
+    from: '',
+    to: '',
+  })
+  const [appliedActionPlanHistoryFilter, setAppliedActionPlanHistoryFilter] =
+    useState<ActionPlanHistoryFilter>({
+      actor: '',
+      from: '',
+      to: '',
+    })
   const [loadingSession, setLoadingSession] = useState(true)
   const [authError, setAuthError] = useState<string | null>(null)
   const [domainError, setDomainError] = useState<string | null>(null)
@@ -265,6 +282,7 @@ function App() {
   const [isLoadingActionPlanHistory, setIsLoadingActionPlanHistory] = useState(false)
   const [isLoadingNonConformityHistory, setIsLoadingNonConformityHistory] = useState(false)
   const [isExportingNonConformityHistory, setIsExportingNonConformityHistory] = useState(false)
+  const [isExportingActionPlanHistory, setIsExportingActionPlanHistory] = useState(false)
   const [loginForm, setLoginForm] = useState({
     email: 'admin@menucare.local',
     password: 'Admin@123',
@@ -940,8 +958,22 @@ function App() {
       setIsLoadingActionPlanHistory(true)
 
       try {
+        const query = new URLSearchParams()
+
+        if (appliedActionPlanHistoryFilter.actor.trim()) {
+          query.set('actor', appliedActionPlanHistoryFilter.actor.trim())
+        }
+
+        if (appliedActionPlanHistoryFilter.from) {
+          query.set('from', appliedActionPlanHistoryFilter.from)
+        }
+
+        if (appliedActionPlanHistoryFilter.to) {
+          query.set('to', appliedActionPlanHistoryFilter.to)
+        }
+
         const response = await fetch(
-          `${API_URL}/non-conformities/${selectedNonConformityId}/actions/${selectedActionPlanId}/history`,
+          `${API_URL}/non-conformities/${selectedNonConformityId}/actions/${selectedActionPlanId}/history?${query.toString()}`,
           {
             headers: { Authorization: `Bearer ${authState.token}` },
           },
@@ -960,7 +992,19 @@ function App() {
     }
 
     void loadActionPlanHistory()
-  }, [authState?.token, selectedNonConformityId, selectedActionPlanId])
+  }, [
+    appliedActionPlanHistoryFilter.actor,
+    appliedActionPlanHistoryFilter.from,
+    appliedActionPlanHistoryFilter.to,
+    authState?.token,
+    selectedNonConformityId,
+    selectedActionPlanId,
+  ])
+
+  useEffect(() => {
+    setActionPlanHistoryFilter({ actor: '', from: '', to: '' })
+    setAppliedActionPlanHistoryFilter({ actor: '', from: '', to: '' })
+  }, [selectedActionPlanId])
 
   const handleLocaleChange = (event: ChangeEvent<HTMLSelectElement>) => {
     setLocale(resolveUiLocale(event.target.value))
@@ -1560,6 +1604,57 @@ function App() {
       )
     } finally {
       setIsExportingNonConformityHistory(false)
+    }
+  }
+
+  const handleExportActionPlanHistory = async () => {
+    if (!authState || !selectedNonConformityId || !selectedActionPlanId) {
+      return
+    }
+
+    setDomainError(null)
+    setIsExportingActionPlanHistory(true)
+
+    try {
+      const query = new URLSearchParams()
+
+      if (appliedActionPlanHistoryFilter.actor.trim()) {
+        query.set('actor', appliedActionPlanHistoryFilter.actor.trim())
+      }
+
+      if (appliedActionPlanHistoryFilter.from) {
+        query.set('from', appliedActionPlanHistoryFilter.from)
+      }
+
+      if (appliedActionPlanHistoryFilter.to) {
+        query.set('to', appliedActionPlanHistoryFilter.to)
+      }
+
+      const response = await fetch(
+        `${API_URL}/non-conformities/${selectedNonConformityId}/actions/${selectedActionPlanId}/history/export?${query.toString()}`,
+        {
+          headers: { Authorization: `Bearer ${authState.token}` },
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error('Falha ao exportar historico da acao.')
+      }
+
+      const csvContent = await response.text()
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = window.URL.createObjectURL(blob)
+      const link = window.document.createElement('a')
+      link.href = url
+      link.download = `action-plan-history-${selectedActionPlanId}.csv`
+      window.document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao exportar historico da acao.')
+    } finally {
+      setIsExportingActionPlanHistory(false)
     }
   }
 
@@ -2699,6 +2794,92 @@ function App() {
                 ))}
               </select>
             </label>
+          </div>
+
+          <div className="history-filter-grid">
+            <label>
+              <span>{uiMessage.auth.actionPlanHistoryActorLabel}</span>
+              <input
+                type="text"
+                value={actionPlanHistoryFilter.actor}
+                onChange={(event) =>
+                  setActionPlanHistoryFilter((current) => ({
+                    ...current,
+                    actor: event.target.value,
+                  }))
+                }
+                placeholder="Nome"
+              />
+            </label>
+            <label>
+              <span>{uiMessage.auth.actionPlanHistoryFromLabel}</span>
+              <input
+                type="date"
+                value={actionPlanHistoryFilter.from}
+                onChange={(event) =>
+                  setActionPlanHistoryFilter((current) => ({
+                    ...current,
+                    from: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>{uiMessage.auth.actionPlanHistoryToLabel}</span>
+              <input
+                type="date"
+                value={actionPlanHistoryFilter.to}
+                onChange={(event) =>
+                  setActionPlanHistoryFilter((current) => ({
+                    ...current,
+                    to: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <div className="history-filter-actions">
+              <button
+                type="button"
+                className="logout-button"
+                onClick={() =>
+                  setAppliedActionPlanHistoryFilter({
+                    actor: actionPlanHistoryFilter.actor.trim(),
+                    from: actionPlanHistoryFilter.from,
+                    to: actionPlanHistoryFilter.to,
+                  })
+                }
+              >
+                {uiMessage.auth.actionPlanHistoryApplyButton}
+              </button>
+              <button
+                type="button"
+                className="logout-button"
+                onClick={() => {
+                  setActionPlanHistoryFilter({ actor: '', from: '', to: '' })
+                  setAppliedActionPlanHistoryFilter({ actor: '', from: '', to: '' })
+                }}
+              >
+                {uiMessage.auth.actionPlanHistoryClearButton}
+              </button>
+            </div>
+          </div>
+
+          <div className="history-pagination">
+            <small>
+              {uiMessage.auth.actionPlanHistoryCountLabel} {actionPlanEvents.length}
+            </small>
+            <div className="history-filter-actions">
+              <button
+                type="button"
+                className="logout-button"
+                disabled={isExportingActionPlanHistory || isLoadingActionPlanHistory}
+                onClick={handleExportActionPlanHistory}
+              >
+                {isExportingActionPlanHistory
+                  ? uiMessage.auth.actionPlanHistoryExportingButton
+                  : uiMessage.auth.actionPlanHistoryExportButton}
+              </button>
+            </div>
           </div>
 
           {isLoadingActionPlanHistory ? (
