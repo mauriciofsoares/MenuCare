@@ -126,6 +126,18 @@ const actionPlanHistoryQuerySchema = z
     message: 'Invalid history date range.',
   });
 
+const complianceExportAuditQuerySchema = z
+  .object({
+    exportType: z.enum(['all', 'non_conformity_history', 'action_plan_history']).default('all'),
+    actor: z.string().trim().max(120).optional(),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .refine((data) => !data.from || !data.to || data.from <= data.to, {
+    message: 'Invalid history date range.',
+  });
+
 type SupportedLocale = z.infer<typeof localeSchema>['locale'];
 
 const normalizeLocale = (locale?: string): SupportedLocale => {
@@ -2231,6 +2243,76 @@ app.get('/non-conformities/:nonConformityId/actions', { preHandler: authenticate
       dueDate: action.due_date.toISOString(),
       status: action.status,
       createdAt: action.created_at.toISOString(),
+    })),
+  };
+});
+
+app.get('/compliance/exports/audit', { preHandler: authenticate }, async (request, reply) => {
+  const parsedQuery = complianceExportAuditQuerySchema.safeParse(request.query);
+
+  if (!parsedQuery.success) {
+    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const exportTypeFilter =
+    parsedQuery.data.exportType === 'all' ? null : parsedQuery.data.exportType;
+  const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
+  const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
+  const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    export_id: string;
+    export_type: string;
+    non_conformity_id: string | null;
+    action_plan_id: string | null;
+    filter_actor: string | null;
+    filter_from: Date | null;
+    filter_to: Date | null;
+    actor_name: string;
+    created_at: Date;
+  }>>`
+    SELECT
+      id,
+      export_id,
+      export_type,
+      non_conformity_id,
+      action_plan_id,
+      filter_actor,
+      filter_from,
+      filter_to,
+      actor_name,
+      created_at
+    FROM compliance_export_events
+    WHERE company_name = ${companyName}
+      AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
+      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
+      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
+      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
+    ORDER BY created_at DESC
+    LIMIT ${parsedQuery.data.limit}
+  `;
+
+  return {
+    status: 'ok',
+    events: rows.map((row) => ({
+      id: row.id,
+      exportId: row.export_id,
+      exportType: row.export_type,
+      nonConformityId: row.non_conformity_id,
+      actionPlanId: row.action_plan_id,
+      filterActor: row.filter_actor,
+      filterFrom: row.filter_from ? row.filter_from.toISOString() : null,
+      filterTo: row.filter_to ? row.filter_to.toISOString() : null,
+      actorName: row.actor_name,
+      createdAt: row.created_at.toISOString(),
     })),
   };
 });

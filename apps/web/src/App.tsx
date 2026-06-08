@@ -93,6 +93,19 @@ type InviteAuditEvent = {
   createdAt: string
 }
 
+type ComplianceExportAuditEvent = {
+  id: string
+  exportId: string
+  exportType: string
+  nonConformityId: string | null
+  actionPlanId: string | null
+  filterActor: string | null
+  filterFrom: string | null
+  filterTo: string | null
+  actorName: string
+  createdAt: string
+}
+
 type NonConformityItem = {
   id: string
   title: string
@@ -281,6 +294,7 @@ function App() {
   const [isGeneratingInvite, setIsGeneratingInvite] = useState(false)
   const [isLoadingInviteHistory, setIsLoadingInviteHistory] = useState(false)
   const [isLoadingInviteAudit, setIsLoadingInviteAudit] = useState(false)
+  const [isLoadingComplianceExportAudit, setIsLoadingComplianceExportAudit] = useState(false)
   const [isMutatingInvite, setIsMutatingInvite] = useState(false)
   const [isSubmittingRuleValidation, setIsSubmittingRuleValidation] = useState(false)
   const [isLoadingRuleHistory, setIsLoadingRuleHistory] = useState(false)
@@ -310,6 +324,9 @@ function App() {
   const [inviteGenerationError, setInviteGenerationError] = useState<string | null>(null)
   const [inviteHistory, setInviteHistory] = useState<ManagedInvite[]>([])
   const [inviteAuditEvents, setInviteAuditEvents] = useState<InviteAuditEvent[]>([])
+  const [complianceExportAuditEvents, setComplianceExportAuditEvents] = useState<ComplianceExportAuditEvent[]>([])
+  const [complianceExportAuditTypeFilter, setComplianceExportAuditTypeFilter] =
+    useState<'all' | 'non_conformity_history' | 'action_plan_history'>('all')
   const [inviteHistoryFilter, setInviteHistoryFilter] = useState<'all' | 'active' | 'used'>('all')
   const [ruleValidationForm, setRuleValidationForm] = useState({
     ruleId: '',
@@ -597,6 +614,50 @@ function App() {
     }
   }
 
+  const fetchComplianceExportAudit = async (
+    token: string,
+    exportType: 'all' | 'non_conformity_history' | 'action_plan_history',
+  ) => {
+    setIsLoadingComplianceExportAudit(true)
+
+    try {
+      const response = await fetch(
+        `${API_URL}/compliance/exports/audit?exportType=${exportType}&limit=30`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      )
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; events: ComplianceExportAuditEvent[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error(
+          'message' in payload ? payload.message : uiMessage.auth.genericSignInError,
+        )
+      }
+
+      setComplianceExportAuditEvents(payload.events ?? [])
+    } catch {
+      setComplianceExportAuditEvents([])
+    } finally {
+      setIsLoadingComplianceExportAudit(false)
+    }
+  }
+
+  const getComplianceExportTypeLabel = (exportType: string) => {
+    if (exportType === 'non_conformity_history') {
+      return uiMessage.auth.complianceExportAuditTypeNonConformity
+    }
+
+    if (exportType === 'action_plan_history') {
+      return uiMessage.auth.complianceExportAuditTypeActionPlan
+    }
+
+    return exportType
+  }
+
   const fetchRules = async (token: string) => {
     const response = await fetch(`${API_URL}/rules?limit=30`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -762,12 +823,14 @@ function App() {
     if (!authState) {
       setInviteHistory([])
       setInviteAuditEvents([])
+      setComplianceExportAuditEvents([])
       return
     }
 
     void fetchInviteHistory(authState.token, inviteHistoryFilter)
     void fetchInviteAudit(authState.token)
-  }, [authState?.token, inviteHistoryFilter])
+    void fetchComplianceExportAudit(authState.token, complianceExportAuditTypeFilter)
+  }, [authState?.token, complianceExportAuditTypeFilter, inviteHistoryFilter])
 
   useEffect(() => {
     if (!authState) {
@@ -2097,6 +2160,55 @@ function App() {
             </ul>
           ) : (
             <p className="empty-note">{uiMessage.auth.inviteAuditEmpty}</p>
+          )}
+
+          <div className="invite-history-head">
+            <h3>{uiMessage.auth.complianceExportAuditTitle}</h3>
+            <label>
+              <span>{uiMessage.auth.complianceExportAuditFilterLabel}</span>
+              <select
+                value={complianceExportAuditTypeFilter}
+                onChange={(event) =>
+                  setComplianceExportAuditTypeFilter(
+                    event.target.value as 'all' | 'non_conformity_history' | 'action_plan_history',
+                  )
+                }
+              >
+                <option value="all">{uiMessage.auth.complianceExportAuditTypeAll}</option>
+                <option value="non_conformity_history">
+                  {uiMessage.auth.complianceExportAuditTypeNonConformity}
+                </option>
+                <option value="action_plan_history">
+                  {uiMessage.auth.complianceExportAuditTypeActionPlan}
+                </option>
+              </select>
+            </label>
+          </div>
+
+          {isLoadingComplianceExportAudit ? (
+            <p className="empty-note">{uiMessage.auth.complianceExportAuditLoading}</p>
+          ) : complianceExportAuditEvents.length ? (
+            <ul className="validation-history-list">
+              {complianceExportAuditEvents.map((event) => (
+                <li key={event.id}>
+                  <div className="validation-history-row">
+                    <strong>{getComplianceExportTypeLabel(event.exportType)}</strong>
+                    <span>{event.actorName}</span>
+                  </div>
+                  <small>
+                    {uiMessage.auth.complianceExportAuditExportIdLabel}: {event.exportId}
+                  </small>
+                  <small>
+                    {uiMessage.auth.complianceExportAuditFiltersLabel}: actor={event.filterActor ?? '-'} | from={event.filterFrom ? new Date(event.filterFrom).toLocaleDateString(locale) : '-'} | to={event.filterTo ? new Date(event.filterTo).toLocaleDateString(locale) : '-'}
+                  </small>
+                  <small>
+                    NC={event.nonConformityId ?? '-'} · AP={event.actionPlanId ?? '-'} · {new Date(event.createdAt).toLocaleString(locale)}
+                  </small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">{uiMessage.auth.complianceExportAuditEmpty}</p>
           )}
         </article>
 
