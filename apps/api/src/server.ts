@@ -464,6 +464,21 @@ const ensureDomainTables = async () => {
   `;
 
   await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS menu_import_adjustment_suggestions (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      menu_import_id TEXT NOT NULL,
+      source_type TEXT NOT NULL,
+      source_reference TEXT,
+      suggestion_text TEXT NOT NULL,
+      estimated_financial_impact NUMERIC(12, 2) NOT NULL,
+      estimated_nutritional_impact TEXT NOT NULL,
+      priority_level TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
     ALTER TABLE compliance_export_events
     ADD COLUMN IF NOT EXISTS filter_export_id TEXT
   `;
@@ -541,6 +556,11 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_menu_import_rule_audits_import_created_at
     ON menu_import_rule_audits (menu_import_id, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_menu_import_adjustment_suggestions_import_created_at
+    ON menu_import_adjustment_suggestions (menu_import_id, created_at DESC)
   `;
 
   domainTablesReady = true;
@@ -1795,6 +1815,295 @@ app.get('/menus/imports/:importId/audit', { preHandler: authenticate }, async (r
       ruleTitle: item.rule_title,
       resultStatus: item.result_status,
       evidence: item.evidence,
+      createdAt: item.created_at.toISOString(),
+    })),
+  };
+});
+
+app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = menuImportParamsSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Identificador de importacao invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const importId = parsedParams.data.importId;
+
+  await ensureDomainTables();
+
+  const importedRows = await prisma.$queryRaw<Array<{
+    id: string;
+    meal_cost: number | string;
+    financial_goal: number | string;
+    exceeded_value: number | string;
+  }>>`
+    SELECT id, meal_cost, financial_goal, exceeded_value
+    FROM menu_pdf_imports
+    WHERE id = ${importId}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  const imported = importedRows[0];
+
+  if (!imported) {
+    return reply.code(404).send({
+      status: 'error',
+      message: 'Importacao de cardapio nao encontrada para esta empresa.',
+    });
+  }
+
+  const auditRows = await prisma.$queryRaw<Array<{
+    rule_id: string | null;
+    rule_title: string;
+    result_status: 'compliant' | 'non_compliant';
+  }>>`
+    SELECT rule_id, rule_title, result_status
+    FROM menu_import_rule_audits
+    WHERE menu_import_id = ${importId}
+      AND company_name = ${companyName}
+    ORDER BY created_at DESC
+  `;
+
+  await prisma.$executeRaw`
+    DELETE FROM menu_import_adjustment_suggestions
+    WHERE menu_import_id = ${importId}
+      AND company_name = ${companyName}
+  `;
+
+  const parseNumber = (value: number | string) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number(parsed.toFixed(2));
+  };
+
+  const exceededValue = parseNumber(imported.exceeded_value);
+  const suggestions: Array<{
+    id: string;
+    sourceType: 'rule' | 'financial_goal';
+    sourceReference: string | null;
+    suggestionText: string;
+    estimatedFinancialImpact: number;
+    estimatedNutritionalImpact: string;
+    priorityLevel: 'high' | 'medium';
+    createdAt: string;
+  }> = [];
+
+  for (const audit of auditRows.filter((item) => item.result_status === 'non_compliant')) {
+    const suggestionId = randomUUID();
+    const suggestionText = `Ajustar composicao da refeicao para atender a regra: ${audit.rule_title}.`;
+    const estimatedFinancialImpact = Number((-Math.max(exceededValue * 0.35, 0.5)).toFixed(2));
+
+    await prisma.$executeRaw`
+      INSERT INTO menu_import_adjustment_suggestions (
+        id,
+        company_name,
+        menu_import_id,
+        source_type,
+        source_reference,
+        suggestion_text,
+        estimated_financial_impact,
+        estimated_nutritional_impact,
+        priority_level
+      )
+      VALUES (
+        ${suggestionId},
+        ${companyName},
+        ${importId},
+        ${'rule'},
+        ${audit.rule_id ?? audit.rule_title},
+        ${suggestionText},
+        ${estimatedFinancialImpact},
+        ${'Preserva aderencia nutricional com substituicoes equivalentes.'},
+        ${'high'}
+      )
+    `;
+
+    suggestions.push({
+      id: suggestionId,
+      sourceType: 'rule',
+      sourceReference: audit.rule_id ?? audit.rule_title,
+      suggestionText,
+      estimatedFinancialImpact,
+      estimatedNutritionalImpact: 'Preserva aderencia nutricional com substituicoes equivalentes.',
+      priorityLevel: 'high',
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  if (exceededValue > 0) {
+    const suggestionId = randomUUID();
+    const suggestionText = 'Substituir ao menos um item de maior custo por alternativa equivalente para voltar a meta financeira.';
+    const estimatedFinancialImpact = Number((-Math.max(exceededValue, 0.5)).toFixed(2));
+
+    await prisma.$executeRaw`
+      INSERT INTO menu_import_adjustment_suggestions (
+        id,
+        company_name,
+        menu_import_id,
+        source_type,
+        source_reference,
+        suggestion_text,
+        estimated_financial_impact,
+        estimated_nutritional_impact,
+        priority_level
+      )
+      VALUES (
+        ${suggestionId},
+        ${companyName},
+        ${importId},
+        ${'financial_goal'},
+        ${'meal_cost_vs_goal'},
+        ${suggestionText},
+        ${estimatedFinancialImpact},
+        ${'Mantem cobertura nutricional prevista para a refeicao.'},
+        ${'high'}
+      )
+    `;
+
+    suggestions.push({
+      id: suggestionId,
+      sourceType: 'financial_goal',
+      sourceReference: 'meal_cost_vs_goal',
+      suggestionText,
+      estimatedFinancialImpact,
+      estimatedNutritionalImpact: 'Mantem cobertura nutricional prevista para a refeicao.',
+      priorityLevel: 'high',
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  if (!suggestions.length) {
+    const suggestionId = randomUUID();
+
+    await prisma.$executeRaw`
+      INSERT INTO menu_import_adjustment_suggestions (
+        id,
+        company_name,
+        menu_import_id,
+        source_type,
+        source_reference,
+        suggestion_text,
+        estimated_financial_impact,
+        estimated_nutritional_impact,
+        priority_level
+      )
+      VALUES (
+        ${suggestionId},
+        ${companyName},
+        ${importId},
+        ${'rule'},
+        ${'preventive_optimization'},
+        ${'Manter cardapio atual e registrar combinacoes de melhor aceitacao para proxima versao.'},
+        ${0},
+        ${'Sem impacto nutricional adverso previsto.'},
+        ${'medium'}
+      )
+    `;
+
+    suggestions.push({
+      id: suggestionId,
+      sourceType: 'rule',
+      sourceReference: 'preventive_optimization',
+      suggestionText:
+        'Manter cardapio atual e registrar combinacoes de melhor aceitacao para proxima versao.',
+      estimatedFinancialImpact: 0,
+      estimatedNutritionalImpact: 'Sem impacto nutricional adverso previsto.',
+      priorityLevel: 'medium',
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  return {
+    status: 'ok',
+    summary: {
+      generatedSuggestions: suggestions.length,
+      estimatedTotalFinancialImpact: Number(
+        suggestions.reduce((sum, item) => sum + item.estimatedFinancialImpact, 0).toFixed(2),
+      ),
+    },
+    suggestions,
+  };
+});
+
+app.get('/menus/imports/:importId/suggestions', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = menuImportParamsSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Identificador de importacao invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const importId = parsedParams.data.importId;
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    source_type: 'rule' | 'financial_goal';
+    source_reference: string | null;
+    suggestion_text: string;
+    estimated_financial_impact: number | string;
+    estimated_nutritional_impact: string;
+    priority_level: 'high' | 'medium';
+    created_at: Date;
+  }>>`
+    SELECT
+      id,
+      source_type,
+      source_reference,
+      suggestion_text,
+      estimated_financial_impact,
+      estimated_nutritional_impact,
+      priority_level,
+      created_at
+    FROM menu_import_adjustment_suggestions
+    WHERE menu_import_id = ${importId}
+      AND company_name = ${companyName}
+    ORDER BY created_at DESC
+  `;
+
+  const parseNumber = (value: number | string) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number(parsed.toFixed(2));
+  };
+
+  return {
+    status: 'ok',
+    summary: {
+      generatedSuggestions: rows.length,
+      estimatedTotalFinancialImpact: Number(
+        rows.reduce((sum, item) => sum + parseNumber(item.estimated_financial_impact), 0).toFixed(2),
+      ),
+    },
+    suggestions: rows.map((item) => ({
+      id: item.id,
+      sourceType: item.source_type,
+      sourceReference: item.source_reference,
+      suggestionText: item.suggestion_text,
+      estimatedFinancialImpact: parseNumber(item.estimated_financial_impact),
+      estimatedNutritionalImpact: item.estimated_nutritional_impact,
+      priorityLevel: item.priority_level,
       createdAt: item.created_at.toISOString(),
     })),
   };

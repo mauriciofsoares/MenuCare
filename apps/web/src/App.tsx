@@ -253,6 +253,17 @@ type MenuImportAuditItem = {
   createdAt: string
 }
 
+type MenuImportSuggestionItem = {
+  id: string
+  sourceType: 'rule' | 'financial_goal'
+  sourceReference: string | null
+  suggestionText: string
+  estimatedFinancialImpact: number
+  estimatedNutritionalImpact: string
+  priorityLevel: 'high' | 'medium'
+  createdAt: string
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -406,6 +417,9 @@ function App() {
   const [menuImportAuditItems, setMenuImportAuditItems] = useState<MenuImportAuditItem[]>([])
   const [isLoadingMenuImportAudit, setIsLoadingMenuImportAudit] = useState(false)
   const [isRunningMenuImportAudit, setIsRunningMenuImportAudit] = useState(false)
+  const [menuImportSuggestions, setMenuImportSuggestions] = useState<MenuImportSuggestionItem[]>([])
+  const [isLoadingMenuImportSuggestions, setIsLoadingMenuImportSuggestions] = useState(false)
+  const [isGeneratingMenuImportSuggestions, setIsGeneratingMenuImportSuggestions] = useState(false)
   const [complianceExportAuditExportScope, setComplianceExportAuditExportScope] =
     useState<'page' | 'all'>('page')
   const [isExportingNonConformityHistory, setIsExportingNonConformityHistory] = useState(false)
@@ -766,6 +780,22 @@ function App() {
     return 'status-badge is-negative'
   }
 
+  const getSuggestionPriorityLabel = (priority: MenuImportSuggestionItem['priorityLevel']) => {
+    if (priority === 'high') {
+      return 'Alta prioridade'
+    }
+
+    return 'Media prioridade'
+  }
+
+  const getSuggestionPriorityBadgeClass = (priority: MenuImportSuggestionItem['priorityLevel']) => {
+    if (priority === 'high') {
+      return 'status-badge is-negative'
+    }
+
+    return 'status-badge is-progress'
+  }
+
   const fetchRecommendationPolicy = async (token: string) => {
     setIsLoadingRecommendationPolicy(true)
 
@@ -842,6 +872,35 @@ function App() {
       setMenuImportAuditItems([])
     } finally {
       setIsLoadingMenuImportAudit(false)
+    }
+  }
+
+  const fetchMenuImportSuggestions = async (token: string, importId: string) => {
+    if (!importId) {
+      setMenuImportSuggestions([])
+      return
+    }
+
+    setIsLoadingMenuImportSuggestions(true)
+
+    try {
+      const response = await fetch(`${API_URL}/menus/imports/${importId}/suggestions`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; suggestions: MenuImportSuggestionItem[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error()
+      }
+
+      setMenuImportSuggestions(payload.suggestions ?? [])
+    } catch {
+      setMenuImportSuggestions([])
+    } finally {
+      setIsLoadingMenuImportSuggestions(false)
     }
   }
 
@@ -1351,6 +1410,7 @@ function App() {
       setMenuImports([])
       setSelectedMenuImportId('')
       setMenuImportAuditItems([])
+      setMenuImportSuggestions([])
       return
     }
 
@@ -1367,10 +1427,12 @@ function App() {
   useEffect(() => {
     if (!authState || !selectedMenuImportId) {
       setMenuImportAuditItems([])
+      setMenuImportSuggestions([])
       return
     }
 
     void fetchMenuImportAudit(authState.token, selectedMenuImportId)
+    void fetchMenuImportSuggestions(authState.token, selectedMenuImportId)
   }, [authState?.token, selectedMenuImportId])
 
   useEffect(() => {
@@ -1837,6 +1899,36 @@ function App() {
       setDomainError(error instanceof Error ? error.message : 'Falha ao executar auditoria.')
     } finally {
       setIsRunningMenuImportAudit(false)
+    }
+  }
+
+  const handleGenerateMenuImportSuggestions = async () => {
+    if (!authState || !selectedMenuImportId) {
+      return
+    }
+
+    setDomainError(null)
+    setIsGeneratingMenuImportSuggestions(true)
+
+    try {
+      const response = await fetch(`${API_URL}/menus/imports/${selectedMenuImportId}/suggestions`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authState.token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; suggestions: MenuImportSuggestionItem[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao gerar sugestoes.')
+      }
+
+      setMenuImportSuggestions(payload.suggestions ?? [])
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao gerar sugestoes.')
+    } finally {
+      setIsGeneratingMenuImportSuggestions(false)
     }
   }
 
@@ -3369,6 +3461,44 @@ function App() {
             </ul>
           ) : (
             <p className="empty-note">Sem resultados de auditoria para a importacao selecionada.</p>
+          )}
+
+          <div className="invite-history-head">
+            <h3>Sugestoes de ajuste</h3>
+          </div>
+
+          <div className="history-filter-actions">
+            <button
+              type="button"
+              className="logout-button"
+              disabled={!selectedMenuImportId || isGeneratingMenuImportSuggestions}
+              onClick={handleGenerateMenuImportSuggestions}
+            >
+              {isGeneratingMenuImportSuggestions ? 'Gerando...' : 'Gerar sugestoes de ajuste'}
+            </button>
+          </div>
+
+          {isLoadingMenuImportSuggestions ? (
+            <p className="empty-note">Carregando sugestoes...</p>
+          ) : menuImportSuggestions.length ? (
+            <ul className="validation-history-list">
+              {menuImportSuggestions.map((item) => (
+                <li key={item.id}>
+                  <div className="validation-history-row">
+                    <strong>{item.suggestionText}</strong>
+                    <span className={getSuggestionPriorityBadgeClass(item.priorityLevel)}>
+                      {getSuggestionPriorityLabel(item.priorityLevel)}
+                    </span>
+                  </div>
+                  <small>
+                    Impacto financeiro estimado: R$ {item.estimatedFinancialImpact.toFixed(2)}
+                  </small>
+                  <small>{item.estimatedNutritionalImpact}</small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">Sem sugestoes geradas para a importacao selecionada.</p>
           )}
         </article>
 
