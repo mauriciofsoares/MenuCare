@@ -270,6 +270,26 @@ function App() {
     return status
   }
 
+  const getContractStatusLabel = (status: string) => {
+    if (status === 'draft') {
+      return uiMessage.auth.contractStatusDraft
+    }
+
+    if (status === 'processing') {
+      return uiMessage.auth.contractStatusProcessing
+    }
+
+    if (status === 'active') {
+      return uiMessage.auth.contractStatusActive
+    }
+
+    if (status === 'archived') {
+      return uiMessage.auth.contractStatusArchived
+    }
+
+    return status
+  }
+
   const fetchDashboardSummary = async (token: string) => {
     const response = await fetch(`${API_URL}/dashboard/summary`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -1168,7 +1188,7 @@ function App() {
                 {dashboardSummary.recentContracts.map((contract) => (
                   <li key={contract.id}>
                     <strong>{contract.title}</strong>
-                    <span>{contract.status}</span>
+                    <span>{getContractStatusLabel(contract.status)}</span>
                   </li>
                 ))}
               </ul>
@@ -1581,7 +1601,7 @@ function App() {
               contracts.map((contract) => (
                 <li key={contract.id}>
                   <strong>{contract.title}</strong>
-                  <span>{contract.status}</span>
+                  <span>{getContractStatusLabel(contract.status)}</span>
                 </li>
               ))
             ) : (
@@ -1605,7 +1625,7 @@ function App() {
               rules.map((rule) => (
                 <li key={rule.id}>
                   <strong>{rule.title}</strong>
-                  <span>{rule.status}</span>
+                  <span>{getRuleStatusLabel(rule.status)}</span>
                 </li>
               ))
             ) : (

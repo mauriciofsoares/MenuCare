@@ -49,6 +49,10 @@ const uiMessagesByLocale = {
       ruleStatusApproved: 'Aprovada',
       ruleStatusRejected: 'Rejeitada',
       ruleStatusArchived: 'Arquivada',
+      contractStatusDraft: 'Rascunho',
+      contractStatusProcessing: 'Em processamento',
+      contractStatusActive: 'Ativo',
+      contractStatusArchived: 'Arquivado',
       activeSession: 'Sessao ativa em',
     },
     common: {
@@ -110,6 +114,10 @@ const uiMessagesByLocale = {
       ruleStatusApproved: 'Approved',
       ruleStatusRejected: 'Rejected',
       ruleStatusArchived: 'Archived',
+      contractStatusDraft: 'Draft',
+      contractStatusProcessing: 'Processing',
+      contractStatusActive: 'Active',
+      contractStatusArchived: 'Archived',
       activeSession: 'Active session at',
     },
     common: {
