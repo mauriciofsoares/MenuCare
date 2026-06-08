@@ -40,6 +40,10 @@ const uiMessagesByLocale = {
       inviteAuditTitle: 'Rastreabilidade de acessos',
       inviteAuditLoading: 'Carregando auditoria de convites...',
       inviteAuditEmpty: 'Sem eventos de auditoria para convites.',
+      inviteAuditActionGenerated: 'Gerado',
+      inviteAuditActionRevoked: 'Revogado',
+      inviteAuditActionRegenerated: 'Regenerado',
+      inviteAuditActionActivated: 'Ativado',
       activeSession: 'Sessao ativa em',
     },
     common: {
@@ -92,6 +96,10 @@ const uiMessagesByLocale = {
       inviteAuditTitle: 'Access traceability',
       inviteAuditLoading: 'Loading invitation audit events...',
       inviteAuditEmpty: 'No audit events found for invitations.',
+      inviteAuditActionGenerated: 'Generated',
+      inviteAuditActionRevoked: 'Revoked',
+      inviteAuditActionRegenerated: 'Regenerated',
+      inviteAuditActionActivated: 'Activated',
       activeSession: 'Active session at',
     },
     common: {

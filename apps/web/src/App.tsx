@@ -226,6 +226,26 @@ function App() {
   const uiMessage = getUiMessage(locale)
   const supportedLocales = getSupportedUiLocales()
 
+  const getInviteAuditActionLabel = (action: string) => {
+    if (action === 'generated') {
+      return uiMessage.auth.inviteAuditActionGenerated
+    }
+
+    if (action === 'revoked') {
+      return uiMessage.auth.inviteAuditActionRevoked
+    }
+
+    if (action === 'regenerated') {
+      return uiMessage.auth.inviteAuditActionRegenerated
+    }
+
+    if (action === 'activated') {
+      return uiMessage.auth.inviteAuditActionActivated
+    }
+
+    return action
+  }
+
   const fetchDashboardSummary = async (token: string) => {
     const response = await fetch(`${API_URL}/dashboard/summary`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -1265,7 +1285,7 @@ function App() {
               {inviteAuditEvents.map((event) => (
                 <li key={event.id}>
                   <div className="validation-history-row">
-                    <strong>{event.action}</strong>
+                    <strong>{getInviteAuditActionLabel(event.action)}</strong>
                     <span>{event.inviteToken}</span>
                   </div>
                   <p>{event.inviteEmail}</p>
