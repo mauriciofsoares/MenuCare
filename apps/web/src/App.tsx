@@ -228,6 +228,31 @@ type RecommendationPolicyContract = {
   blockingCriteria: RecommendationPolicyBlockingKey[]
 }
 
+type MenuImportItem = {
+  id: string
+  fileName: string
+  unitName: string
+  serviceName: string
+  referenceDate: string
+  mealType: string
+  financialGoal: number
+  mealCost: number
+  exceededValue: number
+  exceededPercent: number
+  validationStatus: 'within_goal' | 'above_goal'
+  recipes: string[]
+  createdAt: string
+}
+
+type MenuImportAuditItem = {
+  id: string
+  ruleId: string | null
+  ruleTitle: string
+  resultStatus: 'compliant' | 'non_compliant'
+  evidence: string
+  createdAt: string
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -374,6 +399,13 @@ function App() {
   const [complianceExportAuditTotal, setComplianceExportAuditTotal] = useState(0)
   const [recommendationPolicy, setRecommendationPolicy] = useState<RecommendationPolicyContract | null>(null)
   const [isLoadingRecommendationPolicy, setIsLoadingRecommendationPolicy] = useState(false)
+  const [menuImports, setMenuImports] = useState<MenuImportItem[]>([])
+  const [isLoadingMenuImports, setIsLoadingMenuImports] = useState(false)
+  const [isSubmittingMenuImport, setIsSubmittingMenuImport] = useState(false)
+  const [selectedMenuImportId, setSelectedMenuImportId] = useState('')
+  const [menuImportAuditItems, setMenuImportAuditItems] = useState<MenuImportAuditItem[]>([])
+  const [isLoadingMenuImportAudit, setIsLoadingMenuImportAudit] = useState(false)
+  const [isRunningMenuImportAudit, setIsRunningMenuImportAudit] = useState(false)
   const [complianceExportAuditExportScope, setComplianceExportAuditExportScope] =
     useState<'page' | 'all'>('page')
   const [isExportingNonConformityHistory, setIsExportingNonConformityHistory] = useState(false)
@@ -451,6 +483,16 @@ function App() {
     owner: '',
     dueDate: '',
     status: 'pending',
+  })
+  const [menuImportForm, setMenuImportForm] = useState({
+    fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+    unitName: '',
+    serviceName: '',
+    referenceDate: '',
+    mealType: 'Almoco',
+    financialGoal: '',
+    mealCost: '',
+    recipesText: '',
   })
 
   const uiMessage = getUiMessage(locale)
@@ -692,6 +734,38 @@ function App() {
     return 'status-badge is-neutral'
   }
 
+  const getMenuImportStatusLabel = (status: MenuImportItem['validationStatus']) => {
+    if (status === 'within_goal') {
+      return 'Dentro da meta'
+    }
+
+    return 'Acima da meta'
+  }
+
+  const getMenuImportStatusBadgeClass = (status: MenuImportItem['validationStatus']) => {
+    if (status === 'within_goal') {
+      return 'status-badge is-positive'
+    }
+
+    return 'status-badge is-negative'
+  }
+
+  const getMenuImportAuditStatusLabel = (status: MenuImportAuditItem['resultStatus']) => {
+    if (status === 'compliant') {
+      return 'Conforme'
+    }
+
+    return 'Nao conforme'
+  }
+
+  const getMenuImportAuditStatusBadgeClass = (status: MenuImportAuditItem['resultStatus']) => {
+    if (status === 'compliant') {
+      return 'status-badge is-positive'
+    }
+
+    return 'status-badge is-negative'
+  }
+
   const fetchRecommendationPolicy = async (token: string) => {
     setIsLoadingRecommendationPolicy(true)
 
@@ -713,6 +787,61 @@ function App() {
       setRecommendationPolicy(null)
     } finally {
       setIsLoadingRecommendationPolicy(false)
+    }
+  }
+
+  const fetchMenuImports = async (token: string) => {
+    setIsLoadingMenuImports(true)
+
+    try {
+      const response = await fetch(`${API_URL}/menus/imports?limit=10`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; imports: MenuImportItem[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error(
+          'message' in payload ? payload.message : 'Falha ao carregar importacoes de cardapio.',
+        )
+      }
+
+      setMenuImports(payload.imports ?? [])
+    } catch {
+      setMenuImports([])
+    } finally {
+      setIsLoadingMenuImports(false)
+    }
+  }
+
+  const fetchMenuImportAudit = async (token: string, importId: string) => {
+    if (!importId) {
+      setMenuImportAuditItems([])
+      return
+    }
+
+    setIsLoadingMenuImportAudit(true)
+
+    try {
+      const response = await fetch(`${API_URL}/menus/imports/${importId}/audit`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; results: MenuImportAuditItem[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error()
+      }
+
+      setMenuImportAuditItems(payload.results ?? [])
+    } catch {
+      setMenuImportAuditItems([])
+    } finally {
+      setIsLoadingMenuImportAudit(false)
     }
   }
 
@@ -1219,11 +1348,30 @@ function App() {
   useEffect(() => {
     if (!authState) {
       setRecommendationPolicy(null)
+      setMenuImports([])
+      setSelectedMenuImportId('')
+      setMenuImportAuditItems([])
       return
     }
 
     void fetchRecommendationPolicy(authState.token)
+    void fetchMenuImports(authState.token)
   }, [authState?.token])
+
+  useEffect(() => {
+    if (!selectedMenuImportId && menuImports.length > 0) {
+      setSelectedMenuImportId(menuImports[0].id)
+    }
+  }, [menuImports, selectedMenuImportId])
+
+  useEffect(() => {
+    if (!authState || !selectedMenuImportId) {
+      setMenuImportAuditItems([])
+      return
+    }
+
+    void fetchMenuImportAudit(authState.token, selectedMenuImportId)
+  }, [authState?.token, selectedMenuImportId])
 
   useEffect(() => {
     if (!authState) {
@@ -1596,6 +1744,99 @@ function App() {
       setDomainError(error instanceof Error ? error.message : 'Falha ao cadastrar contrato.')
     } finally {
       setIsSubmittingContract(false)
+    }
+  }
+
+  const handleMenuImportSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!authState) {
+      return
+    }
+
+    setDomainError(null)
+    setIsSubmittingMenuImport(true)
+
+    try {
+      const recipes = menuImportForm.recipesText
+        .split(/\n|,|;/)
+        .map((item) => item.trim())
+        .filter(Boolean)
+
+      const response = await fetch(`${API_URL}/menus/imports`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authState.token}`,
+        },
+        body: JSON.stringify({
+          fileName: menuImportForm.fileName.trim(),
+          unitName: menuImportForm.unitName.trim(),
+          serviceName: menuImportForm.serviceName.trim(),
+          referenceDate: menuImportForm.referenceDate,
+          mealType: menuImportForm.mealType.trim(),
+          financialGoal: Number(menuImportForm.financialGoal),
+          mealCost: Number(menuImportForm.mealCost),
+          recipes,
+        }),
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; import: MenuImportItem }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error(
+          'message' in payload ? payload.message : 'Falha ao importar cardapio PDF.',
+        )
+      }
+
+      setMenuImportForm((current) => ({
+        ...current,
+        serviceName: '',
+        referenceDate: '',
+        mealType: 'Almoco',
+        financialGoal: '',
+        mealCost: '',
+        recipesText: '',
+      }))
+
+      await fetchMenuImports(authState.token)
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao importar cardapio PDF.')
+    } finally {
+      setIsSubmittingMenuImport(false)
+    }
+  }
+
+  const handleRunMenuImportAudit = async () => {
+    if (!authState || !selectedMenuImportId) {
+      return
+    }
+
+    setDomainError(null)
+    setIsRunningMenuImportAudit(true)
+
+    try {
+      const response = await fetch(`${API_URL}/menus/imports/${selectedMenuImportId}/audit`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authState.token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; results: MenuImportAuditItem[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao executar auditoria.')
+      }
+
+      setMenuImportAuditItems(payload.results ?? [])
+      await fetchMenuImports(authState.token)
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao executar auditoria.')
+    } finally {
+      setIsRunningMenuImportAudit(false)
     }
   }
 
@@ -2933,6 +3174,202 @@ function App() {
               {isSubmittingContract ? 'Salvando...' : 'Salvar contrato'}
             </button>
           </form>
+        </article>
+
+        <article className="panel">
+          <div className="section-head compact">
+            <div>
+              <span className="section-kicker">Importacao operacional</span>
+              <h2>Cardapio PDF da Genial</h2>
+            </div>
+          </div>
+
+          <form className="crud-form" onSubmit={handleMenuImportSubmit}>
+            <label>
+              <span>Arquivo PDF</span>
+              <input
+                type="text"
+                value={menuImportForm.fileName}
+                onChange={(event) =>
+                  setMenuImportForm((current) => ({ ...current, fileName: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>Unidade</span>
+              <input
+                type="text"
+                value={menuImportForm.unitName}
+                onChange={(event) =>
+                  setMenuImportForm((current) => ({ ...current, unitName: event.target.value }))
+                }
+                required
+                minLength={2}
+              />
+            </label>
+
+            <label>
+              <span>Servico</span>
+              <input
+                type="text"
+                value={menuImportForm.serviceName}
+                onChange={(event) =>
+                  setMenuImportForm((current) => ({ ...current, serviceName: event.target.value }))
+                }
+                required
+                minLength={2}
+              />
+            </label>
+
+            <label>
+              <span>Data de referencia</span>
+              <input
+                type="date"
+                value={menuImportForm.referenceDate}
+                onChange={(event) =>
+                  setMenuImportForm((current) => ({ ...current, referenceDate: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>Tipo de refeicao</span>
+              <input
+                type="text"
+                value={menuImportForm.mealType}
+                onChange={(event) =>
+                  setMenuImportForm((current) => ({ ...current, mealType: event.target.value }))
+                }
+                required
+                minLength={2}
+              />
+            </label>
+
+            <label>
+              <span>Meta financeira (R$)</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0.01"
+                value={menuImportForm.financialGoal}
+                onChange={(event) =>
+                  setMenuImportForm((current) => ({ ...current, financialGoal: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>Custo da refeicao (R$)</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={menuImportForm.mealCost}
+                onChange={(event) =>
+                  setMenuImportForm((current) => ({ ...current, mealCost: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>Receitas extraidas (uma por linha ou separadas por virgula)</span>
+              <textarea
+                value={menuImportForm.recipesText}
+                onChange={(event) =>
+                  setMenuImportForm((current) => ({ ...current, recipesText: event.target.value }))
+                }
+              />
+            </label>
+
+            <button type="submit" className="auth-button" disabled={isSubmittingMenuImport}>
+              {isSubmittingMenuImport ? 'Importando...' : 'Registrar importacao PDF'}
+            </button>
+          </form>
+
+          {isLoadingMenuImports ? (
+            <p className="empty-note">Carregando importacoes de cardapio...</p>
+          ) : menuImports.length ? (
+            <ul className="validation-history-list">
+              {menuImports.map((item) => (
+                <li key={item.id}>
+                  <div className="validation-history-row">
+                    <strong>{item.fileName}</strong>
+                    <span className={getMenuImportStatusBadgeClass(item.validationStatus)}>
+                      {getMenuImportStatusLabel(item.validationStatus)}
+                    </span>
+                  </div>
+                  <small>
+                    {item.unitName} · {item.serviceName} · {item.mealType} ·{' '}
+                    {new Date(item.referenceDate).toLocaleDateString(locale)}
+                  </small>
+                  <small>
+                    Meta R$ {item.financialGoal.toFixed(2)} | Custo R$ {item.mealCost.toFixed(2)}
+                    {item.validationStatus === 'above_goal'
+                      ? ` | Excedente R$ ${item.exceededValue.toFixed(2)} (${item.exceededPercent.toFixed(2)}%)`
+                      : ''}
+                  </small>
+                  {item.recipes.length ? <small>Receitas: {item.recipes.join(' | ')}</small> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">Nenhum cardapio PDF importado ainda.</p>
+          )}
+
+          <div className="invite-history-head">
+            <h3>Auditoria contratual do cardapio</h3>
+            <label>
+              <span>Importacao alvo</span>
+              <select
+                value={selectedMenuImportId}
+                onChange={(event) => setSelectedMenuImportId(event.target.value)}
+                disabled={!menuImports.length || isRunningMenuImportAudit}
+              >
+                <option value="">Selecione</option>
+                {menuImports.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.fileName} · {new Date(item.referenceDate).toLocaleDateString(locale)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div className="history-filter-actions">
+            <button
+              type="button"
+              className="logout-button"
+              disabled={!selectedMenuImportId || isRunningMenuImportAudit}
+              onClick={handleRunMenuImportAudit}
+            >
+              {isRunningMenuImportAudit ? 'Auditando...' : 'Executar auditoria contratual'}
+            </button>
+          </div>
+
+          {isLoadingMenuImportAudit ? (
+            <p className="empty-note">Carregando auditoria contratual...</p>
+          ) : menuImportAuditItems.length ? (
+            <ul className="validation-history-list">
+              {menuImportAuditItems.map((item) => (
+                <li key={item.id}>
+                  <div className="validation-history-row">
+                    <strong>{item.ruleTitle}</strong>
+                    <span className={getMenuImportAuditStatusBadgeClass(item.resultStatus)}>
+                      {getMenuImportAuditStatusLabel(item.resultStatus)}
+                    </span>
+                  </div>
+                  <small>{item.evidence}</small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">Sem resultados de auditoria para a importacao selecionada.</p>
+          )}
         </article>
 
         <article className="panel">

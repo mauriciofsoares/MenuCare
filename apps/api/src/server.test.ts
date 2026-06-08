@@ -76,6 +76,122 @@ describe('API integration', () => {
     assert.equal(Array.isArray(response.body.policy?.blockingCriteria), true)
   })
 
+  it('menu import endpoint should create and list pdf imports', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const createResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-08',
+        mealType: 'Almoco',
+        financialGoal: 14.5,
+        mealCost: 15.8,
+        recipes: ['Arroz integral', 'Feijao carioca', 'Frango grelhado'],
+      })
+
+    if (createResponse.status === 503) {
+      assert.equal(createResponse.body.status, 'error')
+      return
+    }
+
+    assert.equal(createResponse.status, 201)
+    assert.equal(createResponse.body.status, 'ok')
+    assert.equal(createResponse.body.import?.validationStatus, 'above_goal')
+    assert.equal(createResponse.body.import?.fileName, 'BROKER2.GENIALNET.COM.BR.pdf')
+
+    const listResponse = await request(app.server)
+      .get('/menus/imports?limit=5')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+
+    assert.equal(listResponse.status, 200)
+    assert.equal(listResponse.body.status, 'ok')
+    assert.equal(Array.isArray(listResponse.body.imports), true)
+    assert.ok((listResponse.body.imports as Array<{ id: string }>).length >= 1)
+  })
+
+  it('menu import audit should compare imported recipes against approved rules', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const contractResponse = await request(app.server)
+      .post('/contracts')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        title: 'Contrato Auditoria Cardapio',
+        sourceType: 'contract',
+        status: 'active',
+      })
+
+    if (contractResponse.status === 503) {
+      assert.equal(contractResponse.body.status, 'error')
+      return
+    }
+
+    assert.equal(contractResponse.status, 201)
+
+    const ruleResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId: contractResponse.body.contract?.id as string,
+        title: 'Frango grelhado obrigatorio no almoco',
+        description: 'Cardapio deve conter frango grelhado no almoco',
+        category: 'proteina',
+        status: 'approved',
+      })
+
+    assert.equal(ruleResponse.status, 201)
+
+    const importResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-08',
+        mealType: 'Almoco',
+        financialGoal: 14.5,
+        mealCost: 13.9,
+        recipes: ['Arroz integral', 'Feijao carioca', 'Frango grelhado'],
+      })
+
+    assert.equal(importResponse.status, 201)
+
+    const auditResponse = await request(app.server)
+      .post(`/menus/imports/${importResponse.body.import?.id as string}/audit`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(auditResponse.status, 200)
+    assert.equal(auditResponse.body.status, 'ok')
+    assert.ok((auditResponse.body.summary?.auditedRules as number) >= 1)
+
+    const fetchAuditResponse = await request(app.server)
+      .get(`/menus/imports/${importResponse.body.import?.id as string}/audit`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(fetchAuditResponse.status, 200)
+    assert.equal(fetchAuditResponse.body.status, 'ok')
+    assert.equal(Array.isArray(fetchAuditResponse.body.results), true)
+  })
+
   it('login should return 429 after too many failed attempts', async () => {
     const targetEmail = 'blocked@menucare.local'
 

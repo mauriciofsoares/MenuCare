@@ -49,6 +49,25 @@ const contractSchema = z.object({
   status: z.enum(['draft', 'processing', 'active', 'archived']).default('processing'),
 });
 
+const menuImportSchema = z.object({
+  fileName: z.string().min(5).max(240).regex(/\.pdf$/i),
+  unitName: z.string().min(2).max(120),
+  serviceName: z.string().min(2).max(120),
+  referenceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  mealType: z.string().min(2).max(60),
+  financialGoal: z.coerce.number().positive(),
+  mealCost: z.coerce.number().nonnegative(),
+  recipes: z.array(z.string().min(1).max(180)).max(60).default([]),
+});
+
+const menuImportListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+const menuImportParamsSchema = z.object({
+  importId: z.string().min(1),
+});
+
 const ruleSchema = z.object({
   contractId: z.string().min(1),
   title: z.string().min(3),
@@ -412,6 +431,39 @@ const ensureDomainTables = async () => {
   `;
 
   await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS menu_pdf_imports (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      unit_name TEXT NOT NULL,
+      service_name TEXT NOT NULL,
+      reference_date DATE NOT NULL,
+      meal_type TEXT NOT NULL,
+      financial_goal NUMERIC(12, 2) NOT NULL,
+      meal_cost NUMERIC(12, 2) NOT NULL,
+      exceeded_value NUMERIC(12, 2) NOT NULL,
+      exceeded_percent NUMERIC(8, 2) NOT NULL,
+      validation_status TEXT NOT NULL,
+      recipes_json TEXT NOT NULL,
+      imported_by TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS menu_import_rule_audits (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      menu_import_id TEXT NOT NULL,
+      rule_id TEXT,
+      rule_title TEXT NOT NULL,
+      result_status TEXT NOT NULL,
+      evidence TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
     ALTER TABLE compliance_export_events
     ADD COLUMN IF NOT EXISTS filter_export_id TEXT
   `;
@@ -479,6 +531,16 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_compliance_export_events_export_type
     ON compliance_export_events (export_type, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_menu_pdf_imports_company_created_at
+    ON menu_pdf_imports (company_name, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_menu_import_rule_audits_import_created_at
+    ON menu_import_rule_audits (menu_import_id, created_at DESC)
   `;
 
   domainTablesReady = true;
@@ -1331,6 +1393,411 @@ app.post('/contracts', { preHandler: authenticate }, async (request, reply) => {
       createdBy: actor.name,
     },
   });
+});
+
+app.post('/menus/imports', { preHandler: authenticate }, async (request, reply) => {
+  const parsed = menuImportSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Payload de importacao de cardapio invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
+  const payload = parsed.data;
+  const importId = randomUUID();
+  const exceededValue = Math.max(payload.mealCost - payload.financialGoal, 0);
+  const exceededPercent =
+    payload.financialGoal > 0
+      ? (exceededValue / payload.financialGoal) * 100
+      : 0;
+  const status = exceededValue > 0 ? 'above_goal' : 'within_goal';
+
+  await ensureDomainTables();
+
+  await prisma.$executeRaw`
+    INSERT INTO menu_pdf_imports (
+      id,
+      company_name,
+      file_name,
+      unit_name,
+      service_name,
+      reference_date,
+      meal_type,
+      financial_goal,
+      meal_cost,
+      exceeded_value,
+      exceeded_percent,
+      validation_status,
+      recipes_json,
+      imported_by
+    )
+    VALUES (
+      ${importId},
+      ${companyName},
+      ${payload.fileName.trim()},
+      ${payload.unitName.trim()},
+      ${payload.serviceName.trim()},
+      ${payload.referenceDate},
+      ${payload.mealType.trim()},
+      ${payload.financialGoal},
+      ${payload.mealCost},
+      ${Number(exceededValue.toFixed(2))},
+      ${Number(exceededPercent.toFixed(2))},
+      ${status},
+      ${JSON.stringify(payload.recipes)},
+      ${actor.id}
+    )
+  `;
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    file_name: string;
+    unit_name: string;
+    service_name: string;
+    reference_date: Date;
+    meal_type: string;
+    financial_goal: number | string;
+    meal_cost: number | string;
+    exceeded_value: number | string;
+    exceeded_percent: number | string;
+    validation_status: string;
+    recipes_json: string;
+    created_at: Date;
+  }>>`
+    SELECT
+      id,
+      file_name,
+      unit_name,
+      service_name,
+      reference_date,
+      meal_type,
+      financial_goal,
+      meal_cost,
+      exceeded_value,
+      exceeded_percent,
+      validation_status,
+      recipes_json,
+      created_at
+    FROM menu_pdf_imports
+    WHERE id = ${importId}
+    LIMIT 1
+  `;
+
+  const imported = rows[0];
+
+  const parseNumber = (value: number | string | undefined) => {
+    if (typeof value === 'number') {
+      return Number(value.toFixed(2));
+    }
+
+    const parsedValue = Number(value ?? 0);
+    return Number(parsedValue.toFixed(2));
+  };
+
+  return reply.code(201).send({
+    status: 'ok',
+    import: {
+      id: imported?.id ?? importId,
+      fileName: imported?.file_name ?? payload.fileName,
+      unitName: imported?.unit_name ?? payload.unitName,
+      serviceName: imported?.service_name ?? payload.serviceName,
+      referenceDate: (imported?.reference_date ?? new Date(payload.referenceDate)).toISOString(),
+      mealType: imported?.meal_type ?? payload.mealType,
+      financialGoal: parseNumber(imported?.financial_goal),
+      mealCost: parseNumber(imported?.meal_cost),
+      exceededValue: parseNumber(imported?.exceeded_value),
+      exceededPercent: parseNumber(imported?.exceeded_percent),
+      validationStatus: imported?.validation_status ?? status,
+      recipes: imported ? JSON.parse(imported.recipes_json) : payload.recipes,
+      createdAt: (imported?.created_at ?? new Date()).toISOString(),
+    },
+  });
+});
+
+app.get('/menus/imports', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const parsedQuery = menuImportListQuerySchema.safeParse(request.query);
+  const limit = parsedQuery.success ? parsedQuery.data.limit : 20;
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    file_name: string;
+    unit_name: string;
+    service_name: string;
+    reference_date: Date;
+    meal_type: string;
+    financial_goal: number | string;
+    meal_cost: number | string;
+    exceeded_value: number | string;
+    exceeded_percent: number | string;
+    validation_status: string;
+    recipes_json: string;
+    created_at: Date;
+  }>>`
+    SELECT
+      id,
+      file_name,
+      unit_name,
+      service_name,
+      reference_date,
+      meal_type,
+      financial_goal,
+      meal_cost,
+      exceeded_value,
+      exceeded_percent,
+      validation_status,
+      recipes_json,
+      created_at
+    FROM menu_pdf_imports
+    WHERE company_name = ${companyName}
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `;
+
+  const parseNumber = (value: number | string) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number(parsed.toFixed(2));
+  };
+
+  return {
+    status: 'ok',
+    imports: rows.map((item) => ({
+      id: item.id,
+      fileName: item.file_name,
+      unitName: item.unit_name,
+      serviceName: item.service_name,
+      referenceDate: item.reference_date.toISOString(),
+      mealType: item.meal_type,
+      financialGoal: parseNumber(item.financial_goal),
+      mealCost: parseNumber(item.meal_cost),
+      exceededValue: parseNumber(item.exceeded_value),
+      exceededPercent: parseNumber(item.exceeded_percent),
+      validationStatus: item.validation_status,
+      recipes: JSON.parse(item.recipes_json) as string[],
+      createdAt: item.created_at.toISOString(),
+    })),
+  };
+});
+
+app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = menuImportParamsSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Identificador de importacao invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const importId = parsedParams.data.importId;
+
+  await ensureDomainTables();
+
+  const importedRows = await prisma.$queryRaw<Array<{ id: string; recipes_json: string }>>`
+    SELECT id, recipes_json
+    FROM menu_pdf_imports
+    WHERE id = ${importId}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  const imported = importedRows[0];
+
+  if (!imported) {
+    return reply.code(404).send({
+      status: 'error',
+      message: 'Importacao de cardapio nao encontrada para esta empresa.',
+    });
+  }
+
+  const approvedRules = await prisma.$queryRaw<Array<{
+    id: string;
+    title: string;
+    description: string;
+  }>>`
+    SELECT id, title, description
+    FROM extracted_rules
+    WHERE company_name = ${companyName}
+      AND status = 'approved'
+    ORDER BY created_at DESC
+    LIMIT 200
+  `;
+
+  const importedRecipes = (() => {
+    try {
+      const parsed = JSON.parse(imported.recipes_json) as string[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  const recipeCorpus = importedRecipes.join(' ').toLowerCase();
+
+  const normalize = (value: string) =>
+    value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+  await prisma.$executeRaw`
+    DELETE FROM menu_import_rule_audits
+    WHERE menu_import_id = ${importId}
+      AND company_name = ${companyName}
+  `;
+
+  const auditRows: Array<{
+    id: string;
+    ruleId: string;
+    ruleTitle: string;
+    resultStatus: 'compliant' | 'non_compliant';
+    evidence: string;
+    createdAt: string;
+  }> = [];
+
+  for (const rule of approvedRules) {
+    const tokenSource = normalize(`${rule.title} ${rule.description}`)
+      .split(/[^a-z0-9]+/)
+      .filter((token) => token.length >= 4)
+      .slice(0, 12);
+    const hasEvidence = tokenSource.some((token) => normalize(recipeCorpus).includes(token));
+    const resultStatus: 'compliant' | 'non_compliant' = hasEvidence
+      ? 'compliant'
+      : 'non_compliant';
+    const evidence = hasEvidence
+      ? 'Regra com evidencia textual nas receitas importadas.'
+      : 'Regra sem evidencia textual nas receitas importadas.';
+    const rowId = randomUUID();
+
+    await prisma.$executeRaw`
+      INSERT INTO menu_import_rule_audits (
+        id,
+        company_name,
+        menu_import_id,
+        rule_id,
+        rule_title,
+        result_status,
+        evidence
+      )
+      VALUES (
+        ${rowId},
+        ${companyName},
+        ${importId},
+        ${rule.id},
+        ${rule.title},
+        ${resultStatus},
+        ${evidence}
+      )
+    `;
+
+    auditRows.push({
+      id: rowId,
+      ruleId: rule.id,
+      ruleTitle: rule.title,
+      resultStatus,
+      evidence,
+      createdAt: new Date().toISOString(),
+    });
+  }
+
+  const compliantCount = auditRows.filter((item) => item.resultStatus === 'compliant').length;
+  const nonCompliantCount = auditRows.filter((item) => item.resultStatus === 'non_compliant').length;
+
+  return {
+    status: 'ok',
+    summary: {
+      auditedRules: auditRows.length,
+      compliantCount,
+      nonCompliantCount,
+    },
+    results: auditRows,
+  };
+});
+
+app.get('/menus/imports/:importId/audit', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = menuImportParamsSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Identificador de importacao invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const importId = parsedParams.data.importId;
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    rule_id: string | null;
+    rule_title: string;
+    result_status: 'compliant' | 'non_compliant';
+    evidence: string;
+    created_at: Date;
+  }>>`
+    SELECT id, rule_id, rule_title, result_status, evidence, created_at
+    FROM menu_import_rule_audits
+    WHERE menu_import_id = ${importId}
+      AND company_name = ${companyName}
+    ORDER BY created_at DESC
+  `;
+
+  const compliantCount = rows.filter((item) => item.result_status === 'compliant').length;
+  const nonCompliantCount = rows.filter((item) => item.result_status === 'non_compliant').length;
+
+  return {
+    status: 'ok',
+    summary: {
+      auditedRules: rows.length,
+      compliantCount,
+      nonCompliantCount,
+    },
+    results: rows.map((item) => ({
+      id: item.id,
+      ruleId: item.rule_id,
+      ruleTitle: item.rule_title,
+      resultStatus: item.result_status,
+      evidence: item.evidence,
+      createdAt: item.created_at.toISOString(),
+    })),
+  };
 });
 
 app.get('/contracts', { preHandler: authenticate }, async (request, reply) => {
