@@ -1761,6 +1761,16 @@ app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authe
   };
 
   const header = 'created_at,actor_name,previous_status,next_status';
+  const metadata = [
+    '# export_type,non_conformity_history',
+    `# generated_at,${new Date().toISOString()}`,
+    `# company_name,${csvEscape(companyName)}`,
+    `# non_conformity_id,${csvEscape(parsedParams.data.nonConformityId)}`,
+    `# filter_actor,${csvEscape(parsedQuery.data.actor?.trim() ?? '')}`,
+    `# filter_from,${csvEscape(parsedQuery.data.from ?? '')}`,
+    `# filter_to,${csvEscape(parsedQuery.data.to ?? '')}`,
+    '# ----',
+  ];
   const lines = rows.map((row) =>
     [
       csvEscape(row.created_at.toISOString()),
@@ -1770,7 +1780,7 @@ app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authe
     ].join(','),
   );
 
-  const csv = [header, ...lines].join('\n');
+  const csv = [...metadata, header, ...lines].join('\n');
 
   reply.header('Content-Type', 'text/csv; charset=utf-8');
   reply.header(
@@ -2051,6 +2061,17 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', {
   };
 
   const header = 'created_at,actor_name,previous_status,next_status';
+  const metadata = [
+    '# export_type,action_plan_history',
+    `# generated_at,${new Date().toISOString()}`,
+    `# company_name,${csvEscape(companyName)}`,
+    `# non_conformity_id,${csvEscape(parsedParams.data.nonConformityId)}`,
+    `# action_plan_id,${csvEscape(parsedParams.data.actionId)}`,
+    `# filter_actor,${csvEscape(parsedQuery.data.actor?.trim() ?? '')}`,
+    `# filter_from,${csvEscape(parsedQuery.data.from ?? '')}`,
+    `# filter_to,${csvEscape(parsedQuery.data.to ?? '')}`,
+    '# ----',
+  ];
   const lines = rows.map((row) =>
     [
       csvEscape(row.created_at.toISOString()),
@@ -2060,7 +2081,7 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', {
     ].join(','),
   );
 
-  const csv = [header, ...lines].join('\n');
+  const csv = [...metadata, header, ...lines].join('\n');
 
   reply.header('Content-Type', 'text/csv; charset=utf-8');
   reply.header(
