@@ -106,6 +106,14 @@ type ComplianceExportAuditEvent = {
   createdAt: string
 }
 
+type ComplianceExportAuditResponse = {
+  events?: ComplianceExportAuditEvent[]
+  page?: number
+  limit?: number
+  total?: number
+  hasNext?: boolean
+}
+
 type NonConformityItem = {
   id: string
   title: string
@@ -312,6 +320,9 @@ function App() {
   const [isUpdatingActionPlanId, setIsUpdatingActionPlanId] = useState<string | null>(null)
   const [isLoadingActionPlanHistory, setIsLoadingActionPlanHistory] = useState(false)
   const [isLoadingNonConformityHistory, setIsLoadingNonConformityHistory] = useState(false)
+  const [complianceExportAuditPage, setComplianceExportAuditPage] = useState(1)
+  const [complianceExportAuditHasNext, setComplianceExportAuditHasNext] = useState(false)
+  const [complianceExportAuditTotal, setComplianceExportAuditTotal] = useState(0)
   const [isExportingNonConformityHistory, setIsExportingNonConformityHistory] = useState(false)
   const [isExportingActionPlanHistory, setIsExportingActionPlanHistory] = useState(false)
   const [loginForm, setLoginForm] = useState({
@@ -642,6 +653,7 @@ function App() {
     try {
       const query = new URLSearchParams({
         exportType,
+        page: String(complianceExportAuditPage),
         limit: '30',
       })
 
@@ -665,7 +677,7 @@ function App() {
       )
 
       const payload = (await response.json()) as
-        | { status: 'ok'; events: ComplianceExportAuditEvent[] }
+        | ({ status: 'ok' } & ComplianceExportAuditResponse)
         | { status: 'error'; message: string }
 
       if (!response.ok || payload.status !== 'ok') {
@@ -675,8 +687,12 @@ function App() {
       }
 
       setComplianceExportAuditEvents(payload.events ?? [])
+      setComplianceExportAuditHasNext(Boolean(payload.hasNext))
+      setComplianceExportAuditTotal(payload.total ?? 0)
     } catch {
       setComplianceExportAuditEvents([])
+      setComplianceExportAuditHasNext(false)
+      setComplianceExportAuditTotal(0)
     } finally {
       setIsLoadingComplianceExportAudit(false)
     }
@@ -860,6 +876,8 @@ function App() {
       setInviteHistory([])
       setInviteAuditEvents([])
       setComplianceExportAuditEvents([])
+      setComplianceExportAuditHasNext(false)
+      setComplianceExportAuditTotal(0)
       return
     }
 
@@ -875,6 +893,7 @@ function App() {
     appliedComplianceExportAuditFilter.from,
     appliedComplianceExportAuditFilter.to,
     authState?.token,
+    complianceExportAuditPage,
     complianceExportAuditTypeFilter,
     inviteHistoryFilter,
   ])
@@ -2216,9 +2235,12 @@ function App() {
               <select
                 value={complianceExportAuditTypeFilter}
                 onChange={(event) =>
-                  setComplianceExportAuditTypeFilter(
-                    event.target.value as 'all' | 'non_conformity_history' | 'action_plan_history',
-                  )
+                  {
+                    setComplianceExportAuditPage(1)
+                    setComplianceExportAuditTypeFilter(
+                      event.target.value as 'all' | 'non_conformity_history' | 'action_plan_history',
+                    )
+                  }
                 }
               >
                 <option value="all">{uiMessage.auth.complianceExportAuditTypeAll}</option>
@@ -2278,11 +2300,14 @@ function App() {
                 type="button"
                 className="logout-button"
                 onClick={() =>
-                  setAppliedComplianceExportAuditFilter({
-                    actor: complianceExportAuditFilter.actor.trim(),
-                    from: complianceExportAuditFilter.from,
-                    to: complianceExportAuditFilter.to,
-                  })
+                  {
+                    setComplianceExportAuditPage(1)
+                    setAppliedComplianceExportAuditFilter({
+                      actor: complianceExportAuditFilter.actor.trim(),
+                      from: complianceExportAuditFilter.from,
+                      to: complianceExportAuditFilter.to,
+                    })
+                  }
                 }
               >
                 {uiMessage.auth.complianceExportAuditApplyButton}
@@ -2293,9 +2318,34 @@ function App() {
                 onClick={() => {
                   setComplianceExportAuditFilter({ actor: '', from: '', to: '' })
                   setAppliedComplianceExportAuditFilter({ actor: '', from: '', to: '' })
+                  setComplianceExportAuditPage(1)
                 }}
               >
                 {uiMessage.auth.complianceExportAuditClearButton}
+              </button>
+            </div>
+          </div>
+
+          <div className="history-pagination">
+            <small>
+              {uiMessage.auth.complianceExportAuditPageLabel} {complianceExportAuditPage} · {complianceExportAuditTotal}
+            </small>
+            <div className="history-filter-actions">
+              <button
+                type="button"
+                className="logout-button"
+                disabled={complianceExportAuditPage <= 1 || isLoadingComplianceExportAudit}
+                onClick={() => setComplianceExportAuditPage((current) => Math.max(1, current - 1))}
+              >
+                {uiMessage.auth.complianceExportAuditPrevButton}
+              </button>
+              <button
+                type="button"
+                className="logout-button"
+                disabled={!complianceExportAuditHasNext || isLoadingComplianceExportAudit}
+                onClick={() => setComplianceExportAuditPage((current) => current + 1)}
+              >
+                {uiMessage.auth.complianceExportAuditNextButton}
               </button>
             </div>
           </div>
