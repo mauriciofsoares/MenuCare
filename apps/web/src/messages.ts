@@ -44,6 +44,11 @@ const uiMessagesByLocale = {
       inviteAuditActionRevoked: 'Revogado',
       inviteAuditActionRegenerated: 'Regenerado',
       inviteAuditActionActivated: 'Ativado',
+      ruleStatusIdentified: 'Identificada',
+      ruleStatusUnderReview: 'Em validacao',
+      ruleStatusApproved: 'Aprovada',
+      ruleStatusRejected: 'Rejeitada',
+      ruleStatusArchived: 'Arquivada',
       activeSession: 'Sessao ativa em',
     },
     common: {
@@ -100,6 +105,11 @@ const uiMessagesByLocale = {
       inviteAuditActionRevoked: 'Revoked',
       inviteAuditActionRegenerated: 'Regenerated',
       inviteAuditActionActivated: 'Activated',
+      ruleStatusIdentified: 'Identified',
+      ruleStatusUnderReview: 'Under review',
+      ruleStatusApproved: 'Approved',
+      ruleStatusRejected: 'Rejected',
+      ruleStatusArchived: 'Archived',
       activeSession: 'Active session at',
     },
     common: {

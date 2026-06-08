@@ -246,6 +246,30 @@ function App() {
     return action
   }
 
+  const getRuleStatusLabel = (status: string) => {
+    if (status === 'identified') {
+      return uiMessage.auth.ruleStatusIdentified
+    }
+
+    if (status === 'under_review') {
+      return uiMessage.auth.ruleStatusUnderReview
+    }
+
+    if (status === 'approved') {
+      return uiMessage.auth.ruleStatusApproved
+    }
+
+    if (status === 'rejected') {
+      return uiMessage.auth.ruleStatusRejected
+    }
+
+    if (status === 'archived') {
+      return uiMessage.auth.ruleStatusArchived
+    }
+
+    return status
+  }
+
   const fetchDashboardSummary = async (token: string) => {
     const response = await fetch(`${API_URL}/dashboard/summary`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -1530,8 +1554,8 @@ function App() {
               {ruleValidationEvents.map((event) => (
                 <li key={event.id}>
                   <div className="validation-history-row">
-                    <strong>{event.previousStatus}</strong>
-                    <span>{event.nextStatus}</span>
+                    <strong>{getRuleStatusLabel(event.previousStatus)}</strong>
+                    <span>{getRuleStatusLabel(event.nextStatus)}</span>
                   </div>
                   <p>{event.note ?? 'Sem observacao registrada.'}</p>
                   <small>
