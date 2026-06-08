@@ -12,5 +12,31 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
+  api:
+    build:
+      context: .
+      target: api-runtime
+    container_name: menucare-api
+    restart: unless-stopped
+    depends_on:
+      - postgres
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 3001
+      DATABASE_URL: postgresql://menucare:menucare@postgres:5432/menucare?schema=public
+    ports:
+      - "3001:3001"
+
+  web:
+    build:
+      context: .
+      target: web-runtime
+    container_name: menucare-web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "5173:80"
+
 volumes:
   postgres_data:

@@ -111,6 +111,99 @@ Sempre preparar filtros por tenant.
 
 ---
 
+# ABSTRAÇÃO DE CONCEITOS TÉCNICOS PARA O USUÁRIO FINAL
+
+## Regra geral
+
+O MenuCare é multi-tenant na arquitetura, porém a interface não deve expor termos técnicos de isolamento, autorização ou tokens.
+
+Termos técnicos devem ficar restritos ao código, banco, API e documentação interna.
+
+Nunca exibir na interface do usuário:
+
+* tenant
+* tenantId
+* multi-tenant
+* role
+* permission
+* RBAC
+* JWT
+* claim
+* userId
+* invitation token
+
+---
+
+## Vocabulário obrigatório na interface
+
+Utilizar sempre termos orientados ao negócio:
+
+* Cliente
+* Empresa
+* Organização
+* Unidade
+* Conta
+
+Nunca usar no texto da UI:
+
+* Tenant
+* TenantId
+* Multi-Tenant
+* Role
+* RBAC
+* Claims
+* JWT
+
+---
+
+## Mapeamento de linguagem
+
+Tenant (interno) -> Empresa, Cliente ou Organização (UI)
+
+tenantId (interno) -> não exibir
+
+Role (interno) -> Administrador MenuCare, Administrador, Usuário Operacional
+
+Invitation Token (interno) -> Convite de acesso ou Link de ativação
+
+---
+
+## Experiência esperada
+
+Administrador MenuCare visualiza:
+
+* Clientes
+* Planos
+* Licenças
+* Assinaturas
+
+Administrador do cliente visualiza:
+
+* Usuários
+* Contratos
+* Cardápios
+* Configurações
+
+Usuário operacional visualiza apenas os módulos de trabalho.
+
+---
+
+## Diretriz de experiência
+
+A experiência deve ser: usuário -> empresa dele -> sistema.
+
+Nunca comunicar para o usuário final que ele está em um tenant.
+
+Exemplo correto:
+
+"Bem-vindo ao ambiente da empresa X."
+
+Exemplo incorreto:
+
+"Bem-vindo ao tenant X."
+
+---
+
 # STACK
 
 Frontend
