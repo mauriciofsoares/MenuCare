@@ -172,6 +172,12 @@ type ActionPlanHistoryFilter = {
   to: string
 }
 
+type ComplianceExportAuditFilter = {
+  actor: string
+  from: string
+  to: string
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -327,6 +333,18 @@ function App() {
   const [complianceExportAuditEvents, setComplianceExportAuditEvents] = useState<ComplianceExportAuditEvent[]>([])
   const [complianceExportAuditTypeFilter, setComplianceExportAuditTypeFilter] =
     useState<'all' | 'non_conformity_history' | 'action_plan_history'>('all')
+  const [complianceExportAuditFilter, setComplianceExportAuditFilter] =
+    useState<ComplianceExportAuditFilter>({
+      actor: '',
+      from: '',
+      to: '',
+    })
+  const [appliedComplianceExportAuditFilter, setAppliedComplianceExportAuditFilter] =
+    useState<ComplianceExportAuditFilter>({
+      actor: '',
+      from: '',
+      to: '',
+    })
   const [inviteHistoryFilter, setInviteHistoryFilter] = useState<'all' | 'active' | 'used'>('all')
   const [ruleValidationForm, setRuleValidationForm] = useState({
     ruleId: '',
@@ -617,12 +635,30 @@ function App() {
   const fetchComplianceExportAudit = async (
     token: string,
     exportType: 'all' | 'non_conformity_history' | 'action_plan_history',
+    filter: ComplianceExportAuditFilter,
   ) => {
     setIsLoadingComplianceExportAudit(true)
 
     try {
+      const query = new URLSearchParams({
+        exportType,
+        limit: '30',
+      })
+
+      if (filter.actor.trim()) {
+        query.set('actor', filter.actor.trim())
+      }
+
+      if (filter.from) {
+        query.set('from', filter.from)
+      }
+
+      if (filter.to) {
+        query.set('to', filter.to)
+      }
+
       const response = await fetch(
-        `${API_URL}/compliance/exports/audit?exportType=${exportType}&limit=30`,
+        `${API_URL}/compliance/exports/audit?${query.toString()}`,
         {
           headers: { Authorization: `Bearer ${token}` },
         },
@@ -829,8 +865,19 @@ function App() {
 
     void fetchInviteHistory(authState.token, inviteHistoryFilter)
     void fetchInviteAudit(authState.token)
-    void fetchComplianceExportAudit(authState.token, complianceExportAuditTypeFilter)
-  }, [authState?.token, complianceExportAuditTypeFilter, inviteHistoryFilter])
+    void fetchComplianceExportAudit(
+      authState.token,
+      complianceExportAuditTypeFilter,
+      appliedComplianceExportAuditFilter,
+    )
+  }, [
+    appliedComplianceExportAuditFilter.actor,
+    appliedComplianceExportAuditFilter.from,
+    appliedComplianceExportAuditFilter.to,
+    authState?.token,
+    complianceExportAuditTypeFilter,
+    inviteHistoryFilter,
+  ])
 
   useEffect(() => {
     if (!authState) {
@@ -2183,6 +2230,74 @@ function App() {
                 </option>
               </select>
             </label>
+          </div>
+
+          <div className="history-filter-grid">
+            <label>
+              <span>{uiMessage.auth.complianceExportAuditActorLabel}</span>
+              <input
+                type="text"
+                value={complianceExportAuditFilter.actor}
+                onChange={(event) =>
+                  setComplianceExportAuditFilter((current) => ({
+                    ...current,
+                    actor: event.target.value,
+                  }))
+                }
+                placeholder="Nome"
+              />
+            </label>
+            <label>
+              <span>{uiMessage.auth.complianceExportAuditFromLabel}</span>
+              <input
+                type="date"
+                value={complianceExportAuditFilter.from}
+                onChange={(event) =>
+                  setComplianceExportAuditFilter((current) => ({
+                    ...current,
+                    from: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>{uiMessage.auth.complianceExportAuditToLabel}</span>
+              <input
+                type="date"
+                value={complianceExportAuditFilter.to}
+                onChange={(event) =>
+                  setComplianceExportAuditFilter((current) => ({
+                    ...current,
+                    to: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <div className="history-filter-actions">
+              <button
+                type="button"
+                className="logout-button"
+                onClick={() =>
+                  setAppliedComplianceExportAuditFilter({
+                    actor: complianceExportAuditFilter.actor.trim(),
+                    from: complianceExportAuditFilter.from,
+                    to: complianceExportAuditFilter.to,
+                  })
+                }
+              >
+                {uiMessage.auth.complianceExportAuditApplyButton}
+              </button>
+              <button
+                type="button"
+                className="logout-button"
+                onClick={() => {
+                  setComplianceExportAuditFilter({ actor: '', from: '', to: '' })
+                  setAppliedComplianceExportAuditFilter({ actor: '', from: '', to: '' })
+                }}
+              >
+                {uiMessage.auth.complianceExportAuditClearButton}
+              </button>
+            </div>
           </div>
 
           {isLoadingComplianceExportAudit ? (
