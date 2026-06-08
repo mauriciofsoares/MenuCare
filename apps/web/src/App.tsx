@@ -123,6 +123,14 @@ type ActionPlanEvent = {
   createdAt: string
 }
 
+type NonConformityEvent = {
+  id: string
+  previousStatus: string
+  nextStatus: string
+  actorName: string
+  createdAt: string
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -207,6 +215,7 @@ function App() {
   const [nonConformities, setNonConformities] = useState<NonConformityItem[]>([])
   const [actionPlans, setActionPlans] = useState<ActionPlanItem[]>([])
   const [actionPlanEvents, setActionPlanEvents] = useState<ActionPlanEvent[]>([])
+  const [nonConformityEvents, setNonConformityEvents] = useState<NonConformityEvent[]>([])
   const [loadingSession, setLoadingSession] = useState(true)
   const [authError, setAuthError] = useState<string | null>(null)
   const [domainError, setDomainError] = useState<string | null>(null)
@@ -222,8 +231,10 @@ function App() {
   const [isSubmittingRule, setIsSubmittingRule] = useState(false)
   const [isSubmittingNonConformity, setIsSubmittingNonConformity] = useState(false)
   const [isSubmittingActionPlan, setIsSubmittingActionPlan] = useState(false)
+  const [isUpdatingNonConformityId, setIsUpdatingNonConformityId] = useState<string | null>(null)
   const [isUpdatingActionPlanId, setIsUpdatingActionPlanId] = useState<string | null>(null)
   const [isLoadingActionPlanHistory, setIsLoadingActionPlanHistory] = useState(false)
+  const [isLoadingNonConformityHistory, setIsLoadingNonConformityHistory] = useState(false)
   const [loginForm, setLoginForm] = useState({
     email: 'admin@menucare.local',
     password: 'Admin@123',
@@ -790,6 +801,7 @@ function App() {
     if (!authState || !selectedNonConformityId) {
       setActionPlans([])
       setActionPlanEvents([])
+      setNonConformityEvents([])
       return
     }
 
@@ -814,6 +826,38 @@ function App() {
     }
 
     void loadActionPlans()
+  }, [authState?.token, selectedNonConformityId])
+
+  useEffect(() => {
+    if (!authState || !selectedNonConformityId) {
+      setNonConformityEvents([])
+      return
+    }
+
+    const loadNonConformityHistory = async () => {
+      setIsLoadingNonConformityHistory(true)
+
+      try {
+        const response = await fetch(
+          `${API_URL}/non-conformities/${selectedNonConformityId}/history`,
+          {
+            headers: { Authorization: `Bearer ${authState.token}` },
+          },
+        )
+
+        if (!response.ok) {
+          setNonConformityEvents([])
+          return
+        }
+
+        const payload = (await response.json()) as { events?: NonConformityEvent[] }
+        setNonConformityEvents(payload.events ?? [])
+      } finally {
+        setIsLoadingNonConformityHistory(false)
+      }
+    }
+
+    void loadNonConformityHistory()
   }, [authState?.token, selectedNonConformityId])
 
   useEffect(() => {
@@ -1323,6 +1367,65 @@ function App() {
       setDomainError(error instanceof Error ? error.message : 'Falha ao atualizar acao.')
     } finally {
       setIsUpdatingActionPlanId(null)
+    }
+  }
+
+  const handleUpdateNonConformityStatus = async (
+    nonConformityId: string,
+    status: 'open' | 'in_progress' | 'resolved' | 'cancelled',
+  ) => {
+    if (!authState) {
+      return
+    }
+
+    setDomainError(null)
+    setIsUpdatingNonConformityId(nonConformityId)
+
+    try {
+      const response = await fetch(`${API_URL}/non-conformities/${nonConformityId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authState.token}`,
+        },
+        body: JSON.stringify({ status }),
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok' }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error(
+          'message' in payload ? payload.message : 'Falha ao atualizar nao conformidade.',
+        )
+      }
+
+      setNonConformities((current) =>
+        current.map((item) => (item.id === nonConformityId ? { ...item, status } : item)),
+      )
+
+      if (selectedNonConformityId === nonConformityId) {
+        const historyResponse = await fetch(
+          `${API_URL}/non-conformities/${nonConformityId}/history`,
+          {
+            headers: { Authorization: `Bearer ${authState.token}` },
+          },
+        )
+
+        if (historyResponse.ok) {
+          const historyPayload = (await historyResponse.json()) as {
+            events?: NonConformityEvent[]
+          }
+          setNonConformityEvents(historyPayload.events ?? [])
+        }
+      }
+    } catch (error) {
+      setDomainError(
+        error instanceof Error ? error.message : 'Falha ao atualizar nao conformidade.',
+      )
+    } finally {
+      setIsUpdatingNonConformityId(null)
     }
   }
 
@@ -2139,6 +2242,48 @@ function App() {
                   <span className={getNonConformityStatusBadgeClass(item.status)}>
                     {getNonConformityStatusLabel(item.status)}
                   </span>
+                  <div className="invite-history-actions">
+                    {item.status === 'open' ? (
+                      <button
+                        type="button"
+                        className="logout-button"
+                        disabled={isUpdatingNonConformityId === item.id}
+                        onClick={() => handleUpdateNonConformityStatus(item.id, 'in_progress')}
+                      >
+                        {uiMessage.auth.nonConformityStartButton}
+                      </button>
+                    ) : null}
+                    {item.status === 'in_progress' ? (
+                      <button
+                        type="button"
+                        className="logout-button"
+                        disabled={isUpdatingNonConformityId === item.id}
+                        onClick={() => handleUpdateNonConformityStatus(item.id, 'resolved')}
+                      >
+                        {uiMessage.auth.nonConformityResolveButton}
+                      </button>
+                    ) : null}
+                    {item.status === 'resolved' || item.status === 'cancelled' ? (
+                      <button
+                        type="button"
+                        className="logout-button"
+                        disabled={isUpdatingNonConformityId === item.id}
+                        onClick={() => handleUpdateNonConformityStatus(item.id, 'open')}
+                      >
+                        {uiMessage.auth.nonConformityReopenButton}
+                      </button>
+                    ) : null}
+                    {item.status !== 'cancelled' ? (
+                      <button
+                        type="button"
+                        className="logout-button"
+                        disabled={isUpdatingNonConformityId === item.id}
+                        onClick={() => handleUpdateNonConformityStatus(item.id, 'cancelled')}
+                      >
+                        {uiMessage.auth.nonConformityCancelButton}
+                      </button>
+                    ) : null}
+                  </div>
                 </li>
               ))
             ) : (
@@ -2147,6 +2292,30 @@ function App() {
               </li>
             )}
           </ul>
+
+          <div className="invite-history-head">
+            <h3>{uiMessage.auth.nonConformityHistoryTitle}</h3>
+          </div>
+
+          {isLoadingNonConformityHistory ? (
+            <p className="empty-note">{uiMessage.auth.nonConformityHistoryLoading}</p>
+          ) : nonConformityEvents.length ? (
+            <ul className="validation-history-list">
+              {nonConformityEvents.map((event) => (
+                <li key={event.id}>
+                  <div className="validation-history-row">
+                    <strong>{getNonConformityStatusLabel(event.previousStatus)}</strong>
+                    <span>{getNonConformityStatusLabel(event.nextStatus)}</span>
+                  </div>
+                  <small>
+                    {event.actorName} · {new Date(event.createdAt).toLocaleString(locale)}
+                  </small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">{uiMessage.auth.nonConformityHistoryEmpty}</p>
+          )}
         </article>
 
         <article className="panel">
