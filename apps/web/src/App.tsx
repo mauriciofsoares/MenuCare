@@ -752,6 +752,22 @@ function App() {
     return exportType
   }
 
+  const applyComplianceExportAuditEventFilter = (event: ComplianceExportAuditEvent) => {
+    setComplianceExportAuditPage(1)
+    setComplianceExportAuditFilter((current) => ({
+      ...current,
+      exportId: event.exportId,
+      nonConformityId: event.nonConformityId ?? '',
+      actionPlanId: event.actionPlanId ?? '',
+    }))
+    setAppliedComplianceExportAuditFilter((current) => ({
+      ...current,
+      exportId: event.exportId,
+      nonConformityId: event.nonConformityId ?? '',
+      actionPlanId: event.actionPlanId ?? '',
+    }))
+  }
+
   const handleExportComplianceExportAudit = async () => {
     if (!authState) {
       return
@@ -2606,6 +2622,13 @@ function App() {
                   </div>
                   <small>
                     {uiMessage.auth.complianceExportAuditExportIdLabel}: {event.exportId}
+                    <button
+                      type="button"
+                      className="audit-inline-button"
+                      onClick={() => applyComplianceExportAuditEventFilter(event)}
+                    >
+                      {uiMessage.auth.complianceExportAuditUseEventIdsButton}
+                    </button>
                   </small>
                   <small>
                     {uiMessage.auth.complianceExportAuditFiltersLabel}: exportId={event.filterExportId ?? '-'} | ncId={event.filterNonConformityId ?? '-'} | apId={event.filterActionPlanId ?? '-'} | sort={event.filterSortOrder ?? '-'} | scope={event.filterExportScope ?? '-'} | actor={event.filterActor ?? '-'} | from={event.filterFrom ? new Date(event.filterFrom).toLocaleDateString(locale) : '-'} | to={event.filterTo ? new Date(event.filterTo).toLocaleDateString(locale) : '-'}

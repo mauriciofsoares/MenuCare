@@ -597,6 +597,21 @@
   color: var(--muted);
 }
 
+.audit-inline-button {
+  margin-left: 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--text-strong);
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.audit-inline-button:hover {
+  border-color: var(--accent);
+}
+
 .section-head {
   display: flex;
   justify-content: space-between;
