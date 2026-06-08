@@ -1761,9 +1761,11 @@ app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authe
   };
 
   const header = 'created_at,actor_name,previous_status,next_status';
+  const exportId = randomUUID();
   const metadata = [
     '# export_type,non_conformity_history',
-    '# csv_schema_version,1',
+    '# csv_schema_version,2',
+    `# export_id,${csvEscape(exportId)}`,
     `# generated_at,${new Date().toISOString()}`,
     `# company_name,${csvEscape(companyName)}`,
     `# non_conformity_id,${csvEscape(parsedParams.data.nonConformityId)}`,
@@ -2062,9 +2064,11 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', {
   };
 
   const header = 'created_at,actor_name,previous_status,next_status';
+  const exportId = randomUUID();
   const metadata = [
     '# export_type,action_plan_history',
-    '# csv_schema_version,1',
+    '# csv_schema_version,2',
+    `# export_id,${csvEscape(exportId)}`,
     `# generated_at,${new Date().toISOString()}`,
     `# company_name,${csvEscape(companyName)}`,
     `# non_conformity_id,${csvEscape(parsedParams.data.nonConformityId)}`,
