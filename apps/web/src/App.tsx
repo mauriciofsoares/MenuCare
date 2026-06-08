@@ -102,6 +102,7 @@ type ComplianceExportAuditEvent = {
   filterExportId: string | null
   filterNonConformityId: string | null
   filterActionPlanId: string | null
+  filterSortOrder: string | null
   filterActor: string | null
   filterFrom: string | null
   filterTo: string | null
@@ -187,6 +188,7 @@ type ComplianceExportAuditFilter = {
   exportId: string
   nonConformityId: string
   actionPlanId: string
+  sortOrder: 'desc' | 'asc'
   actor: string
   from: string
   to: string
@@ -356,6 +358,7 @@ function App() {
       exportId: '',
       nonConformityId: '',
       actionPlanId: '',
+      sortOrder: 'desc',
       actor: '',
       from: '',
       to: '',
@@ -365,6 +368,7 @@ function App() {
       exportId: '',
       nonConformityId: '',
       actionPlanId: '',
+      sortOrder: 'desc',
       actor: '',
       from: '',
       to: '',
@@ -670,6 +674,7 @@ function App() {
     try {
       const query = new URLSearchParams({
         exportType,
+        sortOrder: filter.sortOrder,
         page: String(complianceExportAuditPage),
         limit: '30',
       })
@@ -754,6 +759,7 @@ function App() {
     try {
       const query = new URLSearchParams({
         exportType: complianceExportAuditTypeFilter,
+        sortOrder: appliedComplianceExportAuditFilter.sortOrder,
         page: String(complianceExportAuditPage),
         limit: '30',
       })
@@ -986,8 +992,12 @@ function App() {
       appliedComplianceExportAuditFilter,
     )
   }, [
+    appliedComplianceExportAuditFilter.actionPlanId,
     appliedComplianceExportAuditFilter.actor,
+    appliedComplianceExportAuditFilter.exportId,
     appliedComplianceExportAuditFilter.from,
+    appliedComplianceExportAuditFilter.nonConformityId,
+    appliedComplianceExportAuditFilter.sortOrder,
     appliedComplianceExportAuditFilter.to,
     authState?.token,
     complianceExportAuditPage,
@@ -2374,6 +2384,21 @@ function App() {
               />
             </label>
             <label>
+              <span>{uiMessage.auth.complianceExportAuditSortOrderLabel}</span>
+              <select
+                value={complianceExportAuditFilter.sortOrder}
+                onChange={(event) =>
+                  setComplianceExportAuditFilter((current) => ({
+                    ...current,
+                    sortOrder: event.target.value as 'desc' | 'asc',
+                  }))
+                }
+              >
+                <option value="desc">{uiMessage.auth.complianceExportAuditSortOrderDesc}</option>
+                <option value="asc">{uiMessage.auth.complianceExportAuditSortOrderAsc}</option>
+              </select>
+            </label>
+            <label>
               <span>{uiMessage.auth.complianceExportAuditNonConformityIdFilterLabel}</span>
               <input
                 type="text"
@@ -2452,6 +2477,7 @@ function App() {
                       exportId: complianceExportAuditFilter.exportId.trim(),
                       nonConformityId: complianceExportAuditFilter.nonConformityId.trim(),
                       actionPlanId: complianceExportAuditFilter.actionPlanId.trim(),
+                      sortOrder: complianceExportAuditFilter.sortOrder,
                       actor: complianceExportAuditFilter.actor.trim(),
                       from: complianceExportAuditFilter.from,
                       to: complianceExportAuditFilter.to,
@@ -2469,6 +2495,7 @@ function App() {
                     exportId: '',
                     nonConformityId: '',
                     actionPlanId: '',
+                    sortOrder: 'desc',
                     actor: '',
                     from: '',
                     to: '',
@@ -2477,6 +2504,7 @@ function App() {
                     exportId: '',
                     nonConformityId: '',
                     actionPlanId: '',
+                    sortOrder: 'desc',
                     actor: '',
                     from: '',
                     to: '',
@@ -2537,7 +2565,7 @@ function App() {
                     {uiMessage.auth.complianceExportAuditExportIdLabel}: {event.exportId}
                   </small>
                   <small>
-                    {uiMessage.auth.complianceExportAuditFiltersLabel}: exportId={event.filterExportId ?? '-'} | ncId={event.filterNonConformityId ?? '-'} | apId={event.filterActionPlanId ?? '-'} | actor={event.filterActor ?? '-'} | from={event.filterFrom ? new Date(event.filterFrom).toLocaleDateString(locale) : '-'} | to={event.filterTo ? new Date(event.filterTo).toLocaleDateString(locale) : '-'}
+                    {uiMessage.auth.complianceExportAuditFiltersLabel}: exportId={event.filterExportId ?? '-'} | ncId={event.filterNonConformityId ?? '-'} | apId={event.filterActionPlanId ?? '-'} | sort={event.filterSortOrder ?? '-'} | actor={event.filterActor ?? '-'} | from={event.filterFrom ? new Date(event.filterFrom).toLocaleDateString(locale) : '-'} | to={event.filterTo ? new Date(event.filterTo).toLocaleDateString(locale) : '-'}
                   </small>
                   <small>
                     NC={event.nonConformityId ?? '-'} · AP={event.actionPlanId ?? '-'} · {new Date(event.createdAt).toLocaleString(locale)}

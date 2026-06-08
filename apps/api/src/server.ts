@@ -134,6 +134,7 @@ const complianceExportAuditQuerySchema = z
     exportId: z.string().trim().max(64).optional(),
     nonConformityId: z.string().trim().max(64).optional(),
     actionPlanId: z.string().trim().max(64).optional(),
+    sortOrder: z.enum(['desc', 'asc']).default('desc'),
     actor: z.string().trim().max(120).optional(),
     from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -358,6 +359,7 @@ const ensureDomainTables = async () => {
       filter_export_id TEXT,
       filter_non_conformity_id TEXT,
       filter_action_plan_id TEXT,
+      filter_sort_order TEXT,
       filter_actor TEXT,
       filter_from DATE,
       filter_to DATE,
@@ -380,6 +382,11 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     ALTER TABLE compliance_export_events
     ADD COLUMN IF NOT EXISTS filter_action_plan_id TEXT
+  `;
+
+  await prisma.$executeRaw`
+    ALTER TABLE compliance_export_events
+    ADD COLUMN IF NOT EXISTS filter_sort_order TEXT
   `;
 
   await prisma.$executeRaw`
@@ -2293,6 +2300,7 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
   const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
   const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
   const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
+  const sortOrder = parsedQuery.data.sortOrder;
   const offset = (parsedQuery.data.page - 1) * parsedQuery.data.limit;
 
   await ensureDomainTables();
@@ -2320,6 +2328,7 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
     filter_export_id: string | null;
     filter_non_conformity_id: string | null;
     filter_action_plan_id: string | null;
+    filter_sort_order: string | null;
     filter_actor: string | null;
     filter_from: Date | null;
     filter_to: Date | null;
@@ -2335,6 +2344,7 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
       filter_export_id,
       filter_non_conformity_id,
       filter_action_plan_id,
+      filter_sort_order,
       filter_actor,
       filter_from,
       filter_to,
@@ -2349,7 +2359,9 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
       AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
       AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
       AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
-    ORDER BY created_at DESC
+    ORDER BY
+      CASE WHEN ${sortOrder} = 'asc' THEN created_at END ASC,
+      CASE WHEN ${sortOrder} = 'desc' THEN created_at END DESC
     LIMIT ${parsedQuery.data.limit}
     OFFSET ${offset}
   `;
@@ -2365,6 +2377,7 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
       filterExportId: row.filter_export_id,
       filterNonConformityId: row.filter_non_conformity_id,
       filterActionPlanId: row.filter_action_plan_id,
+      filterSortOrder: row.filter_sort_order,
       filterActor: row.filter_actor,
       filterFrom: row.filter_from ? row.filter_from.toISOString() : null,
       filterTo: row.filter_to ? row.filter_to.toISOString() : null,
@@ -2401,6 +2414,7 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
   const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
   const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
   const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
+  const sortOrder = parsedQuery.data.sortOrder;
   const offset = (parsedQuery.data.page - 1) * parsedQuery.data.limit;
 
   await ensureDomainTables();
@@ -2427,6 +2441,7 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
     filter_export_id: string | null;
     filter_non_conformity_id: string | null;
     filter_action_plan_id: string | null;
+    filter_sort_order: string | null;
     filter_actor: string | null;
     filter_from: Date | null;
     filter_to: Date | null;
@@ -2441,6 +2456,7 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       filter_export_id,
       filter_non_conformity_id,
       filter_action_plan_id,
+      filter_sort_order,
       filter_actor,
       filter_from,
       filter_to,
@@ -2455,7 +2471,9 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
       AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
       AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
-    ORDER BY created_at DESC
+    ORDER BY
+      CASE WHEN ${sortOrder} = 'asc' THEN created_at END ASC,
+      CASE WHEN ${sortOrder} = 'desc' THEN created_at END DESC
     LIMIT ${parsedQuery.data.limit}
     OFFSET ${offset}
   `;
@@ -2476,6 +2494,7 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       filter_export_id,
       filter_non_conformity_id,
       filter_action_plan_id,
+      filter_sort_order,
       filter_actor,
       filter_from,
       filter_to,
@@ -2490,6 +2509,7 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       ${parsedQuery.data.exportId?.trim() || null},
       ${parsedQuery.data.nonConformityId?.trim() || null},
       ${parsedQuery.data.actionPlanId?.trim() || null},
+      ${parsedQuery.data.sortOrder},
       ${parsedQuery.data.actor?.trim() || null},
       ${parsedQuery.data.from || null},
       ${parsedQuery.data.to || null},
@@ -2508,6 +2528,7 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
     `# filter_export_id,${csvEscape(parsedQuery.data.exportId?.trim() ?? '')}`,
     `# filter_non_conformity_id,${csvEscape(parsedQuery.data.nonConformityId?.trim() ?? '')}`,
     `# filter_action_plan_id,${csvEscape(parsedQuery.data.actionPlanId?.trim() ?? '')}`,
+    `# filter_sort_order,${csvEscape(parsedQuery.data.sortOrder)}`,
     `# filter_actor,${csvEscape(parsedQuery.data.actor?.trim() ?? '')}`,
     `# filter_from,${csvEscape(parsedQuery.data.from ?? '')}`,
     `# filter_to,${csvEscape(parsedQuery.data.to ?? '')}`,
@@ -2519,7 +2540,7 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
   ];
 
   const header =
-    'created_at,export_id,export_type,actor_name,non_conformity_id,action_plan_id,filter_export_id,filter_actor,filter_from,filter_to';
+    'created_at,export_id,export_type,actor_name,non_conformity_id,action_plan_id,filter_export_id,filter_non_conformity_id,filter_action_plan_id,filter_sort_order,filter_actor,filter_from,filter_to';
   const lines = rows.map((row) =>
     [
       csvEscape(row.created_at.toISOString()),
@@ -2529,6 +2550,9 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       csvEscape(row.non_conformity_id ?? ''),
       csvEscape(row.action_plan_id ?? ''),
       csvEscape(row.filter_export_id ?? ''),
+      csvEscape(row.filter_non_conformity_id ?? ''),
+      csvEscape(row.filter_action_plan_id ?? ''),
+      csvEscape(row.filter_sort_order ?? ''),
       csvEscape(row.filter_actor ?? ''),
       csvEscape(row.filter_from ? row.filter_from.toISOString() : ''),
       csvEscape(row.filter_to ? row.filter_to.toISOString() : ''),
