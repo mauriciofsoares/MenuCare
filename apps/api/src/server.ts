@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 import { z } from 'zod';
 import { getApiMessage } from './messages.js';
 
-const app = Fastify({ logger: true });
+export const app = Fastify({ logger: true });
 const apiMessage = getApiMessage(process.env.API_LOCALE);
 
 const authSchema = z.object({
@@ -2751,12 +2751,14 @@ app.get('/health/db', async (_request, reply) => {
   }
 });
 
-const port = Number(process.env.API_PORT ?? 3001);
-const host = process.env.API_HOST ?? '0.0.0.0';
+if (process.env.NODE_ENV !== 'test' && process.env.MENUCARE_DISABLE_LISTEN !== '1') {
+  const port = Number(process.env.API_PORT ?? 3001);
+  const host = process.env.API_HOST ?? '0.0.0.0';
 
-try {
-  await app.listen({ port, host });
-} catch (err) {
-  app.log.error(err);
-  process.exit(1);
+  try {
+    await app.listen({ port, host });
+  } catch (err) {
+    app.log.error(err);
+    process.exit(1);
+  }
 }

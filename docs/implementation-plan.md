@@ -254,3 +254,39 @@ Criar a Fase 0 agora com os comandos e estrutura inicial:
 - Login minimo ponta a ponta (Fase 1 reduzida)
 
 Se aprovado, o proximo passo e executar esse bootstrap no repositorio atual.
+
+---
+
+## 11. Status de conformidade com este plano (jun/2026)
+
+Resumo objetivo por fase:
+
+- Fase 0 (setup de monorepo e base tecnica): CONCLUIDA.
+  - Evidencias: estrutura apps/web + apps/api ativa, Docker Compose e scripts operacionais no workspace.
+
+- Fase 1 (autenticacao e acesso): MAJORITARIAMENTE CONCLUIDA.
+  - Evidencias: endpoints auth/login, auth/me, auth/logout e fluxo de primeiro acesso por convite.
+  - Observacao: plano original cita refresh token rotativo/cookies httpOnly; essa parte ainda pode evoluir.
+
+- Fase 2 (migracao portal para React): CONCLUIDA PARA O ESCOPO MVP ATUAL.
+  - Evidencias: portal em React+TypeScript com operacao autenticada e modulos ativos.
+
+- Fase 3 (base de dados de dominio + auditoria): CONCLUIDA COM EXTENSOES.
+  - Evidencias: contratos, regras, nao conformidades, plano de acao e trilhas de auditoria/exportacao com PostgreSQL.
+
+- Fase 4 (dashboard com dados reais): CONCLUIDA.
+  - Evidencias: endpoint de resumo e renderizacao de indicadores/recentes com dados persistidos.
+
+- Fase 5 (suporte e operacao inicial): PARCIAL.
+  - Evidencias: operacao e governanca evoluidas; modulo de chamados dedicado ainda pendente.
+
+Qualidade e testes (secao 3 e backlog item 10): EM EVOLUCAO.
+
+- Entregue neste ciclo:
+  - Testes de integracao de API com Supertest para saude, login e protecao de rota.
+  - Script de teste no workspace apps/api e ajuste de boot para testabilidade.
+
+- Pendente para fechamento completo do plano:
+  - Suite de testes unitarios mais ampla.
+  - E2E (Playwright).
+  - Hardening final de seguranca (ex.: refresh token rotativo/cookies httpOnly em producao).
