@@ -19,7 +19,7 @@ O sistema não deve utilizar textos como:
 Em vez disso utilizar:
 
 * Regras identificadas
-* Regras extraídas
+* Regras encontradas
 * Base contratual
 * Requisitos contratuais
 * Conformidade
@@ -27,6 +27,7 @@ Em vez disso utilizar:
 * Regras validadas
 * Motor de conformidade
 * Padronização contratual
+* Evidências encontradas
 
 ---
 
@@ -49,9 +50,9 @@ Após o envio, o documento entra em processamento.
 
 ---
 
-## Etapa 2 - Extração de Regras
+## Etapa 2 - Identificação de Regras
 
-O sistema identifica possíveis regras presentes no documento.
+O sistema identifica possíveis regras presentes no documento e apresenta evidências para validação.
 
 Exemplos:
 
@@ -64,6 +65,8 @@ Exemplos:
 * Requisitos regulatórios
 
 As regras identificadas nunca entram em produção automaticamente.
+
+A confiança operacional deve vir de evidência + validação humana + rastreabilidade.
 
 ---
 
@@ -156,6 +159,8 @@ Documento enviado pelo cliente contendo regras e exigências.
 ## Regra Contratual
 
 Representa um requisito extraído e validado.
+
+Toda regra deve manter vínculo com evidência documental.
 
 Exemplos:
 
@@ -360,5 +365,14 @@ Arquitetura:
 * Código preparado para SaaS Enterprise
 
 Nunca utilizar qualquer texto que exponha diretamente o uso de inteligência artificial ao usuário final.
+
+Evitar também linguagem de acurácia percentual na interface (ex.: "96% de acerto").
+
+Preferir classificação qualitativa:
+
+* Alta Correspondência
+* Média Correspondência
+* Baixa Correspondência
+* Revisão Recomendada
 
 A plataforma deve transmitir segurança, governança, conformidade, rastreabilidade e controle operacional.

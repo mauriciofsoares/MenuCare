@@ -204,6 +204,71 @@ Exemplo incorreto:
 
 ---
 
+# DIRETRIZ DE EXPERIÊNCIA DO USUÁRIO (SEM ÊNFASE EM IA)
+
+## Princípio
+
+A plataforma pode utilizar tecnologias avançadas de processamento documental internamente.
+
+Porém, a experiência do usuário não deve enfatizar Inteligência Artificial.
+
+Nunca usar na interface:
+
+* IA
+* Inteligência Artificial
+* GPT
+* LLM
+* Modelo
+* Prompt
+* Machine Learning
+* Resultado da IA
+
+Usar sempre:
+
+* Documento processado
+* Regras identificadas
+* Regras encontradas
+* Requisitos contratuais
+* Evidências encontradas
+* Base contratual
+* Motor de conformidade
+* Validação necessária
+
+## Regra de confiança
+
+A confiança do produto deve vir de:
+
+* evidência do documento
+* validação humana
+* rastreabilidade
+
+Nunca vender confiança com base na tecnologia interna.
+
+## Substituições obrigatórias de nomenclatura
+
+* "Análise IA" -> "Processamento Contratual"
+* "Resultado da IA" -> "Regras Identificadas"
+* "Confiança da IA" -> "Nível de Confirmação" ou "Grau de Correspondência"
+
+## Campo de correspondência
+
+Evitar percentuais de acerto (ex.: 96%).
+
+Usar classificação qualitativa:
+
+* Alta Correspondência
+* Média Correspondência
+* Baixa Correspondência
+* Revisão Recomendada
+
+## Regra de ouro
+
+Nenhuma regra identificada pode ser utilizada sem aprovação humana.
+
+Somente regras aprovadas entram na Base Contratual.
+
+---
+
 # STACK
 
 Frontend
