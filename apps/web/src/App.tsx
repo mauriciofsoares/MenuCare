@@ -83,6 +83,16 @@ type RuleValidationEvent = {
   createdAt: string
 }
 
+type InviteAuditEvent = {
+  id: string
+  inviteToken: string
+  inviteEmail: string
+  action: string
+  note: string | null
+  actorName: string
+  createdAt: string
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -171,6 +181,7 @@ function App() {
   const [isSubmittingInvite, setIsSubmittingInvite] = useState(false)
   const [isGeneratingInvite, setIsGeneratingInvite] = useState(false)
   const [isLoadingInviteHistory, setIsLoadingInviteHistory] = useState(false)
+  const [isLoadingInviteAudit, setIsLoadingInviteAudit] = useState(false)
   const [isMutatingInvite, setIsMutatingInvite] = useState(false)
   const [isSubmittingRuleValidation, setIsSubmittingRuleValidation] = useState(false)
   const [isLoadingRuleHistory, setIsLoadingRuleHistory] = useState(false)
@@ -191,6 +202,7 @@ function App() {
   const [generatedInvite, setGeneratedInvite] = useState<CreatedInvite | null>(null)
   const [inviteGenerationError, setInviteGenerationError] = useState<string | null>(null)
   const [inviteHistory, setInviteHistory] = useState<ManagedInvite[]>([])
+  const [inviteAuditEvents, setInviteAuditEvents] = useState<InviteAuditEvent[]>([])
   const [inviteHistoryFilter, setInviteHistoryFilter] = useState<'all' | 'active' | 'used'>('all')
   const [ruleValidationForm, setRuleValidationForm] = useState({
     ruleId: '',
@@ -257,6 +269,32 @@ function App() {
       setInviteHistory([])
     } finally {
       setIsLoadingInviteHistory(false)
+    }
+  }
+
+  const fetchInviteAudit = async (token: string) => {
+    setIsLoadingInviteAudit(true)
+
+    try {
+      const response = await fetch(`${API_URL}/auth/invites/audit?limit=25`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; events: InviteAuditEvent[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error(
+          'message' in payload ? payload.message : uiMessage.auth.genericSignInError,
+        )
+      }
+
+      setInviteAuditEvents(payload.events ?? [])
+    } catch {
+      setInviteAuditEvents([])
+    } finally {
+      setIsLoadingInviteAudit(false)
     }
   }
 
@@ -424,10 +462,12 @@ function App() {
   useEffect(() => {
     if (!authState) {
       setInviteHistory([])
+      setInviteAuditEvents([])
       return
     }
 
     void fetchInviteHistory(authState.token, inviteHistoryFilter)
+    void fetchInviteAudit(authState.token)
   }, [authState?.token, inviteHistoryFilter])
 
   useEffect(() => {
@@ -647,7 +687,10 @@ function App() {
 
       setGeneratedInvite(payload.invite)
       setAdminInviteForm({ email: '' })
-      await fetchInviteHistory(authState.token, inviteHistoryFilter)
+      await Promise.all([
+        fetchInviteHistory(authState.token, inviteHistoryFilter),
+        fetchInviteAudit(authState.token),
+      ])
     } catch (error) {
       setInviteGenerationError(
         error instanceof Error ? error.message : uiMessage.auth.genericSignInError,
@@ -681,7 +724,10 @@ function App() {
         )
       }
 
-      await fetchInviteHistory(authState.token, inviteHistoryFilter)
+      await Promise.all([
+        fetchInviteHistory(authState.token, inviteHistoryFilter),
+        fetchInviteAudit(authState.token),
+      ])
     } catch (error) {
       setInviteGenerationError(
         error instanceof Error ? error.message : uiMessage.auth.genericSignInError,
@@ -716,7 +762,10 @@ function App() {
       }
 
       setGeneratedInvite(payload.invite)
-      await fetchInviteHistory(authState.token, inviteHistoryFilter)
+      await Promise.all([
+        fetchInviteHistory(authState.token, inviteHistoryFilter),
+        fetchInviteAudit(authState.token),
+      ])
     } catch (error) {
       setInviteGenerationError(
         error instanceof Error ? error.message : uiMessage.auth.genericSignInError,
@@ -1203,6 +1252,32 @@ function App() {
             </ul>
           ) : (
             <p className="empty-note">{uiMessage.auth.inviteEmptyHistory}</p>
+          )}
+
+          <div className="invite-history-head">
+            <h3>{uiMessage.auth.inviteAuditTitle}</h3>
+          </div>
+
+          {isLoadingInviteAudit ? (
+            <p className="empty-note">{uiMessage.auth.inviteAuditLoading}</p>
+          ) : inviteAuditEvents.length ? (
+            <ul className="validation-history-list">
+              {inviteAuditEvents.map((event) => (
+                <li key={event.id}>
+                  <div className="validation-history-row">
+                    <strong>{event.action}</strong>
+                    <span>{event.inviteToken}</span>
+                  </div>
+                  <p>{event.inviteEmail}</p>
+                  <small>
+                    {event.actorName} · {new Date(event.createdAt).toLocaleString(locale)}
+                  </small>
+                  {event.note ? <small>{event.note}</small> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">{uiMessage.auth.inviteAuditEmpty}</p>
           )}
         </article>
 

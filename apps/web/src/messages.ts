@@ -37,6 +37,9 @@ const uiMessagesByLocale = {
       inviteRegenerateButton: 'Regenerar',
       inviteLoadingHistory: 'Carregando convites...',
       inviteEmptyHistory: 'Nenhum convite encontrado para o filtro atual.',
+      inviteAuditTitle: 'Rastreabilidade de acessos',
+      inviteAuditLoading: 'Carregando auditoria de convites...',
+      inviteAuditEmpty: 'Sem eventos de auditoria para convites.',
       activeSession: 'Sessao ativa em',
     },
     common: {
@@ -86,6 +89,9 @@ const uiMessagesByLocale = {
       inviteRegenerateButton: 'Regenerate',
       inviteLoadingHistory: 'Loading invitations...',
       inviteEmptyHistory: 'No invitations found for the selected filter.',
+      inviteAuditTitle: 'Access traceability',
+      inviteAuditLoading: 'Loading invitation audit events...',
+      inviteAuditEmpty: 'No audit events found for invitations.',
       activeSession: 'Active session at',
     },
     common: {

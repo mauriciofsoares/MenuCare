@@ -31,6 +31,10 @@ const inviteListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),
 });
 
+const inviteAuditQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(40),
+});
+
 const inviteTokenParamSchema = z.object({
   token: z.string().min(6),
 });
@@ -253,8 +257,27 @@ const ensureAuthTables = async () => {
   `;
 
   await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS invite_audit_events (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      invite_token TEXT NOT NULL,
+      invite_email TEXT NOT NULL,
+      action TEXT NOT NULL,
+      note TEXT,
+      actor_id TEXT NOT NULL,
+      actor_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_first_access_invites_company
     ON first_access_invites (company_name, is_active)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_invite_audit_company_created_at
+    ON invite_audit_events (company_name, created_at DESC)
   `;
 
   await prisma.$executeRaw`
@@ -353,6 +376,46 @@ const getUserFromJwt = (request: FastifyRequest) => {
     id: payload.sub ?? demoUser.id,
     name: payload.name ?? demoUser.name,
   };
+};
+
+const registerInviteAuditEvent = async (payload: {
+  companyName: string;
+  inviteToken: string;
+  inviteEmail: string;
+  action: 'generated' | 'revoked' | 'regenerated' | 'activated';
+  note?: string;
+  actorId: string;
+  actorName: string;
+}) => {
+  if (!prisma) {
+    return;
+  }
+
+  await ensureAuthTables();
+
+  const eventId = randomUUID();
+  await prisma.$executeRaw`
+    INSERT INTO invite_audit_events (
+      id,
+      company_name,
+      invite_token,
+      invite_email,
+      action,
+      note,
+      actor_id,
+      actor_name
+    )
+    VALUES (
+      ${eventId},
+      ${payload.companyName},
+      ${payload.inviteToken},
+      ${payload.inviteEmail},
+      ${payload.action},
+      ${payload.note ?? null},
+      ${payload.actorId},
+      ${payload.actorName}
+    )
+  `;
 };
 
 app.post('/auth/login', async (request, reply) => {
@@ -499,6 +562,16 @@ app.post('/auth/first-access/activate', async (request, reply) => {
     WHERE token = ${normalizedToken}
   `;
 
+  await registerInviteAuditEvent({
+    companyName: invite.company_name,
+    inviteToken: normalizedToken,
+    inviteEmail: invite.email,
+    action: 'activated',
+    note: 'Convite utilizado para definir senha inicial.',
+    actorId: 'first-access',
+    actorName: invite.email,
+  });
+
   return {
     status: 'ok',
     message: apiMessage.auth.inviteActivated,
@@ -526,6 +599,7 @@ app.post('/auth/invites', { preHandler: authenticate }, async (request, reply) =
   await ensureAuthTables();
 
   const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
   const normalizedEmail = parsed.data.email.trim().toLowerCase();
   const inviteToken = `INV-${randomUUID().replace(/-/g, '').slice(0, 20).toUpperCase()}`;
 
@@ -543,6 +617,16 @@ app.post('/auth/invites', { preHandler: authenticate }, async (request, reply) =
     VALUES (${inviteToken}, ${normalizedEmail}, ${companyName}, TRUE)
   `;
 
+  await registerInviteAuditEvent({
+    companyName,
+    inviteToken,
+    inviteEmail: normalizedEmail,
+    action: 'generated',
+    note: 'Convite criado no portal administrativo.',
+    actorId: actor.id,
+    actorName: actor.name,
+  });
+
   return reply.code(201).send({
     status: 'ok',
     message: apiMessage.auth.inviteGenerated,
@@ -553,6 +637,52 @@ app.post('/auth/invites', { preHandler: authenticate }, async (request, reply) =
       active: true,
     },
   });
+});
+
+app.get('/auth/invites/audit', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const parsedQuery = inviteAuditQuerySchema.safeParse(request.query);
+  const limit = parsedQuery.success ? parsedQuery.data.limit : 40;
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureAuthTables();
+
+  const events = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      invite_token: string;
+      invite_email: string;
+      action: string;
+      note: string | null;
+      actor_name: string;
+      created_at: Date;
+    }>
+  >`
+    SELECT id, invite_token, invite_email, action, note, actor_name, created_at
+    FROM invite_audit_events
+    WHERE company_name = ${companyName}
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `;
+
+  return {
+    status: 'ok',
+    events: events.map((event) => ({
+      id: event.id,
+      inviteToken: event.invite_token,
+      inviteEmail: event.invite_email,
+      action: event.action,
+      note: event.note,
+      actorName: event.actor_name,
+      createdAt: event.created_at.toISOString(),
+    })),
+  };
 });
 
 app.get('/auth/invites', { preHandler: authenticate }, async (request, reply) => {
@@ -634,6 +764,7 @@ app.post('/auth/invites/:token/revoke', { preHandler: authenticate }, async (req
   }
 
   const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
   const inviteRows = await prisma.$queryRaw<Array<{ token: string; is_active: boolean }>>`
     SELECT token, is_active
     FROM first_access_invites
@@ -666,6 +797,24 @@ app.post('/auth/invites/:token/revoke', { preHandler: authenticate }, async (req
       AND company_name = ${companyName}
   `;
 
+  const emailRows = await prisma.$queryRaw<Array<{ email: string }>>`
+    SELECT email
+    FROM first_access_invites
+    WHERE token = ${parsedParams.data.token}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  await registerInviteAuditEvent({
+    companyName,
+    inviteToken: parsedParams.data.token,
+    inviteEmail: emailRows[0]?.email ?? 'desconhecido',
+    action: 'revoked',
+    note: 'Convite revogado manualmente no portal.',
+    actorId: actor.id,
+    actorName: actor.name,
+  });
+
   return {
     status: 'ok',
     message: apiMessage.auth.inviteRevoked,
@@ -690,6 +839,7 @@ app.post('/auth/invites/:token/regenerate', { preHandler: authenticate }, async 
   }
 
   const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
   const inviteRows = await prisma.$queryRaw<Array<{ email: string }>>`
     SELECT email
     FROM first_access_invites
@@ -724,6 +874,16 @@ app.post('/auth/invites/:token/regenerate', { preHandler: authenticate }, async 
     INSERT INTO first_access_invites (token, email, company_name, is_active)
     VALUES (${inviteToken}, ${invite.email}, ${companyName}, TRUE)
   `;
+
+  await registerInviteAuditEvent({
+    companyName,
+    inviteToken,
+    inviteEmail: invite.email,
+    action: 'regenerated',
+    note: `Regenerado a partir do convite ${parsedParams.data.token}.`,
+    actorId: actor.id,
+    actorName: actor.name,
+  });
 
   return reply.code(201).send({
     status: 'ok',
