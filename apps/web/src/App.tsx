@@ -131,6 +131,12 @@ type NonConformityEvent = {
   createdAt: string
 }
 
+type NonConformityHistoryFilter = {
+  actor: string
+  from: string
+  to: string
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -216,6 +222,18 @@ function App() {
   const [actionPlans, setActionPlans] = useState<ActionPlanItem[]>([])
   const [actionPlanEvents, setActionPlanEvents] = useState<ActionPlanEvent[]>([])
   const [nonConformityEvents, setNonConformityEvents] = useState<NonConformityEvent[]>([])
+  const [nonConformityHistoryFilter, setNonConformityHistoryFilter] =
+    useState<NonConformityHistoryFilter>({
+      actor: '',
+      from: '',
+      to: '',
+    })
+  const [appliedNonConformityHistoryFilter, setAppliedNonConformityHistoryFilter] =
+    useState<NonConformityHistoryFilter>({
+      actor: '',
+      from: '',
+      to: '',
+    })
   const [loadingSession, setLoadingSession] = useState(true)
   const [authError, setAuthError] = useState<string | null>(null)
   const [domainError, setDomainError] = useState<string | null>(null)
@@ -838,8 +856,22 @@ function App() {
       setIsLoadingNonConformityHistory(true)
 
       try {
+        const query = new URLSearchParams({ limit: '50' })
+
+        if (appliedNonConformityHistoryFilter.actor.trim()) {
+          query.set('actor', appliedNonConformityHistoryFilter.actor.trim())
+        }
+
+        if (appliedNonConformityHistoryFilter.from) {
+          query.set('from', appliedNonConformityHistoryFilter.from)
+        }
+
+        if (appliedNonConformityHistoryFilter.to) {
+          query.set('to', appliedNonConformityHistoryFilter.to)
+        }
+
         const response = await fetch(
-          `${API_URL}/non-conformities/${selectedNonConformityId}/history`,
+          `${API_URL}/non-conformities/${selectedNonConformityId}/history?${query.toString()}`,
           {
             headers: { Authorization: `Bearer ${authState.token}` },
           },
@@ -858,7 +890,13 @@ function App() {
     }
 
     void loadNonConformityHistory()
-  }, [authState?.token, selectedNonConformityId])
+  }, [
+    appliedNonConformityHistoryFilter.actor,
+    appliedNonConformityHistoryFilter.from,
+    appliedNonConformityHistoryFilter.to,
+    authState?.token,
+    selectedNonConformityId,
+  ])
 
   useEffect(() => {
     if (!selectedActionPlanId && actionPlans.length > 0) {
@@ -1406,8 +1444,22 @@ function App() {
       )
 
       if (selectedNonConformityId === nonConformityId) {
+        const query = new URLSearchParams({ limit: '50' })
+
+        if (appliedNonConformityHistoryFilter.actor.trim()) {
+          query.set('actor', appliedNonConformityHistoryFilter.actor.trim())
+        }
+
+        if (appliedNonConformityHistoryFilter.from) {
+          query.set('from', appliedNonConformityHistoryFilter.from)
+        }
+
+        if (appliedNonConformityHistoryFilter.to) {
+          query.set('to', appliedNonConformityHistoryFilter.to)
+        }
+
         const historyResponse = await fetch(
-          `${API_URL}/non-conformities/${nonConformityId}/history`,
+          `${API_URL}/non-conformities/${nonConformityId}/history?${query.toString()}`,
           {
             headers: { Authorization: `Bearer ${authState.token}` },
           },
@@ -2295,6 +2347,74 @@ function App() {
 
           <div className="invite-history-head">
             <h3>{uiMessage.auth.nonConformityHistoryTitle}</h3>
+          </div>
+
+          <div className="history-filter-grid">
+            <label>
+              <span>{uiMessage.auth.nonConformityHistoryActorLabel}</span>
+              <input
+                type="text"
+                value={nonConformityHistoryFilter.actor}
+                onChange={(event) =>
+                  setNonConformityHistoryFilter((current) => ({
+                    ...current,
+                    actor: event.target.value,
+                  }))
+                }
+                placeholder="Nome"
+              />
+            </label>
+            <label>
+              <span>{uiMessage.auth.nonConformityHistoryFromLabel}</span>
+              <input
+                type="date"
+                value={nonConformityHistoryFilter.from}
+                onChange={(event) =>
+                  setNonConformityHistoryFilter((current) => ({
+                    ...current,
+                    from: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <label>
+              <span>{uiMessage.auth.nonConformityHistoryToLabel}</span>
+              <input
+                type="date"
+                value={nonConformityHistoryFilter.to}
+                onChange={(event) =>
+                  setNonConformityHistoryFilter((current) => ({
+                    ...current,
+                    to: event.target.value,
+                  }))
+                }
+              />
+            </label>
+            <div className="history-filter-actions">
+              <button
+                type="button"
+                className="logout-button"
+                onClick={() =>
+                  setAppliedNonConformityHistoryFilter({
+                    actor: nonConformityHistoryFilter.actor.trim(),
+                    from: nonConformityHistoryFilter.from,
+                    to: nonConformityHistoryFilter.to,
+                  })
+                }
+              >
+                {uiMessage.auth.nonConformityHistoryApplyButton}
+              </button>
+              <button
+                type="button"
+                className="logout-button"
+                onClick={() => {
+                  setNonConformityHistoryFilter({ actor: '', from: '', to: '' })
+                  setAppliedNonConformityHistoryFilter({ actor: '', from: '', to: '' })
+                }}
+              >
+                {uiMessage.auth.nonConformityHistoryClearButton}
+              </button>
+            </div>
           </div>
 
           {isLoadingNonConformityHistory ? (

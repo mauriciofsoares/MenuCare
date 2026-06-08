@@ -86,6 +86,17 @@ const nonConformityParamsSchema = z.object({
   nonConformityId: z.string().min(1),
 });
 
+const nonConformityHistoryQuerySchema = z
+  .object({
+    actor: z.string().trim().max(120).optional(),
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  })
+  .refine((data) => !data.from || !data.to || data.from <= data.to, {
+    message: 'Invalid history date range.',
+  });
+
 const actionPlanSchema = z.object({
   description: z.string().min(3),
   owner: z.string().min(2),
@@ -1631,8 +1642,9 @@ app.patch('/non-conformities/:nonConformityId/status', { preHandler: authenticat
 
 app.get('/non-conformities/:nonConformityId/history', { preHandler: authenticate }, async (request, reply) => {
   const parsedParams = nonConformityParamsSchema.safeParse(request.params);
+  const parsedQuery = nonConformityHistoryQuerySchema.safeParse(request.query);
 
-  if (!parsedParams.success) {
+  if (!parsedParams.success || !parsedQuery.success) {
     return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
   }
 
@@ -1641,6 +1653,9 @@ app.get('/non-conformities/:nonConformityId/history', { preHandler: authenticate
   }
 
   const companyName = getCompanyFromJwt(request);
+  const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
+  const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
+  const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
 
   await ensureDomainTables();
 
@@ -1655,8 +1670,11 @@ app.get('/non-conformities/:nonConformityId/history', { preHandler: authenticate
     FROM non_conformity_events
     WHERE company_name = ${companyName}
       AND non_conformity_id = ${parsedParams.data.nonConformityId}
+      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
+      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
+      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
     ORDER BY created_at DESC
-    LIMIT 50
+    LIMIT ${parsedQuery.data.limit}
   `;
 
   return {
