@@ -1707,6 +1707,68 @@ app.get('/non-conformities/:nonConformityId/history', { preHandler: authenticate
   };
 });
 
+app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = nonConformityParamsSchema.safeParse(request.params);
+  const parsedQuery = nonConformityHistoryQuerySchema.safeParse(request.query);
+
+  if (!parsedParams.success || !parsedQuery.success) {
+    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
+  const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
+  const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    previous_status: string;
+    next_status: string;
+    actor_name: string;
+    created_at: Date;
+  }>>`
+    SELECT previous_status, next_status, actor_name, created_at
+    FROM non_conformity_events
+    WHERE company_name = ${companyName}
+      AND non_conformity_id = ${parsedParams.data.nonConformityId}
+      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
+      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
+      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
+    ORDER BY created_at DESC
+    LIMIT 5000
+  `;
+
+  const csvEscape = (value: string) => {
+    const escaped = value.replace(/"/g, '""');
+    return `"${escaped}"`;
+  };
+
+  const header = 'created_at,actor_name,previous_status,next_status';
+  const lines = rows.map((row) =>
+    [
+      csvEscape(row.created_at.toISOString()),
+      csvEscape(row.actor_name),
+      csvEscape(row.previous_status),
+      csvEscape(row.next_status),
+    ].join(','),
+  );
+
+  const csv = [header, ...lines].join('\n');
+
+  reply.header('Content-Type', 'text/csv; charset=utf-8');
+  reply.header(
+    'Content-Disposition',
+    `attachment; filename="non-conformity-history-${parsedParams.data.nonConformityId}.csv"`,
+  );
+
+  return reply.send(csv);
+});
+
 app.post('/non-conformities/:nonConformityId/actions', { preHandler: authenticate }, async (request, reply) => {
   const parsedParams = nonConformityParamsSchema.safeParse(request.params);
   const parsedBody = actionPlanSchema.safeParse(request.body);

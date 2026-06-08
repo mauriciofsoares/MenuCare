@@ -264,6 +264,7 @@ function App() {
   const [isUpdatingActionPlanId, setIsUpdatingActionPlanId] = useState<string | null>(null)
   const [isLoadingActionPlanHistory, setIsLoadingActionPlanHistory] = useState(false)
   const [isLoadingNonConformityHistory, setIsLoadingNonConformityHistory] = useState(false)
+  const [isExportingNonConformityHistory, setIsExportingNonConformityHistory] = useState(false)
   const [loginForm, setLoginForm] = useState({
     email: 'admin@menucare.local',
     password: 'Admin@123',
@@ -1509,6 +1510,59 @@ function App() {
     }
   }
 
+  const handleExportNonConformityHistory = async () => {
+    if (!authState || !selectedNonConformityId) {
+      return
+    }
+
+    setDomainError(null)
+    setIsExportingNonConformityHistory(true)
+
+    try {
+      const query = new URLSearchParams()
+
+      if (appliedNonConformityHistoryFilter.actor.trim()) {
+        query.set('actor', appliedNonConformityHistoryFilter.actor.trim())
+      }
+
+      if (appliedNonConformityHistoryFilter.from) {
+        query.set('from', appliedNonConformityHistoryFilter.from)
+      }
+
+      if (appliedNonConformityHistoryFilter.to) {
+        query.set('to', appliedNonConformityHistoryFilter.to)
+      }
+
+      const response = await fetch(
+        `${API_URL}/non-conformities/${selectedNonConformityId}/history/export?${query.toString()}`,
+        {
+          headers: { Authorization: `Bearer ${authState.token}` },
+        },
+      )
+
+      if (!response.ok) {
+        throw new Error('Falha ao exportar historico de nao conformidade.')
+      }
+
+      const csvContent = await response.text()
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = window.URL.createObjectURL(blob)
+      const link = window.document.createElement('a')
+      link.href = url
+      link.download = `non-conformity-history-${selectedNonConformityId}.csv`
+      window.document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      setDomainError(
+        error instanceof Error ? error.message : 'Falha ao exportar historico de nao conformidade.',
+      )
+    } finally {
+      setIsExportingNonConformityHistory(false)
+    }
+  }
+
   const handleLogout = async () => {
     if (authState) {
       await fetch(`${API_URL}/auth/logout`, {
@@ -2452,6 +2506,16 @@ function App() {
               {uiMessage.auth.nonConformityHistoryPageLabel} {nonConformityHistoryPage} · {nonConformityHistoryTotal}
             </small>
             <div className="history-filter-actions">
+              <button
+                type="button"
+                className="logout-button"
+                disabled={isExportingNonConformityHistory || isLoadingNonConformityHistory}
+                onClick={handleExportNonConformityHistory}
+              >
+                {isExportingNonConformityHistory
+                  ? uiMessage.auth.nonConformityHistoryExportingButton
+                  : uiMessage.auth.nonConformityHistoryExportButton}
+              </button>
               <button
                 type="button"
                 className="logout-button"
