@@ -132,6 +132,8 @@ const complianceExportAuditQuerySchema = z
       .enum(['all', 'non_conformity_history', 'action_plan_history', 'compliance_export_audit'])
       .default('all'),
     exportId: z.string().trim().max(64).optional(),
+    nonConformityId: z.string().trim().max(64).optional(),
+    actionPlanId: z.string().trim().max(64).optional(),
     actor: z.string().trim().max(120).optional(),
     from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -354,6 +356,8 @@ const ensureDomainTables = async () => {
       non_conformity_id TEXT,
       action_plan_id TEXT,
       filter_export_id TEXT,
+      filter_non_conformity_id TEXT,
+      filter_action_plan_id TEXT,
       filter_actor TEXT,
       filter_from DATE,
       filter_to DATE,
@@ -366,6 +370,16 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     ALTER TABLE compliance_export_events
     ADD COLUMN IF NOT EXISTS filter_export_id TEXT
+  `;
+
+  await prisma.$executeRaw`
+    ALTER TABLE compliance_export_events
+    ADD COLUMN IF NOT EXISTS filter_non_conformity_id TEXT
+  `;
+
+  await prisma.$executeRaw`
+    ALTER TABLE compliance_export_events
+    ADD COLUMN IF NOT EXISTS filter_action_plan_id TEXT
   `;
 
   await prisma.$executeRaw`
@@ -2272,6 +2286,10 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
   const exportTypeFilter =
     parsedQuery.data.exportType === 'all' ? null : parsedQuery.data.exportType;
   const exportIdFilter = parsedQuery.data.exportId?.trim() ? parsedQuery.data.exportId.trim() : null;
+  const nonConformityFilter =
+    parsedQuery.data.nonConformityId?.trim() ? parsedQuery.data.nonConformityId.trim() : null;
+  const actionPlanFilter =
+    parsedQuery.data.actionPlanId?.trim() ? parsedQuery.data.actionPlanId.trim() : null;
   const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
   const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
   const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
@@ -2285,6 +2303,8 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
     WHERE company_name = ${companyName}
       AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
       AND (${exportIdFilter}::text IS NULL OR export_id = ${exportIdFilter})
+      AND (${nonConformityFilter}::text IS NULL OR non_conformity_id = ${nonConformityFilter})
+      AND (${actionPlanFilter}::text IS NULL OR action_plan_id = ${actionPlanFilter})
       AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
       AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
       AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
@@ -2298,6 +2318,8 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
     non_conformity_id: string | null;
     action_plan_id: string | null;
     filter_export_id: string | null;
+    filter_non_conformity_id: string | null;
+    filter_action_plan_id: string | null;
     filter_actor: string | null;
     filter_from: Date | null;
     filter_to: Date | null;
@@ -2311,6 +2333,8 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
       non_conformity_id,
       action_plan_id,
       filter_export_id,
+      filter_non_conformity_id,
+      filter_action_plan_id,
       filter_actor,
       filter_from,
       filter_to,
@@ -2320,6 +2344,8 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
     WHERE company_name = ${companyName}
       AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
       AND (${exportIdFilter}::text IS NULL OR export_id = ${exportIdFilter})
+      AND (${nonConformityFilter}::text IS NULL OR non_conformity_id = ${nonConformityFilter})
+      AND (${actionPlanFilter}::text IS NULL OR action_plan_id = ${actionPlanFilter})
       AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
       AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
       AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
@@ -2337,6 +2363,8 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
       nonConformityId: row.non_conformity_id,
       actionPlanId: row.action_plan_id,
       filterExportId: row.filter_export_id,
+      filterNonConformityId: row.filter_non_conformity_id,
+      filterActionPlanId: row.filter_action_plan_id,
       filterActor: row.filter_actor,
       filterFrom: row.filter_from ? row.filter_from.toISOString() : null,
       filterTo: row.filter_to ? row.filter_to.toISOString() : null,
@@ -2366,6 +2394,10 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
   const exportTypeFilter =
     parsedQuery.data.exportType === 'all' ? null : parsedQuery.data.exportType;
   const exportIdFilter = parsedQuery.data.exportId?.trim() ? parsedQuery.data.exportId.trim() : null;
+  const nonConformityFilter =
+    parsedQuery.data.nonConformityId?.trim() ? parsedQuery.data.nonConformityId.trim() : null;
+  const actionPlanFilter =
+    parsedQuery.data.actionPlanId?.trim() ? parsedQuery.data.actionPlanId.trim() : null;
   const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
   const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
   const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
@@ -2379,6 +2411,8 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
     WHERE company_name = ${companyName}
       AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
       AND (${exportIdFilter}::text IS NULL OR export_id = ${exportIdFilter})
+      AND (${nonConformityFilter}::text IS NULL OR non_conformity_id = ${nonConformityFilter})
+      AND (${actionPlanFilter}::text IS NULL OR action_plan_id = ${actionPlanFilter})
       AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
       AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
       AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
@@ -2391,6 +2425,8 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
     non_conformity_id: string | null;
     action_plan_id: string | null;
     filter_export_id: string | null;
+    filter_non_conformity_id: string | null;
+    filter_action_plan_id: string | null;
     filter_actor: string | null;
     filter_from: Date | null;
     filter_to: Date | null;
@@ -2403,6 +2439,8 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       non_conformity_id,
       action_plan_id,
       filter_export_id,
+      filter_non_conformity_id,
+      filter_action_plan_id,
       filter_actor,
       filter_from,
       filter_to,
@@ -2412,6 +2450,8 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
     WHERE company_name = ${companyName}
       AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
       AND (${exportIdFilter}::text IS NULL OR export_id = ${exportIdFilter})
+      AND (${nonConformityFilter}::text IS NULL OR non_conformity_id = ${nonConformityFilter})
+      AND (${actionPlanFilter}::text IS NULL OR action_plan_id = ${actionPlanFilter})
       AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
       AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
       AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
@@ -2434,6 +2474,8 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       company_name,
       export_type,
       filter_export_id,
+      filter_non_conformity_id,
+      filter_action_plan_id,
       filter_actor,
       filter_from,
       filter_to,
@@ -2446,6 +2488,8 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       ${companyName},
       ${'compliance_export_audit'},
       ${parsedQuery.data.exportId?.trim() || null},
+      ${parsedQuery.data.nonConformityId?.trim() || null},
+      ${parsedQuery.data.actionPlanId?.trim() || null},
       ${parsedQuery.data.actor?.trim() || null},
       ${parsedQuery.data.from || null},
       ${parsedQuery.data.to || null},
@@ -2462,6 +2506,8 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
     `# company_name,${csvEscape(companyName)}`,
     `# filter_export_type,${csvEscape(parsedQuery.data.exportType)}`,
     `# filter_export_id,${csvEscape(parsedQuery.data.exportId?.trim() ?? '')}`,
+    `# filter_non_conformity_id,${csvEscape(parsedQuery.data.nonConformityId?.trim() ?? '')}`,
+    `# filter_action_plan_id,${csvEscape(parsedQuery.data.actionPlanId?.trim() ?? '')}`,
     `# filter_actor,${csvEscape(parsedQuery.data.actor?.trim() ?? '')}`,
     `# filter_from,${csvEscape(parsedQuery.data.from ?? '')}`,
     `# filter_to,${csvEscape(parsedQuery.data.to ?? '')}`,

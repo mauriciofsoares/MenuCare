@@ -100,6 +100,8 @@ type ComplianceExportAuditEvent = {
   nonConformityId: string | null
   actionPlanId: string | null
   filterExportId: string | null
+  filterNonConformityId: string | null
+  filterActionPlanId: string | null
   filterActor: string | null
   filterFrom: string | null
   filterTo: string | null
@@ -183,6 +185,8 @@ type ActionPlanHistoryFilter = {
 
 type ComplianceExportAuditFilter = {
   exportId: string
+  nonConformityId: string
+  actionPlanId: string
   actor: string
   from: string
   to: string
@@ -350,6 +354,8 @@ function App() {
   const [complianceExportAuditFilter, setComplianceExportAuditFilter] =
     useState<ComplianceExportAuditFilter>({
       exportId: '',
+      nonConformityId: '',
+      actionPlanId: '',
       actor: '',
       from: '',
       to: '',
@@ -357,6 +363,8 @@ function App() {
   const [appliedComplianceExportAuditFilter, setAppliedComplianceExportAuditFilter] =
     useState<ComplianceExportAuditFilter>({
       exportId: '',
+      nonConformityId: '',
+      actionPlanId: '',
       actor: '',
       from: '',
       to: '',
@@ -670,6 +678,14 @@ function App() {
         query.set('exportId', filter.exportId.trim())
       }
 
+      if (filter.nonConformityId.trim()) {
+        query.set('nonConformityId', filter.nonConformityId.trim())
+      }
+
+      if (filter.actionPlanId.trim()) {
+        query.set('actionPlanId', filter.actionPlanId.trim())
+      }
+
       if (filter.actor.trim()) {
         query.set('actor', filter.actor.trim())
       }
@@ -744,6 +760,14 @@ function App() {
 
       if (appliedComplianceExportAuditFilter.exportId.trim()) {
         query.set('exportId', appliedComplianceExportAuditFilter.exportId.trim())
+      }
+
+      if (appliedComplianceExportAuditFilter.nonConformityId.trim()) {
+        query.set('nonConformityId', appliedComplianceExportAuditFilter.nonConformityId.trim())
+      }
+
+      if (appliedComplianceExportAuditFilter.actionPlanId.trim()) {
+        query.set('actionPlanId', appliedComplianceExportAuditFilter.actionPlanId.trim())
       }
 
       if (appliedComplianceExportAuditFilter.actor.trim()) {
@@ -2350,6 +2374,34 @@ function App() {
               />
             </label>
             <label>
+              <span>{uiMessage.auth.complianceExportAuditNonConformityIdFilterLabel}</span>
+              <input
+                type="text"
+                value={complianceExportAuditFilter.nonConformityId}
+                onChange={(event) =>
+                  setComplianceExportAuditFilter((current) => ({
+                    ...current,
+                    nonConformityId: event.target.value,
+                  }))
+                }
+                placeholder="NC ID"
+              />
+            </label>
+            <label>
+              <span>{uiMessage.auth.complianceExportAuditActionPlanIdFilterLabel}</span>
+              <input
+                type="text"
+                value={complianceExportAuditFilter.actionPlanId}
+                onChange={(event) =>
+                  setComplianceExportAuditFilter((current) => ({
+                    ...current,
+                    actionPlanId: event.target.value,
+                  }))
+                }
+                placeholder="AP ID"
+              />
+            </label>
+            <label>
               <span>{uiMessage.auth.complianceExportAuditActorLabel}</span>
               <input
                 type="text"
@@ -2398,6 +2450,8 @@ function App() {
                     setComplianceExportAuditPage(1)
                     setAppliedComplianceExportAuditFilter({
                       exportId: complianceExportAuditFilter.exportId.trim(),
+                      nonConformityId: complianceExportAuditFilter.nonConformityId.trim(),
+                      actionPlanId: complianceExportAuditFilter.actionPlanId.trim(),
                       actor: complianceExportAuditFilter.actor.trim(),
                       from: complianceExportAuditFilter.from,
                       to: complianceExportAuditFilter.to,
@@ -2411,8 +2465,22 @@ function App() {
                 type="button"
                 className="logout-button"
                 onClick={() => {
-                  setComplianceExportAuditFilter({ exportId: '', actor: '', from: '', to: '' })
-                  setAppliedComplianceExportAuditFilter({ exportId: '', actor: '', from: '', to: '' })
+                  setComplianceExportAuditFilter({
+                    exportId: '',
+                    nonConformityId: '',
+                    actionPlanId: '',
+                    actor: '',
+                    from: '',
+                    to: '',
+                  })
+                  setAppliedComplianceExportAuditFilter({
+                    exportId: '',
+                    nonConformityId: '',
+                    actionPlanId: '',
+                    actor: '',
+                    from: '',
+                    to: '',
+                  })
                   setComplianceExportAuditPage(1)
                 }}
               >
@@ -2469,7 +2537,7 @@ function App() {
                     {uiMessage.auth.complianceExportAuditExportIdLabel}: {event.exportId}
                   </small>
                   <small>
-                    {uiMessage.auth.complianceExportAuditFiltersLabel}: exportId={event.filterExportId ?? '-'} | actor={event.filterActor ?? '-'} | from={event.filterFrom ? new Date(event.filterFrom).toLocaleDateString(locale) : '-'} | to={event.filterTo ? new Date(event.filterTo).toLocaleDateString(locale) : '-'}
+                    {uiMessage.auth.complianceExportAuditFiltersLabel}: exportId={event.filterExportId ?? '-'} | ncId={event.filterNonConformityId ?? '-'} | apId={event.filterActionPlanId ?? '-'} | actor={event.filterActor ?? '-'} | from={event.filterFrom ? new Date(event.filterFrom).toLocaleDateString(locale) : '-'} | to={event.filterTo ? new Date(event.filterTo).toLocaleDateString(locale) : '-'}
                   </small>
                   <small>
                     NC={event.nonConformityId ?? '-'} · AP={event.actionPlanId ?? '-'} · {new Date(event.createdAt).toLocaleString(locale)}
