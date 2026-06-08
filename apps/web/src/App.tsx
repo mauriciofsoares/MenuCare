@@ -139,6 +139,14 @@ type NonConformityHistoryResponse = {
   hasNext?: boolean
 }
 
+type ActionPlanHistoryResponse = {
+  events?: ActionPlanEvent[]
+  page?: number
+  limit?: number
+  total?: number
+  hasNext?: boolean
+}
+
 type NonConformityHistoryFilter = {
   actor: string
   from: string
@@ -235,6 +243,9 @@ function App() {
   const [nonConformities, setNonConformities] = useState<NonConformityItem[]>([])
   const [actionPlans, setActionPlans] = useState<ActionPlanItem[]>([])
   const [actionPlanEvents, setActionPlanEvents] = useState<ActionPlanEvent[]>([])
+  const [actionPlanHistoryPage, setActionPlanHistoryPage] = useState(1)
+  const [actionPlanHistoryHasNext, setActionPlanHistoryHasNext] = useState(false)
+  const [actionPlanHistoryTotal, setActionPlanHistoryTotal] = useState(0)
   const [nonConformityEvents, setNonConformityEvents] = useState<NonConformityEvent[]>([])
   const [nonConformityHistoryPage, setNonConformityHistoryPage] = useState(1)
   const [nonConformityHistoryHasNext, setNonConformityHistoryHasNext] = useState(false)
@@ -951,6 +962,8 @@ function App() {
   useEffect(() => {
     if (!authState || !selectedNonConformityId || !selectedActionPlanId) {
       setActionPlanEvents([])
+      setActionPlanHistoryHasNext(false)
+      setActionPlanHistoryTotal(0)
       return
     }
 
@@ -958,7 +971,10 @@ function App() {
       setIsLoadingActionPlanHistory(true)
 
       try {
-        const query = new URLSearchParams()
+        const query = new URLSearchParams({
+          limit: '20',
+          page: String(actionPlanHistoryPage),
+        })
 
         if (appliedActionPlanHistoryFilter.actor.trim()) {
           query.set('actor', appliedActionPlanHistoryFilter.actor.trim())
@@ -981,11 +997,15 @@ function App() {
 
         if (!response.ok) {
           setActionPlanEvents([])
+          setActionPlanHistoryHasNext(false)
+          setActionPlanHistoryTotal(0)
           return
         }
 
-        const payload = (await response.json()) as { events?: ActionPlanEvent[] }
+        const payload = (await response.json()) as ActionPlanHistoryResponse
         setActionPlanEvents(payload.events ?? [])
+        setActionPlanHistoryHasNext(Boolean(payload.hasNext))
+        setActionPlanHistoryTotal(payload.total ?? 0)
       } finally {
         setIsLoadingActionPlanHistory(false)
       }
@@ -996,12 +1016,14 @@ function App() {
     appliedActionPlanHistoryFilter.actor,
     appliedActionPlanHistoryFilter.from,
     appliedActionPlanHistoryFilter.to,
+    actionPlanHistoryPage,
     authState?.token,
     selectedNonConformityId,
     selectedActionPlanId,
   ])
 
   useEffect(() => {
+    setActionPlanHistoryPage(1)
     setActionPlanHistoryFilter({ actor: '', from: '', to: '' })
     setAppliedActionPlanHistoryFilter({ actor: '', from: '', to: '' })
   }, [selectedActionPlanId])
@@ -2841,13 +2863,14 @@ function App() {
               <button
                 type="button"
                 className="logout-button"
-                onClick={() =>
+                onClick={() => {
+                  setActionPlanHistoryPage(1)
                   setAppliedActionPlanHistoryFilter({
                     actor: actionPlanHistoryFilter.actor.trim(),
                     from: actionPlanHistoryFilter.from,
                     to: actionPlanHistoryFilter.to,
                   })
-                }
+                }}
               >
                 {uiMessage.auth.actionPlanHistoryApplyButton}
               </button>
@@ -2857,6 +2880,7 @@ function App() {
                 onClick={() => {
                   setActionPlanHistoryFilter({ actor: '', from: '', to: '' })
                   setAppliedActionPlanHistoryFilter({ actor: '', from: '', to: '' })
+                  setActionPlanHistoryPage(1)
                 }}
               >
                 {uiMessage.auth.actionPlanHistoryClearButton}
@@ -2866,7 +2890,7 @@ function App() {
 
           <div className="history-pagination">
             <small>
-              {uiMessage.auth.actionPlanHistoryCountLabel} {actionPlanEvents.length}
+              {uiMessage.auth.actionPlanHistoryPageLabel} {actionPlanHistoryPage} · {actionPlanHistoryTotal}
             </small>
             <div className="history-filter-actions">
               <button
@@ -2878,6 +2902,22 @@ function App() {
                 {isExportingActionPlanHistory
                   ? uiMessage.auth.actionPlanHistoryExportingButton
                   : uiMessage.auth.actionPlanHistoryExportButton}
+              </button>
+              <button
+                type="button"
+                className="logout-button"
+                disabled={actionPlanHistoryPage <= 1 || isLoadingActionPlanHistory}
+                onClick={() => setActionPlanHistoryPage((current) => Math.max(1, current - 1))}
+              >
+                {uiMessage.auth.actionPlanHistoryPrevButton}
+              </button>
+              <button
+                type="button"
+                className="logout-button"
+                disabled={!actionPlanHistoryHasNext || isLoadingActionPlanHistory}
+                onClick={() => setActionPlanHistoryPage((current) => current + 1)}
+              >
+                {uiMessage.auth.actionPlanHistoryNextButton}
               </button>
             </div>
           </div>
