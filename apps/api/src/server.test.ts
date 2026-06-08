@@ -50,6 +50,32 @@ describe('API integration', () => {
     assert.equal(response.body.status, 'error')
   })
 
+  it('recommendation policy endpoint should return contract with authentication', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const response = await request(app.server)
+      .get('/governance/recommendation-policy')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+
+    assert.equal(response.status, 200)
+    assert.equal(response.body.status, 'ok')
+    assert.deepEqual(response.body.policy?.priorityOrder, [
+      'contract_rules',
+      'financial_goal',
+      'nutritional_restrictions',
+      'operational_rules',
+      'historical_ratings',
+    ])
+    assert.equal(Array.isArray(response.body.policy?.levels), true)
+    assert.equal(Array.isArray(response.body.policy?.blockingCriteria), true)
+  })
+
   it('login should return 429 after too many failed attempts', async () => {
     const targetEmail = 'blocked@menucare.local'
 

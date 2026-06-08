@@ -204,6 +204,30 @@ type ComplianceExportAuditPreferences = {
   exportScope: 'page' | 'all'
 }
 
+type RecommendationPolicyItemKey =
+  | 'contract_rules'
+  | 'financial_goal'
+  | 'nutritional_restrictions'
+  | 'operational_rules'
+  | 'historical_ratings'
+
+type RecommendationPolicyBlockingKey =
+  | 'contract_rule_violation'
+  | 'mandatory_nutritional_restriction_violation'
+  | 'financial_goal_exceeded'
+  | 'critical_operational_rule_violation'
+
+type RecommendationPolicyLevel = {
+  key: 'mandatory' | 'recommended' | 'informational'
+  blocksApproval: boolean
+}
+
+type RecommendationPolicyContract = {
+  priorityOrder: RecommendationPolicyItemKey[]
+  levels: RecommendationPolicyLevel[]
+  blockingCriteria: RecommendationPolicyBlockingKey[]
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -348,6 +372,8 @@ function App() {
   const [complianceExportAuditLimit, setComplianceExportAuditLimit] = useState<30 | 50 | 100>(30)
   const [complianceExportAuditHasNext, setComplianceExportAuditHasNext] = useState(false)
   const [complianceExportAuditTotal, setComplianceExportAuditTotal] = useState(0)
+  const [recommendationPolicy, setRecommendationPolicy] = useState<RecommendationPolicyContract | null>(null)
+  const [isLoadingRecommendationPolicy, setIsLoadingRecommendationPolicy] = useState(false)
   const [complianceExportAuditExportScope, setComplianceExportAuditExportScope] =
     useState<'page' | 'all'>('page')
   const [isExportingNonConformityHistory, setIsExportingNonConformityHistory] = useState(false)
@@ -604,6 +630,90 @@ function App() {
     }
 
     return 'status-badge is-neutral'
+  }
+
+  const getRecommendationPolicyItemLabel = (item: RecommendationPolicyItemKey) => {
+    if (item === 'contract_rules') {
+      return uiMessage.auth.recommendationPolicyItemContractRules
+    }
+
+    if (item === 'financial_goal') {
+      return uiMessage.auth.recommendationPolicyItemFinancialGoal
+    }
+
+    if (item === 'nutritional_restrictions') {
+      return uiMessage.auth.recommendationPolicyItemNutritionalRestrictions
+    }
+
+    if (item === 'operational_rules') {
+      return uiMessage.auth.recommendationPolicyItemOperationalRules
+    }
+
+    return uiMessage.auth.recommendationPolicyItemHistoricalRatings
+  }
+
+  const getRecommendationPolicyBlockingLabel = (item: RecommendationPolicyBlockingKey) => {
+    if (item === 'contract_rule_violation') {
+      return uiMessage.auth.recommendationPolicyItemContractViolation
+    }
+
+    if (item === 'mandatory_nutritional_restriction_violation') {
+      return uiMessage.auth.recommendationPolicyItemNutritionViolation
+    }
+
+    if (item === 'financial_goal_exceeded') {
+      return uiMessage.auth.recommendationPolicyItemFinancialExceeded
+    }
+
+    return uiMessage.auth.recommendationPolicyItemOperationalViolation
+  }
+
+  const getRecommendationLevelLabel = (level: RecommendationPolicyLevel['key']) => {
+    if (level === 'mandatory') {
+      return uiMessage.auth.recommendationPolicyLevelMandatory
+    }
+
+    if (level === 'recommended') {
+      return uiMessage.auth.recommendationPolicyLevelRecommended
+    }
+
+    return uiMessage.auth.recommendationPolicyLevelInformational
+  }
+
+  const getRecommendationLevelBadgeClass = (level: RecommendationPolicyLevel['key']) => {
+    if (level === 'mandatory') {
+      return 'status-badge is-negative'
+    }
+
+    if (level === 'recommended') {
+      return 'status-badge is-progress'
+    }
+
+    return 'status-badge is-neutral'
+  }
+
+  const fetchRecommendationPolicy = async (token: string) => {
+    setIsLoadingRecommendationPolicy(true)
+
+    try {
+      const response = await fetch(`${API_URL}/governance/recommendation-policy`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; policy: RecommendationPolicyContract }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error()
+      }
+
+      setRecommendationPolicy(payload.policy)
+    } catch {
+      setRecommendationPolicy(null)
+    } finally {
+      setIsLoadingRecommendationPolicy(false)
+    }
   }
 
   const fetchDashboardSummary = async (token: string) => {
@@ -1105,6 +1215,15 @@ function App() {
     complianceExportAuditTypeFilter,
     inviteHistoryFilter,
   ])
+
+  useEffect(() => {
+    if (!authState) {
+      setRecommendationPolicy(null)
+      return
+    }
+
+    void fetchRecommendationPolicy(authState.token)
+  }, [authState?.token])
 
   useEffect(() => {
     if (!authState) {
@@ -2269,6 +2388,47 @@ function App() {
                 <p>{module.value}</p>
               </article>
             ))}
+          </div>
+
+          <div className="next-actions">
+            <h3>{uiMessage.auth.recommendationPolicyTitle}</h3>
+            {isLoadingRecommendationPolicy ? (
+              <p>{uiMessage.auth.recommendationPolicyLoading}</p>
+            ) : recommendationPolicy ? (
+              <ul>
+                <li>
+                  <strong>{uiMessage.auth.recommendationPolicyPriorityLabel}</strong>
+                  <p>
+                    {recommendationPolicy.priorityOrder
+                      .map((item) => getRecommendationPolicyItemLabel(item))
+                      .join(' -> ')}
+                  </p>
+                </li>
+                <li>
+                  <strong>{uiMessage.auth.recommendationPolicyLevelLabel}</strong>
+                  <div className="history-filter-actions">
+                    {recommendationPolicy.levels.map((level) => (
+                      <span key={level.key} className={getRecommendationLevelBadgeClass(level.key)}>
+                        {getRecommendationLevelLabel(level.key)} ·{' '}
+                        {level.blocksApproval
+                          ? uiMessage.auth.recommendationPolicyBlocks
+                          : uiMessage.auth.recommendationPolicyNoBlocks}
+                      </span>
+                    ))}
+                  </div>
+                </li>
+                <li>
+                  <strong>{uiMessage.auth.recommendationPolicyBlockingLabel}</strong>
+                  <p>
+                    {recommendationPolicy.blockingCriteria
+                      .map((item) => getRecommendationPolicyBlockingLabel(item))
+                      .join(' · ')}
+                  </p>
+                </li>
+              </ul>
+            ) : (
+              <p>{uiMessage.auth.recommendationPolicyLoading}</p>
+            )}
           </div>
 
           <div className="next-actions">

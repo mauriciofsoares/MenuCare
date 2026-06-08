@@ -179,6 +179,36 @@ const demoContext = {
   roleKey: 'menucare_admin',
 } as const;
 
+const recommendationPolicyContract = {
+  priorityOrder: [
+    'contract_rules',
+    'financial_goal',
+    'nutritional_restrictions',
+    'operational_rules',
+    'historical_ratings',
+  ] as const,
+  levels: [
+    {
+      key: 'mandatory',
+      blocksApproval: true,
+    },
+    {
+      key: 'recommended',
+      blocksApproval: false,
+    },
+    {
+      key: 'informational',
+      blocksApproval: false,
+    },
+  ] as const,
+  blockingCriteria: [
+    'contract_rule_violation',
+    'mandatory_nutritional_restriction_violation',
+    'financial_goal_exceeded',
+    'critical_operational_rule_violation',
+  ] as const,
+} as const;
+
 const demoPassword = process.env.DEMO_PASSWORD ?? 'Admin@123';
 const demoInviteToken = process.env.DEMO_INVITE_TOKEN ?? 'MENUCARE-PRIMEIRO-ACESSO';
 const parsedLoginAttemptLimit = Number(process.env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS ?? 5);
@@ -797,6 +827,13 @@ app.post('/auth/logout', { preHandler: authenticate }, async () => ({
   status: 'ok',
   message: apiMessage.auth.signedOut,
 }));
+
+app.get('/governance/recommendation-policy', { preHandler: authenticate }, async () => {
+  return {
+    status: 'ok',
+    policy: recommendationPolicyContract,
+  };
+});
 
 app.post('/auth/first-access/activate', async (request, reply) => {
   const parsed = inviteActivationSchema.safeParse(request.body);
