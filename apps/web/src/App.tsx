@@ -290,6 +290,46 @@ function App() {
     return status
   }
 
+  const getContractStatusBadgeClass = (status: string) => {
+    if (status === 'active') {
+      return 'status-badge is-positive'
+    }
+
+    if (status === 'processing') {
+      return 'status-badge is-progress'
+    }
+
+    if (status === 'draft') {
+      return 'status-badge is-neutral'
+    }
+
+    if (status === 'archived') {
+      return 'status-badge is-muted'
+    }
+
+    return 'status-badge is-neutral'
+  }
+
+  const getRuleStatusBadgeClass = (status: string) => {
+    if (status === 'approved') {
+      return 'status-badge is-positive'
+    }
+
+    if (status === 'under_review' || status === 'identified') {
+      return 'status-badge is-progress'
+    }
+
+    if (status === 'rejected') {
+      return 'status-badge is-negative'
+    }
+
+    if (status === 'archived') {
+      return 'status-badge is-muted'
+    }
+
+    return 'status-badge is-neutral'
+  }
+
   const fetchDashboardSummary = async (token: string) => {
     const response = await fetch(`${API_URL}/dashboard/summary`, {
       headers: { Authorization: `Bearer ${token}` },
@@ -1188,7 +1228,9 @@ function App() {
                 {dashboardSummary.recentContracts.map((contract) => (
                   <li key={contract.id}>
                     <strong>{contract.title}</strong>
-                    <span>{getContractStatusLabel(contract.status)}</span>
+                    <span className={getContractStatusBadgeClass(contract.status)}>
+                      {getContractStatusLabel(contract.status)}
+                    </span>
                   </li>
                 ))}
               </ul>
@@ -1601,7 +1643,9 @@ function App() {
               contracts.map((contract) => (
                 <li key={contract.id}>
                   <strong>{contract.title}</strong>
-                  <span>{getContractStatusLabel(contract.status)}</span>
+                  <span className={getContractStatusBadgeClass(contract.status)}>
+                    {getContractStatusLabel(contract.status)}
+                  </span>
                 </li>
               ))
             ) : (
@@ -1625,7 +1669,9 @@ function App() {
               rules.map((rule) => (
                 <li key={rule.id}>
                   <strong>{rule.title}</strong>
-                  <span>{getRuleStatusLabel(rule.status)}</span>
+                  <span className={getRuleStatusBadgeClass(rule.status)}>
+                    {getRuleStatusLabel(rule.status)}
+                  </span>
                 </li>
               ))
             ) : (
