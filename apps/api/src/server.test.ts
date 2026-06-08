@@ -357,6 +357,72 @@ describe('API integration', () => {
     assert.ok((listAdjustedVersionsResponse.body.versions as Array<{ id: string }>).length >= 1)
   })
 
+  it('evaluation import and intelligence rebuild should generate combination insights', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const importMenuResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-08',
+        mealType: 'Almoco',
+        financialGoal: 12,
+        mealCost: 11.5,
+        recipes: ['Arroz integral', 'Feijao', 'Frango grelhado'],
+      })
+
+    if (importMenuResponse.status === 503) {
+      assert.equal(importMenuResponse.body.status, 'error')
+      return
+    }
+
+    assert.equal(importMenuResponse.status, 201)
+
+    const importEvaluationResponse = await request(app.server)
+      .post('/evaluations/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'AVALIACOES-GENIALNET.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-08',
+        score: 8.6,
+        evaluationsCount: 47,
+        comments: 'Boa aceitacao geral da combinacao.',
+      })
+
+    assert.equal(importEvaluationResponse.status, 201)
+    assert.equal(importEvaluationResponse.body.status, 'ok')
+
+    const rebuildResponse = await request(app.server)
+      .post('/evaluations/intelligence/rebuild')
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(rebuildResponse.status, 200)
+    assert.equal(rebuildResponse.body.status, 'ok')
+    assert.ok((rebuildResponse.body.summary?.generatedCombinations as number) >= 1)
+
+    const listResponse = await request(app.server)
+      .get('/evaluations/intelligence?limit=10')
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(listResponse.status, 200)
+    assert.equal(listResponse.body.status, 'ok')
+    assert.equal(Array.isArray(listResponse.body.combinations), true)
+    assert.ok((listResponse.body.combinations as Array<{ id: string }>).length >= 1)
+  })
+
   it('login should return 429 after too many failed attempts', async () => {
     const targetEmail = 'blocked@menucare.local'
 

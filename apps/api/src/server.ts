@@ -68,6 +68,24 @@ const menuImportParamsSchema = z.object({
   importId: z.string().min(1),
 });
 
+const evaluationImportSchema = z.object({
+  fileName: z.string().min(5).max(240).regex(/\.pdf$/i),
+  unitName: z.string().min(2).max(120),
+  serviceName: z.string().min(2).max(120),
+  referenceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  score: z.coerce.number().min(0).max(10),
+  evaluationsCount: z.coerce.number().int().min(1).max(100000),
+  comments: z.string().max(800).optional(),
+});
+
+const evaluationImportListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+const intelligenceListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
 const ruleSchema = z.object({
   contractId: z.string().min(1),
   title: z.string().min(3),
@@ -493,6 +511,38 @@ const ensureDomainTables = async () => {
   `;
 
   await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS menu_evaluation_imports (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      unit_name TEXT NOT NULL,
+      service_name TEXT NOT NULL,
+      reference_date DATE NOT NULL,
+      score NUMERIC(4, 2) NOT NULL,
+      evaluations_count INT NOT NULL,
+      comments TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS menu_combination_intelligence (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      combination_key TEXT NOT NULL,
+      recipes_json TEXT NOT NULL,
+      unit_name TEXT NOT NULL,
+      service_name TEXT NOT NULL,
+      average_rating NUMERIC(4, 2) NOT NULL,
+      evaluations_count INT NOT NULL,
+      mapped_records INT NOT NULL,
+      last_reference_date DATE NOT NULL,
+      trend TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
     ALTER TABLE compliance_export_events
     ADD COLUMN IF NOT EXISTS filter_export_id TEXT
   `;
@@ -580,6 +630,16 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_menu_adjusted_versions_import_created_at
     ON menu_adjusted_versions (menu_import_id, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_menu_evaluation_imports_company_created_at
+    ON menu_evaluation_imports (company_name, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_menu_combination_intelligence_company_created_at
+    ON menu_combination_intelligence (company_name, created_at DESC)
   `;
 
   domainTablesReady = true;
@@ -2336,6 +2396,337 @@ app.get('/menus/imports/:importId/adjusted-versions', { preHandler: authenticate
         estimatedNutritionalImpact: string;
         priorityLevel: 'high' | 'medium';
       }>,
+      createdAt: item.created_at.toISOString(),
+    })),
+  };
+});
+
+app.post('/evaluations/imports', { preHandler: authenticate }, async (request, reply) => {
+  const parsed = evaluationImportSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Payload de importacao de avaliacoes invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const payload = parsed.data;
+  const evaluationId = randomUUID();
+
+  await ensureDomainTables();
+
+  await prisma.$executeRaw`
+    INSERT INTO menu_evaluation_imports (
+      id,
+      company_name,
+      file_name,
+      unit_name,
+      service_name,
+      reference_date,
+      score,
+      evaluations_count,
+      comments
+    )
+    VALUES (
+      ${evaluationId},
+      ${companyName},
+      ${payload.fileName.trim()},
+      ${payload.unitName.trim()},
+      ${payload.serviceName.trim()},
+      ${payload.referenceDate},
+      ${payload.score},
+      ${payload.evaluationsCount},
+      ${payload.comments?.trim() || null}
+    )
+  `;
+
+  return reply.code(201).send({
+    status: 'ok',
+    evaluation: {
+      id: evaluationId,
+      fileName: payload.fileName.trim(),
+      unitName: payload.unitName.trim(),
+      serviceName: payload.serviceName.trim(),
+      referenceDate: new Date(payload.referenceDate).toISOString(),
+      score: Number(payload.score.toFixed(2)),
+      evaluationsCount: payload.evaluationsCount,
+      comments: payload.comments?.trim() || null,
+      createdAt: new Date().toISOString(),
+    },
+  });
+});
+
+app.get('/evaluations/imports', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const parsedQuery = evaluationImportListQuerySchema.safeParse(request.query);
+  const limit = parsedQuery.success ? parsedQuery.data.limit : 20;
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    file_name: string;
+    unit_name: string;
+    service_name: string;
+    reference_date: Date;
+    score: number | string;
+    evaluations_count: number;
+    comments: string | null;
+    created_at: Date;
+  }>>`
+    SELECT
+      id,
+      file_name,
+      unit_name,
+      service_name,
+      reference_date,
+      score,
+      evaluations_count,
+      comments,
+      created_at
+    FROM menu_evaluation_imports
+    WHERE company_name = ${companyName}
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `;
+
+  const parseNumber = (value: number | string) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number(parsed.toFixed(2));
+  };
+
+  return {
+    status: 'ok',
+    evaluations: rows.map((item) => ({
+      id: item.id,
+      fileName: item.file_name,
+      unitName: item.unit_name,
+      serviceName: item.service_name,
+      referenceDate: item.reference_date.toISOString(),
+      score: parseNumber(item.score),
+      evaluationsCount: item.evaluations_count,
+      comments: item.comments,
+      createdAt: item.created_at.toISOString(),
+    })),
+  };
+});
+
+app.post('/evaluations/intelligence/rebuild', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    unit_name: string;
+    service_name: string;
+    reference_date: Date;
+    score: number | string;
+    evaluations_count: number;
+    menu_import_id: string | null;
+    recipes_json: string | null;
+  }>>`
+    SELECT
+      eval.unit_name,
+      eval.service_name,
+      eval.reference_date,
+      eval.score,
+      eval.evaluations_count,
+      menu.id AS menu_import_id,
+      menu.recipes_json
+    FROM menu_evaluation_imports eval
+    LEFT JOIN menu_pdf_imports menu
+      ON menu.company_name = eval.company_name
+      AND menu.unit_name = eval.unit_name
+      AND menu.service_name = eval.service_name
+      AND menu.reference_date = eval.reference_date
+    WHERE eval.company_name = ${companyName}
+    ORDER BY eval.reference_date DESC
+  `;
+
+  await prisma.$executeRaw`
+    DELETE FROM menu_combination_intelligence
+    WHERE company_name = ${companyName}
+  `;
+
+  const parseNumber = (value: number | string) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number(parsed.toFixed(2));
+  };
+
+  const grouped = new Map<string, {
+    recipesJson: string;
+    unitName: string;
+    serviceName: string;
+    scoreWeightedSum: number;
+    evaluationsCount: number;
+    mappedRecords: number;
+    lastReferenceDate: Date;
+  }>();
+
+  for (const item of rows) {
+    if (!item.menu_import_id || !item.recipes_json) {
+      continue;
+    }
+
+    const key = `${item.unit_name}::${item.service_name}::${item.recipes_json}`;
+    const score = parseNumber(item.score);
+    const evalCount = item.evaluations_count;
+    const current = grouped.get(key);
+
+    if (!current) {
+      grouped.set(key, {
+        recipesJson: item.recipes_json,
+        unitName: item.unit_name,
+        serviceName: item.service_name,
+        scoreWeightedSum: score * evalCount,
+        evaluationsCount: evalCount,
+        mappedRecords: 1,
+        lastReferenceDate: item.reference_date,
+      });
+      continue;
+    }
+
+    current.scoreWeightedSum += score * evalCount;
+    current.evaluationsCount += evalCount;
+    current.mappedRecords += 1;
+    if (item.reference_date > current.lastReferenceDate) {
+      current.lastReferenceDate = item.reference_date;
+    }
+  }
+
+  let generatedCombinations = 0;
+
+  for (const [combinationKey, aggregate] of grouped.entries()) {
+    const averageRating = Number((aggregate.scoreWeightedSum / aggregate.evaluationsCount).toFixed(2));
+    const trend = averageRating >= 8 ? 'positive' : averageRating >= 6 ? 'stable' : 'negative';
+
+    await prisma.$executeRaw`
+      INSERT INTO menu_combination_intelligence (
+        id,
+        company_name,
+        combination_key,
+        recipes_json,
+        unit_name,
+        service_name,
+        average_rating,
+        evaluations_count,
+        mapped_records,
+        last_reference_date,
+        trend
+      )
+      VALUES (
+        ${randomUUID()},
+        ${companyName},
+        ${combinationKey},
+        ${aggregate.recipesJson},
+        ${aggregate.unitName},
+        ${aggregate.serviceName},
+        ${averageRating},
+        ${aggregate.evaluationsCount},
+        ${aggregate.mappedRecords},
+        ${aggregate.lastReferenceDate.toISOString().slice(0, 10)},
+        ${trend}
+      )
+    `;
+
+    generatedCombinations += 1;
+  }
+
+  return {
+    status: 'ok',
+    summary: {
+      processedEvaluationRows: rows.length,
+      generatedCombinations,
+    },
+  };
+});
+
+app.get('/evaluations/intelligence', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const parsedQuery = intelligenceListQuerySchema.safeParse(request.query);
+  const limit = parsedQuery.success ? parsedQuery.data.limit : 20;
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    combination_key: string;
+    recipes_json: string;
+    unit_name: string;
+    service_name: string;
+    average_rating: number | string;
+    evaluations_count: number;
+    mapped_records: number;
+    last_reference_date: Date;
+    trend: 'positive' | 'stable' | 'negative';
+    created_at: Date;
+  }>>`
+    SELECT
+      id,
+      combination_key,
+      recipes_json,
+      unit_name,
+      service_name,
+      average_rating,
+      evaluations_count,
+      mapped_records,
+      last_reference_date,
+      trend,
+      created_at
+    FROM menu_combination_intelligence
+    WHERE company_name = ${companyName}
+    ORDER BY average_rating DESC, evaluations_count DESC
+    LIMIT ${limit}
+  `;
+
+  const parseNumber = (value: number | string) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number(parsed.toFixed(2));
+  };
+
+  return {
+    status: 'ok',
+    combinations: rows.map((item) => ({
+      id: item.id,
+      combinationKey: item.combination_key,
+      recipes: JSON.parse(item.recipes_json) as string[],
+      unitName: item.unit_name,
+      serviceName: item.service_name,
+      averageRating: parseNumber(item.average_rating),
+      evaluationsCount: item.evaluations_count,
+      mappedRecords: item.mapped_records,
+      lastReferenceDate: item.last_reference_date.toISOString(),
+      trend: item.trend,
       createdAt: item.created_at.toISOString(),
     })),
   };

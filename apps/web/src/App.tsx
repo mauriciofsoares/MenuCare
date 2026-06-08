@@ -280,6 +280,32 @@ type MenuAdjustedVersionItem = {
   createdAt: string
 }
 
+type MenuEvaluationImportItem = {
+  id: string
+  fileName: string
+  unitName: string
+  serviceName: string
+  referenceDate: string
+  score: number
+  evaluationsCount: number
+  comments: string | null
+  createdAt: string
+}
+
+type MenuCombinationIntelligenceItem = {
+  id: string
+  combinationKey: string
+  recipes: string[]
+  unitName: string
+  serviceName: string
+  averageRating: number
+  evaluationsCount: number
+  mappedRecords: number
+  lastReferenceDate: string
+  trend: 'positive' | 'stable' | 'negative'
+  createdAt: string
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -439,6 +465,12 @@ function App() {
   const [menuAdjustedVersions, setMenuAdjustedVersions] = useState<MenuAdjustedVersionItem[]>([])
   const [isLoadingMenuAdjustedVersions, setIsLoadingMenuAdjustedVersions] = useState(false)
   const [isGeneratingAdjustedVersion, setIsGeneratingAdjustedVersion] = useState(false)
+  const [menuEvaluationImports, setMenuEvaluationImports] = useState<MenuEvaluationImportItem[]>([])
+  const [isLoadingMenuEvaluationImports, setIsLoadingMenuEvaluationImports] = useState(false)
+  const [isSubmittingMenuEvaluationImport, setIsSubmittingMenuEvaluationImport] = useState(false)
+  const [menuCombinationIntelligence, setMenuCombinationIntelligence] = useState<MenuCombinationIntelligenceItem[]>([])
+  const [isLoadingMenuCombinationIntelligence, setIsLoadingMenuCombinationIntelligence] = useState(false)
+  const [isRebuildingMenuCombinationIntelligence, setIsRebuildingMenuCombinationIntelligence] = useState(false)
   const [complianceExportAuditExportScope, setComplianceExportAuditExportScope] =
     useState<'page' | 'all'>('page')
   const [isExportingNonConformityHistory, setIsExportingNonConformityHistory] = useState(false)
@@ -526,6 +558,15 @@ function App() {
     financialGoal: '',
     mealCost: '',
     recipesText: '',
+  })
+  const [evaluationImportForm, setEvaluationImportForm] = useState({
+    fileName: 'AVALIACOES-GENIALNET.pdf',
+    unitName: '',
+    serviceName: '',
+    referenceDate: '',
+    score: '',
+    evaluationsCount: '',
+    comments: '',
   })
 
   const uiMessage = getUiMessage(locale)
@@ -815,6 +856,30 @@ function App() {
     return 'status-badge is-progress'
   }
 
+  const getCombinationTrendLabel = (trend: MenuCombinationIntelligenceItem['trend']) => {
+    if (trend === 'positive') {
+      return 'Tendencia positiva'
+    }
+
+    if (trend === 'stable') {
+      return 'Tendencia estavel'
+    }
+
+    return 'Tendencia negativa'
+  }
+
+  const getCombinationTrendBadgeClass = (trend: MenuCombinationIntelligenceItem['trend']) => {
+    if (trend === 'positive') {
+      return 'status-badge is-positive'
+    }
+
+    if (trend === 'stable') {
+      return 'status-badge is-progress'
+    }
+
+    return 'status-badge is-negative'
+  }
+
   const fetchRecommendationPolicy = async (token: string) => {
     setIsLoadingRecommendationPolicy(true)
 
@@ -949,6 +1014,54 @@ function App() {
       setMenuAdjustedVersions([])
     } finally {
       setIsLoadingMenuAdjustedVersions(false)
+    }
+  }
+
+  const fetchMenuEvaluationImports = async (token: string) => {
+    setIsLoadingMenuEvaluationImports(true)
+
+    try {
+      const response = await fetch(`${API_URL}/evaluations/imports?limit=10`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; evaluations: MenuEvaluationImportItem[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error()
+      }
+
+      setMenuEvaluationImports(payload.evaluations ?? [])
+    } catch {
+      setMenuEvaluationImports([])
+    } finally {
+      setIsLoadingMenuEvaluationImports(false)
+    }
+  }
+
+  const fetchMenuCombinationIntelligence = async (token: string) => {
+    setIsLoadingMenuCombinationIntelligence(true)
+
+    try {
+      const response = await fetch(`${API_URL}/evaluations/intelligence?limit=10`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; combinations: MenuCombinationIntelligenceItem[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error()
+      }
+
+      setMenuCombinationIntelligence(payload.combinations ?? [])
+    } catch {
+      setMenuCombinationIntelligence([])
+    } finally {
+      setIsLoadingMenuCombinationIntelligence(false)
     }
   }
 
@@ -1460,11 +1573,15 @@ function App() {
       setMenuImportAuditItems([])
       setMenuImportSuggestions([])
       setMenuAdjustedVersions([])
+      setMenuEvaluationImports([])
+      setMenuCombinationIntelligence([])
       return
     }
 
     void fetchRecommendationPolicy(authState.token)
     void fetchMenuImports(authState.token)
+    void fetchMenuEvaluationImports(authState.token)
+    void fetchMenuCombinationIntelligence(authState.token)
   }, [authState?.token])
 
   useEffect(() => {
@@ -2010,6 +2127,91 @@ function App() {
       setDomainError(error instanceof Error ? error.message : 'Falha ao gerar versao ajustada.')
     } finally {
       setIsGeneratingAdjustedVersion(false)
+    }
+  }
+
+  const handleEvaluationImportSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!authState) {
+      return
+    }
+
+    setDomainError(null)
+    setIsSubmittingMenuEvaluationImport(true)
+
+    try {
+      const response = await fetch(`${API_URL}/evaluations/imports`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authState.token}`,
+        },
+        body: JSON.stringify({
+          fileName: evaluationImportForm.fileName.trim(),
+          unitName: evaluationImportForm.unitName.trim(),
+          serviceName: evaluationImportForm.serviceName.trim(),
+          referenceDate: evaluationImportForm.referenceDate,
+          score: Number(evaluationImportForm.score),
+          evaluationsCount: Number(evaluationImportForm.evaluationsCount),
+          comments: evaluationImportForm.comments.trim() || undefined,
+        }),
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; evaluation: MenuEvaluationImportItem }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao importar avaliacoes.')
+      }
+
+      setEvaluationImportForm((current) => ({
+        ...current,
+        score: '',
+        evaluationsCount: '',
+        comments: '',
+      }))
+
+      await fetchMenuEvaluationImports(authState.token)
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao importar avaliacoes.')
+    } finally {
+      setIsSubmittingMenuEvaluationImport(false)
+    }
+  }
+
+  const handleRebuildCombinationIntelligence = async () => {
+    if (!authState) {
+      return
+    }
+
+    setDomainError(null)
+    setIsRebuildingMenuCombinationIntelligence(true)
+
+    try {
+      const response = await fetch(`${API_URL}/evaluations/intelligence/rebuild`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${authState.token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; summary: { generatedCombinations: number } }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error(
+          'message' in payload ? payload.message : 'Falha ao cruzar avaliacoes com cardapios.',
+        )
+      }
+
+      await fetchMenuCombinationIntelligence(authState.token)
+    } catch (error) {
+      setDomainError(
+        error instanceof Error ? error.message : 'Falha ao cruzar avaliacoes com cardapios.',
+      )
+    } finally {
+      setIsRebuildingMenuCombinationIntelligence(false)
     }
   }
 
@@ -3618,6 +3820,167 @@ function App() {
             </ul>
           ) : (
             <p className="empty-note">Nenhuma versao ajustada gerada ainda.</p>
+          )}
+
+          <div className="invite-history-head">
+            <h3>Importacao de avaliacoes (PDF)</h3>
+          </div>
+
+          <form className="crud-form" onSubmit={handleEvaluationImportSubmit}>
+            <label>
+              <span>Arquivo PDF de avaliacoes</span>
+              <input
+                type="text"
+                value={evaluationImportForm.fileName}
+                onChange={(event) =>
+                  setEvaluationImportForm((current) => ({ ...current, fileName: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>Unidade</span>
+              <input
+                type="text"
+                value={evaluationImportForm.unitName}
+                onChange={(event) =>
+                  setEvaluationImportForm((current) => ({ ...current, unitName: event.target.value }))
+                }
+                required
+                minLength={2}
+              />
+            </label>
+
+            <label>
+              <span>Servico</span>
+              <input
+                type="text"
+                value={evaluationImportForm.serviceName}
+                onChange={(event) =>
+                  setEvaluationImportForm((current) => ({ ...current, serviceName: event.target.value }))
+                }
+                required
+                minLength={2}
+              />
+            </label>
+
+            <label>
+              <span>Data de referencia</span>
+              <input
+                type="date"
+                value={evaluationImportForm.referenceDate}
+                onChange={(event) =>
+                  setEvaluationImportForm((current) => ({ ...current, referenceDate: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>Nota media (0 a 10)</span>
+              <input
+                type="number"
+                min="0"
+                max="10"
+                step="0.1"
+                value={evaluationImportForm.score}
+                onChange={(event) =>
+                  setEvaluationImportForm((current) => ({ ...current, score: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>Quantidade de avaliacoes</span>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={evaluationImportForm.evaluationsCount}
+                onChange={(event) =>
+                  setEvaluationImportForm((current) => ({ ...current, evaluationsCount: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>Comentarios</span>
+              <textarea
+                value={evaluationImportForm.comments}
+                onChange={(event) =>
+                  setEvaluationImportForm((current) => ({ ...current, comments: event.target.value }))
+                }
+              />
+            </label>
+
+            <button type="submit" className="auth-button" disabled={isSubmittingMenuEvaluationImport}>
+              {isSubmittingMenuEvaluationImport ? 'Importando avaliacoes...' : 'Registrar avaliacao PDF'}
+            </button>
+          </form>
+
+          {isLoadingMenuEvaluationImports ? (
+            <p className="empty-note">Carregando avaliacoes importadas...</p>
+          ) : menuEvaluationImports.length ? (
+            <ul className="validation-history-list">
+              {menuEvaluationImports.map((item) => (
+                <li key={item.id}>
+                  <div className="validation-history-row">
+                    <strong>{item.fileName}</strong>
+                    <span className="status-badge is-progress">Nota {item.score.toFixed(1)}</span>
+                  </div>
+                  <small>
+                    {item.unitName} · {item.serviceName} · {new Date(item.referenceDate).toLocaleDateString(locale)}
+                  </small>
+                  <small>{item.evaluationsCount} avaliacoes</small>
+                  {item.comments ? <small>{item.comments}</small> : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">Nenhuma avaliacao importada ainda.</p>
+          )}
+
+          <div className="invite-history-head">
+            <h3>Inteligencia de combinacoes</h3>
+          </div>
+
+          <div className="history-filter-actions">
+            <button
+              type="button"
+              className="logout-button"
+              disabled={isRebuildingMenuCombinationIntelligence}
+              onClick={handleRebuildCombinationIntelligence}
+            >
+              {isRebuildingMenuCombinationIntelligence
+                ? 'Cruzando avaliacao e cardapio...'
+                : 'Recalcular inteligencia'}
+            </button>
+          </div>
+
+          {isLoadingMenuCombinationIntelligence ? (
+            <p className="empty-note">Carregando inteligencia de combinacoes...</p>
+          ) : menuCombinationIntelligence.length ? (
+            <ul className="validation-history-list">
+              {menuCombinationIntelligence.map((item) => (
+                <li key={item.id}>
+                  <div className="validation-history-row">
+                    <strong>{item.unitName} · {item.serviceName}</strong>
+                    <span className={getCombinationTrendBadgeClass(item.trend)}>
+                      {getCombinationTrendLabel(item.trend)}
+                    </span>
+                  </div>
+                  <small>
+                    Nota media {item.averageRating.toFixed(2)} · {item.evaluationsCount} avaliacoes · {item.mappedRecords} cruzamentos
+                  </small>
+                  <small>Receitas: {item.recipes.join(' | ')}</small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">Sem combinacoes calculadas ainda.</p>
           )}
         </article>
 
