@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MenuCare Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="portal.css">
+</head>
+<body data-theme="dark">
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <img class="brand-mark" src="docs/menucare logo 1.png" alt="Logo MenuCare">
+        <span class="brand-name"><span class="brand-menu">Menu</span><span class="brand-care">Care</span></span>
+      </div>
+
+      <nav class="sidebar-nav">
+        <a class="active" href="#"><span class="nav-ico">◧</span><span>Dashboard</span></a>
+        <a href="#"><span class="nav-ico">⧉</span><span>Contratos</span></a>
+        <a href="#"><span class="nav-ico">≣</span><span>Regras Contratuais</span></a>
+        <a href="#"><span class="nav-ico">◫</span><span>Cardapios</span></a>
+        <a href="#"><span class="nav-ico">✓</span><span>Conformidade</span></a>
+        <a href="#"><span class="nav-ico">◔</span><span>Analises</span></a>
+        <a href="#"><span class="nav-ico">☑</span><span>Tarefas</span></a>
+        <a href="#"><span class="nav-ico">⟲</span><span>Integracoes</span></a>
+        <a href="#"><span class="nav-ico">⚙</span><span>Configuracoes</span></a>
+        <a href="#"><span class="nav-ico">⦿</span><span>Notificacoes</span></a>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="user-mini">
+          <button class="avatar account-avatar" id="accountMenuAvatar" type="button" aria-label="Abrir menu da conta">MS</button>
+          <div>
+            <strong>Mariana Soares</strong>
+            <p>Gestora de Operacoes</p>
+          </div>
+          <button class="account-trigger" id="accountMenuBtn" type="button" aria-label="Abrir menu da conta">⋯</button>
+        </div>
+
+        <div class="account-menu" id="accountMenu" aria-hidden="true">
+          <button type="button">Meu perfil</button>
+          <button type="button">Preferencias</button>
+          <button class="danger" id="logoutBtn" type="button">Sair do sistema</button>
+        </div>
+      </div>
+    </aside>
+
+    <main class="content">
+      <header class="topbar">
+        <div class="top-left">
+          <button id="collapseSidebar" class="icon-btn" aria-label="Recolher sidebar">☰</button>
+        </div>
+        <div class="top-center">
+          <label class="search-wrap">
+            <span>⌕</span>
+            <input type="search" placeholder="Buscar contratos, regras, cardapios e tarefas">
+          </label>
+        </div>
+        <div class="top-right">
+          <select class="period-filter" aria-label="Filtrar periodo">
+            <option>Ultimos 30 dias</option>
+            <option>Ultimos 90 dias</option>
+            <option>Ano atual</option>
+          </select>
+          <button class="icon-btn" aria-label="Notificacoes">🔔</button>
+          <button id="themeToggle" class="icon-btn" aria-label="Alternar tema">◐</button>
+        </div>
+      </header>
+
+      <section class="dashboard container-grid">
+        <div class="greeting row-12 card">
+          <h1>Ola, Mariana</h1>
+          <p>Visao consolidada de contratos, regras aprovadas e conformidade operacional.</p>
+        </div>
+
+        <article class="kpi row-3 card">
+          <div class="kpi-top">
+            <p>Contratos</p>
+            <span class="kpi-ico">📁</span>
+          </div>
+          <h2>128</h2>
+          <span class="trend positive">+18% vs ultimo periodo</span>
+        </article>
+        <article class="kpi row-3 card">
+          <div class="kpi-top">
+            <p>Regras aprovadas</p>
+            <span class="kpi-ico">✓</span>
+          </div>
+          <h2>1.482</h2>
+          <span class="trend positive">92% validadas</span>
+        </article>
+        <article class="kpi row-3 card">
+          <div class="kpi-top">
+            <p>Cardapios gerados</p>
+            <span class="kpi-ico">☰</span>
+          </div>
+          <h2>364</h2>
+          <span class="trend">18 pendentes de revisao</span>
+        </article>
+        <article class="kpi row-3 card">
+          <div class="kpi-top">
+            <p>Taxa de conformidade</p>
+            <span class="kpi-ico">◉</span>
+          </div>
+          <h2>97.4%</h2>
+          <span class="trend positive">Acima da meta</span>
+        </article>
+
+        <article class="card row-8">
+          <div class="card-head">
+            <h3>Contratos recentes</h3>
+            <button class="ghost-btn">Ver todos</button>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Contrato</th>
+                  <th>Empresa</th>
+                  <th>Status</th>
+                  <th>Atualizacao</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>CT-20311</td>
+                  <td>Hospital Santa Clara</td>
+                  <td><span class="status ok">Conforme</span></td>
+                  <td>Hoje 09:12</td>
+                </tr>
+                <tr>
+                  <td>CT-20307</td>
+                  <td>Rede Vida Norte</td>
+                  <td><span class="status warn">Revisao</span></td>
+                  <td>Ontem 17:44</td>
+                </tr>
+                <tr>
+                  <td>CT-20288</td>
+                  <td>Grupo NutriSul</td>
+                  <td><span class="status ok">Conforme</span></td>
+                  <td>Ontem 12:21</td>
+                </tr>
+                <tr>
+                  <td>CT-20281</td>
+                  <td>Hospital Nova Luz</td>
+                  <td><span class="status err">Risco</span></td>
+                  <td>Seg 10:08</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="card row-4">
+          <div class="card-head">
+            <h3>Grafico de categorias</h3>
+          </div>
+          <div class="donut-wrap" aria-label="Grafico donut de categorias">
+            <div class="donut-chart"></div>
+            <div class="donut-center">
+              <strong>1.482</strong>
+              <span>regras</span>
+            </div>
+          </div>
+          <ul class="legend">
+            <li><span class="dot c1"></span> Nutricao</li>
+            <li><span class="dot c2"></span> Gestao</li>
+            <li><span class="dot c3"></span> Juridico</li>
+            <li><span class="dot c4"></span> Conformidade</li>
+            <li><span class="dot c5"></span> Operacoes</li>
+          </ul>
+        </article>
+
+        <article class="card row-8">
+          <div class="card-head">
+            <h3>Atividades recentes</h3>
+          </div>
+          <ul class="activity-list">
+            <li><span>Nova regra publicada para CT-20311</span><time>2 min</time></li>
+            <li><span>Checklist de auditoria concluido</span><time>16 min</time></li>
+            <li><span>Cardapio de UAN Centro revisado</span><time>38 min</time></li>
+            <li><span>Integracao ERP sincronizada</span><time>1 h</time></li>
+          </ul>
+        </article>
+
+        <article class="card row-4">
+          <div class="card-head">
+            <h3>Insights</h3>
+          </div>
+          <ul class="insight-list">
+            <li>3 contratos exigem revisao de alergenicos.</li>
+            <li>Conformidade em operacoes noturnas caiu 1.2%.</li>
+            <li>Padrao de nao conformidade recorrente em bebidas.</li>
+          </ul>
+        </article>
+      </section>
+    </main>
+  </div>
+
+  <button id="supportFloating" class="support-floating" type="button" aria-label="Abrir ajuda e suporte">💬</button>
+
+  <aside class="support-drawer" id="supportDrawer" aria-hidden="true">
+    <header class="support-header">
+      <div>
+        <h2>Ajuda e Suporte</h2>
+        <p>Central de atendimento MenuCare</p>
+      </div>
+      <button class="icon-btn" id="closeSupportDrawer" type="button" aria-label="Fechar suporte">✕</button>
+    </header>
+
+    <div class="support-body">
+      <section class="support-panel" id="contactSupport">
+        <h3>Falar com suporte</h3>
+        <p class="support-intro">Escolha o melhor canal para falar com o time de suporte do MenuCare.</p>
+        <div class="contact-cards">
+          <article class="contact-card">
+            <span>📧</span>
+            <strong>E-mail</strong>
+            <p>suporte@menucare.com.br</p>
+          </article>
+          <article class="contact-card">
+            <span>📞</span>
+            <strong>Telefone</strong>
+            <p>(11) 4000-2020</p>
+          </article>
+          <article class="contact-card">
+            <span>💬</span>
+            <strong>WhatsApp</strong>
+            <p>(11) 98888-2020</p>
+          </article>
+          <article class="contact-card">
+            <span>⏱</span>
+            <strong>Horario</strong>
+            <p>Seg a Sex, 08h-18h</p>
+          </article>
+        </div>
+
+        <div class="support-next-step">
+          <h4>Proximo passo da plataforma</h4>
+          <p>Em breve: abertura e acompanhamento de chamados dentro desta central.</p>
+        </div>
+      </section>
+    </div>
+  </aside>
+
+  <script src="portal.js"></script>
+</body>
+</html>
