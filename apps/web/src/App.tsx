@@ -309,6 +309,7 @@ function App() {
   const [isLoadingInviteHistory, setIsLoadingInviteHistory] = useState(false)
   const [isLoadingInviteAudit, setIsLoadingInviteAudit] = useState(false)
   const [isLoadingComplianceExportAudit, setIsLoadingComplianceExportAudit] = useState(false)
+  const [isExportingComplianceExportAudit, setIsExportingComplianceExportAudit] = useState(false)
   const [isMutatingInvite, setIsMutatingInvite] = useState(false)
   const [isSubmittingRuleValidation, setIsSubmittingRuleValidation] = useState(false)
   const [isLoadingRuleHistory, setIsLoadingRuleHistory] = useState(false)
@@ -343,7 +344,7 @@ function App() {
   const [inviteAuditEvents, setInviteAuditEvents] = useState<InviteAuditEvent[]>([])
   const [complianceExportAuditEvents, setComplianceExportAuditEvents] = useState<ComplianceExportAuditEvent[]>([])
   const [complianceExportAuditTypeFilter, setComplianceExportAuditTypeFilter] =
-    useState<'all' | 'non_conformity_history' | 'action_plan_history'>('all')
+    useState<'all' | 'non_conformity_history' | 'action_plan_history' | 'compliance_export_audit'>('all')
   const [complianceExportAuditFilter, setComplianceExportAuditFilter] =
     useState<ComplianceExportAuditFilter>({
       actor: '',
@@ -645,7 +646,11 @@ function App() {
 
   const fetchComplianceExportAudit = async (
     token: string,
-    exportType: 'all' | 'non_conformity_history' | 'action_plan_history',
+    exportType:
+      | 'all'
+      | 'non_conformity_history'
+      | 'action_plan_history'
+      | 'compliance_export_audit',
     filter: ComplianceExportAuditFilter,
   ) => {
     setIsLoadingComplianceExportAudit(true)
@@ -707,7 +712,63 @@ function App() {
       return uiMessage.auth.complianceExportAuditTypeActionPlan
     }
 
+    if (exportType === 'compliance_export_audit') {
+      return uiMessage.auth.complianceExportAuditTypeExportAudit
+    }
+
     return exportType
+  }
+
+  const handleExportComplianceExportAudit = async () => {
+    if (!authState) {
+      return
+    }
+
+    setDomainError(null)
+    setIsExportingComplianceExportAudit(true)
+
+    try {
+      const query = new URLSearchParams({
+        exportType: complianceExportAuditTypeFilter,
+        page: String(complianceExportAuditPage),
+        limit: '30',
+      })
+
+      if (appliedComplianceExportAuditFilter.actor.trim()) {
+        query.set('actor', appliedComplianceExportAuditFilter.actor.trim())
+      }
+
+      if (appliedComplianceExportAuditFilter.from) {
+        query.set('from', appliedComplianceExportAuditFilter.from)
+      }
+
+      if (appliedComplianceExportAuditFilter.to) {
+        query.set('to', appliedComplianceExportAuditFilter.to)
+      }
+
+      const response = await fetch(`${API_URL}/compliance/exports/audit/export?${query.toString()}`, {
+        headers: { Authorization: `Bearer ${authState.token}` },
+      })
+
+      if (!response.ok) {
+        throw new Error('Falha ao exportar trilha de exportacoes.')
+      }
+
+      const csvContent = await response.text()
+      const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+      const url = window.URL.createObjectURL(blob)
+      const link = window.document.createElement('a')
+      link.href = url
+      link.download = 'compliance-export-audit.csv'
+      window.document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao exportar trilha de exportacoes.')
+    } finally {
+      setIsExportingComplianceExportAudit(false)
+    }
   }
 
   const fetchRules = async (token: string) => {
@@ -2238,7 +2299,11 @@ function App() {
                   {
                     setComplianceExportAuditPage(1)
                     setComplianceExportAuditTypeFilter(
-                      event.target.value as 'all' | 'non_conformity_history' | 'action_plan_history',
+                      event.target.value as
+                        | 'all'
+                        | 'non_conformity_history'
+                        | 'action_plan_history'
+                        | 'compliance_export_audit',
                     )
                   }
                 }
@@ -2249,6 +2314,9 @@ function App() {
                 </option>
                 <option value="action_plan_history">
                   {uiMessage.auth.complianceExportAuditTypeActionPlan}
+                </option>
+                <option value="compliance_export_audit">
+                  {uiMessage.auth.complianceExportAuditTypeExportAudit}
                 </option>
               </select>
             </label>
@@ -2331,6 +2399,16 @@ function App() {
               {uiMessage.auth.complianceExportAuditPageLabel} {complianceExportAuditPage} · {complianceExportAuditTotal}
             </small>
             <div className="history-filter-actions">
+              <button
+                type="button"
+                className="logout-button"
+                disabled={isExportingComplianceExportAudit || isLoadingComplianceExportAudit}
+                onClick={handleExportComplianceExportAudit}
+              >
+                {isExportingComplianceExportAudit
+                  ? uiMessage.auth.complianceExportAuditExportingButton
+                  : uiMessage.auth.complianceExportAuditExportButton}
+              </button>
               <button
                 type="button"
                 className="logout-button"

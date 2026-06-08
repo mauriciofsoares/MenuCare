@@ -128,7 +128,9 @@ const actionPlanHistoryQuerySchema = z
 
 const complianceExportAuditQuerySchema = z
   .object({
-    exportType: z.enum(['all', 'non_conformity_history', 'action_plan_history']).default('all'),
+    exportType: z
+      .enum(['all', 'non_conformity_history', 'action_plan_history', 'compliance_export_audit'])
+      .default('all'),
     actor: z.string().trim().max(120).optional(),
     from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
@@ -2333,6 +2335,144 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
     total,
     hasNext: offset + rows.length < total,
   };
+});
+
+app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async (request, reply) => {
+  const parsedQuery = complianceExportAuditQuerySchema.safeParse(request.query);
+
+  if (!parsedQuery.success) {
+    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
+  const exportTypeFilter =
+    parsedQuery.data.exportType === 'all' ? null : parsedQuery.data.exportType;
+  const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
+  const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
+  const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
+  const offset = (parsedQuery.data.page - 1) * parsedQuery.data.limit;
+
+  await ensureDomainTables();
+
+  const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>`
+    SELECT COUNT(*)::bigint AS total
+    FROM compliance_export_events
+    WHERE company_name = ${companyName}
+      AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
+      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
+      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
+      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
+  `;
+  const total = Number(countRows[0]?.total ?? 0);
+
+  const rows = await prisma.$queryRaw<Array<{
+    export_id: string;
+    export_type: string;
+    non_conformity_id: string | null;
+    action_plan_id: string | null;
+    filter_actor: string | null;
+    filter_from: Date | null;
+    filter_to: Date | null;
+    actor_name: string;
+    created_at: Date;
+  }>>`
+    SELECT
+      export_id,
+      export_type,
+      non_conformity_id,
+      action_plan_id,
+      filter_actor,
+      filter_from,
+      filter_to,
+      actor_name,
+      created_at
+    FROM compliance_export_events
+    WHERE company_name = ${companyName}
+      AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
+      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
+      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
+      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
+    ORDER BY created_at DESC
+    LIMIT ${parsedQuery.data.limit}
+    OFFSET ${offset}
+  `;
+
+  const csvEscape = (value: string) => {
+    const escaped = value.replace(/"/g, '""');
+    return `"${escaped}"`;
+  };
+
+  const exportId = randomUUID();
+  const exportEventId = randomUUID();
+  await prisma.$executeRaw`
+    INSERT INTO compliance_export_events (
+      id,
+      export_id,
+      company_name,
+      export_type,
+      filter_actor,
+      filter_from,
+      filter_to,
+      actor_id,
+      actor_name
+    )
+    VALUES (
+      ${exportEventId},
+      ${exportId},
+      ${companyName},
+      ${'compliance_export_audit'},
+      ${parsedQuery.data.actor?.trim() || null},
+      ${parsedQuery.data.from || null},
+      ${parsedQuery.data.to || null},
+      ${actor.id},
+      ${actor.name}
+    )
+  `;
+
+  const metadata = [
+    '# export_type,compliance_export_audit',
+    '# csv_schema_version,1',
+    `# export_id,${csvEscape(exportId)}`,
+    `# generated_at,${new Date().toISOString()}`,
+    `# company_name,${csvEscape(companyName)}`,
+    `# filter_export_type,${csvEscape(parsedQuery.data.exportType)}`,
+    `# filter_actor,${csvEscape(parsedQuery.data.actor?.trim() ?? '')}`,
+    `# filter_from,${csvEscape(parsedQuery.data.from ?? '')}`,
+    `# filter_to,${csvEscape(parsedQuery.data.to ?? '')}`,
+    `# page,${parsedQuery.data.page}`,
+    `# limit,${parsedQuery.data.limit}`,
+    `# total,${total}`,
+    `# has_next,${offset + rows.length < total ? 'true' : 'false'}`,
+    '# ----',
+  ];
+
+  const header =
+    'created_at,export_id,export_type,actor_name,non_conformity_id,action_plan_id,filter_actor,filter_from,filter_to';
+  const lines = rows.map((row) =>
+    [
+      csvEscape(row.created_at.toISOString()),
+      csvEscape(row.export_id),
+      csvEscape(row.export_type),
+      csvEscape(row.actor_name),
+      csvEscape(row.non_conformity_id ?? ''),
+      csvEscape(row.action_plan_id ?? ''),
+      csvEscape(row.filter_actor ?? ''),
+      csvEscape(row.filter_from ? row.filter_from.toISOString() : ''),
+      csvEscape(row.filter_to ? row.filter_to.toISOString() : ''),
+    ].join(','),
+  );
+
+  const csv = [...metadata, header, ...lines].join('\n');
+
+  reply.header('Content-Type', 'text/csv; charset=utf-8');
+  reply.header('Content-Disposition', 'attachment; filename="compliance-export-audit.csv"');
+
+  return reply.send(csv);
 });
 
 app.get('/rules', { preHandler: authenticate }, async (request, reply) => {
