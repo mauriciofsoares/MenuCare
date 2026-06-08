@@ -423,6 +423,64 @@ describe('API integration', () => {
     assert.ok((listResponse.body.combinations as Array<{ id: string }>).length >= 1)
   })
 
+  it('recommendation preview should keep historical layer non-blocking', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const menuImportResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-08',
+        mealType: 'Almoco',
+        financialGoal: 12,
+        mealCost: 11,
+        recipes: ['Arroz integral', 'Feijao', 'Frango grelhado'],
+      })
+
+    if (menuImportResponse.status === 503) {
+      assert.equal(menuImportResponse.body.status, 'error')
+      return
+    }
+
+    assert.equal(menuImportResponse.status, 201)
+
+    await request(app.server)
+      .post('/evaluations/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'AVALIACOES-GENIALNET.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-08',
+        score: 8.1,
+        evaluationsCount: 32,
+      })
+
+    await request(app.server)
+      .post('/evaluations/intelligence/rebuild')
+      .set('Authorization', `Bearer ${token}`)
+
+    const previewResponse = await request(app.server)
+      .get(`/governance/recommendations/${menuImportResponse.body.import?.id as string}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(previewResponse.status, 200)
+    assert.equal(previewResponse.body.status, 'ok')
+    assert.equal(previewResponse.body.recommendation?.historicalLayer?.nonBlocking, true)
+    assert.equal(Array.isArray(previewResponse.body.recommendation?.historicalLayer?.recommendedCombinations), true)
+  })
+
   it('login should return 429 after too many failed attempts', async () => {
     const targetEmail = 'blocked@menucare.local'
 

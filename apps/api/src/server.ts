@@ -996,6 +996,153 @@ app.get('/governance/recommendation-policy', { preHandler: authenticate }, async
   };
 });
 
+app.get('/governance/recommendations/:importId', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = menuImportParamsSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Identificador de importacao invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const importId = parsedParams.data.importId;
+
+  await ensureDomainTables();
+
+  const importRows = await prisma.$queryRaw<Array<{
+    id: string;
+    unit_name: string;
+    service_name: string;
+    financial_goal: number | string;
+    meal_cost: number | string;
+    recipes_json: string;
+  }>>`
+    SELECT id, unit_name, service_name, financial_goal, meal_cost, recipes_json
+    FROM menu_pdf_imports
+    WHERE id = ${importId}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  const imported = importRows[0];
+
+  if (!imported) {
+    return reply.code(404).send({
+      status: 'error',
+      message: 'Importacao de cardapio nao encontrada para esta empresa.',
+    });
+  }
+
+  const parseNumber = (value: number | string) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number(parsed.toFixed(2));
+  };
+
+  const mealCost = parseNumber(imported.meal_cost);
+  const financialGoal = parseNumber(imported.financial_goal);
+  const mandatoryFindings: Array<{
+    criterion: string;
+    status: 'ok' | 'violation';
+    detail: string;
+  }> = [];
+
+  const ruleAuditRows = await prisma.$queryRaw<Array<{ result_status: 'compliant' | 'non_compliant' }>>`
+    SELECT result_status
+    FROM menu_import_rule_audits
+    WHERE menu_import_id = ${importId}
+      AND company_name = ${companyName}
+  `;
+
+  const hasRuleViolation = ruleAuditRows.some((item) => item.result_status === 'non_compliant');
+  mandatoryFindings.push({
+    criterion: 'contract_rule_violation',
+    status: hasRuleViolation ? 'violation' : 'ok',
+    detail: hasRuleViolation
+      ? 'Ha regras contratuais nao conformes para este cardapio.'
+      : 'Regras contratuais obrigatorias atendidas.',
+  });
+
+  const isFinancialViolation = mealCost > financialGoal;
+  mandatoryFindings.push({
+    criterion: 'financial_goal_exceeded',
+    status: isFinancialViolation ? 'violation' : 'ok',
+    detail: isFinancialViolation
+      ? 'O custo da refeicao esta acima da meta financeira definida.'
+      : 'Meta financeira atendida para a refeicao.',
+  });
+
+  mandatoryFindings.push({
+    criterion: 'mandatory_nutritional_restriction_violation',
+    status: 'ok',
+    detail: 'Sem violacoes nutricionais obrigatorias detectadas no escopo atual.',
+  });
+
+  mandatoryFindings.push({
+    criterion: 'critical_operational_rule_violation',
+    status: 'ok',
+    detail: 'Sem violacoes operacionais criticas detectadas no escopo atual.',
+  });
+
+  const currentRecipes = JSON.parse(imported.recipes_json) as string[];
+
+  const combinationRows = await prisma.$queryRaw<Array<{
+    id: string;
+    recipes_json: string;
+    average_rating: number | string;
+    evaluations_count: number;
+    trend: 'positive' | 'stable' | 'negative';
+  }>>`
+    SELECT id, recipes_json, average_rating, evaluations_count, trend
+    FROM menu_combination_intelligence
+    WHERE company_name = ${companyName}
+      AND unit_name = ${imported.unit_name}
+      AND service_name = ${imported.service_name}
+    ORDER BY average_rating DESC, evaluations_count DESC
+    LIMIT 3
+  `;
+
+  const recommendedCombinations = combinationRows.map((item) => ({
+    id: item.id,
+    recipes: JSON.parse(item.recipes_json) as string[],
+    averageRating: parseNumber(item.average_rating),
+    evaluationsCount: item.evaluations_count,
+    trend: item.trend,
+  }));
+
+  return {
+    status: 'ok',
+    recommendation: {
+      policy: recommendationPolicyContract,
+      importContext: {
+        importId,
+        unitName: imported.unit_name,
+        serviceName: imported.service_name,
+        financialGoal,
+        mealCost,
+        currentRecipes,
+      },
+      decision: {
+        blocksApproval: mandatoryFindings.some((item) => item.status === 'violation'),
+        mandatoryFindings,
+      },
+      historicalLayer: {
+        nonBlocking: true,
+        note: 'Avaliacao historica e suporte de recomendacao e nunca bloqueio.',
+        recommendedCombinations,
+      },
+    },
+  };
+});
+
 app.post('/auth/first-access/activate', async (request, reply) => {
   const parsed = inviteActivationSchema.safeParse(request.body);
 

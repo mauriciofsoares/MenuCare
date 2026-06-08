@@ -306,6 +306,37 @@ type MenuCombinationIntelligenceItem = {
   createdAt: string
 }
 
+type MenuRecommendationPreview = {
+  policy: RecommendationPolicyContract
+  importContext: {
+    importId: string
+    unitName: string
+    serviceName: string
+    financialGoal: number
+    mealCost: number
+    currentRecipes: string[]
+  }
+  decision: {
+    blocksApproval: boolean
+    mandatoryFindings: Array<{
+      criterion: string
+      status: 'ok' | 'violation'
+      detail: string
+    }>
+  }
+  historicalLayer: {
+    nonBlocking: boolean
+    note: string
+    recommendedCombinations: Array<{
+      id: string
+      recipes: string[]
+      averageRating: number
+      evaluationsCount: number
+      trend: 'positive' | 'stable' | 'negative'
+    }>
+  }
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -471,6 +502,8 @@ function App() {
   const [menuCombinationIntelligence, setMenuCombinationIntelligence] = useState<MenuCombinationIntelligenceItem[]>([])
   const [isLoadingMenuCombinationIntelligence, setIsLoadingMenuCombinationIntelligence] = useState(false)
   const [isRebuildingMenuCombinationIntelligence, setIsRebuildingMenuCombinationIntelligence] = useState(false)
+  const [menuRecommendationPreview, setMenuRecommendationPreview] = useState<MenuRecommendationPreview | null>(null)
+  const [isLoadingMenuRecommendationPreview, setIsLoadingMenuRecommendationPreview] = useState(false)
   const [complianceExportAuditExportScope, setComplianceExportAuditExportScope] =
     useState<'page' | 'all'>('page')
   const [isExportingNonConformityHistory, setIsExportingNonConformityHistory] = useState(false)
@@ -880,6 +913,14 @@ function App() {
     return 'status-badge is-negative'
   }
 
+  const getMandatoryFindingBadgeClass = (status: 'ok' | 'violation') => {
+    if (status === 'violation') {
+      return 'status-badge is-negative'
+    }
+
+    return 'status-badge is-positive'
+  }
+
   const fetchRecommendationPolicy = async (token: string) => {
     setIsLoadingRecommendationPolicy(true)
 
@@ -1062,6 +1103,35 @@ function App() {
       setMenuCombinationIntelligence([])
     } finally {
       setIsLoadingMenuCombinationIntelligence(false)
+    }
+  }
+
+  const fetchMenuRecommendationPreview = async (token: string, importId: string) => {
+    if (!importId) {
+      setMenuRecommendationPreview(null)
+      return
+    }
+
+    setIsLoadingMenuRecommendationPreview(true)
+
+    try {
+      const response = await fetch(`${API_URL}/governance/recommendations/${importId}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; recommendation: MenuRecommendationPreview }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error()
+      }
+
+      setMenuRecommendationPreview(payload.recommendation)
+    } catch {
+      setMenuRecommendationPreview(null)
+    } finally {
+      setIsLoadingMenuRecommendationPreview(false)
     }
   }
 
@@ -1575,6 +1645,7 @@ function App() {
       setMenuAdjustedVersions([])
       setMenuEvaluationImports([])
       setMenuCombinationIntelligence([])
+      setMenuRecommendationPreview(null)
       return
     }
 
@@ -1595,12 +1666,14 @@ function App() {
       setMenuImportAuditItems([])
       setMenuImportSuggestions([])
       setMenuAdjustedVersions([])
+      setMenuRecommendationPreview(null)
       return
     }
 
     void fetchMenuImportAudit(authState.token, selectedMenuImportId)
     void fetchMenuImportSuggestions(authState.token, selectedMenuImportId)
     void fetchMenuAdjustedVersions(authState.token, selectedMenuImportId)
+    void fetchMenuRecommendationPreview(authState.token, selectedMenuImportId)
   }, [authState?.token, selectedMenuImportId])
 
   useEffect(() => {
@@ -3981,6 +4054,71 @@ function App() {
             </ul>
           ) : (
             <p className="empty-note">Sem combinacoes calculadas ainda.</p>
+          )}
+
+          <div className="invite-history-head">
+            <h3>Previa do motor de recomendacao</h3>
+          </div>
+
+          {isLoadingMenuRecommendationPreview ? (
+            <p className="empty-note">Carregando previa de recomendacao...</p>
+          ) : menuRecommendationPreview ? (
+            <ul className="validation-history-list">
+              <li>
+                <div className="validation-history-row">
+                  <strong>
+                    {menuRecommendationPreview.decision.blocksApproval
+                      ? 'Aprovacao bloqueada por camada obrigatoria'
+                      : 'Aprovacao permitida na camada obrigatoria'}
+                  </strong>
+                  <span
+                    className={
+                      menuRecommendationPreview.decision.blocksApproval
+                        ? 'status-badge is-negative'
+                        : 'status-badge is-positive'
+                    }
+                  >
+                    {menuRecommendationPreview.decision.blocksApproval ? 'Bloqueante' : 'Sem bloqueio'}
+                  </span>
+                </div>
+                <small>
+                  Meta R$ {menuRecommendationPreview.importContext.financialGoal.toFixed(2)} | Custo R${' '}
+                  {menuRecommendationPreview.importContext.mealCost.toFixed(2)}
+                </small>
+                <small>Receitas atuais: {menuRecommendationPreview.importContext.currentRecipes.join(' | ')}</small>
+              </li>
+              {menuRecommendationPreview.decision.mandatoryFindings.map((item) => (
+                <li key={item.criterion}>
+                  <div className="validation-history-row">
+                    <strong>{item.criterion}</strong>
+                    <span className={getMandatoryFindingBadgeClass(item.status)}>
+                      {item.status === 'violation' ? 'Violacao' : 'OK'}
+                    </span>
+                  </div>
+                  <small>{item.detail}</small>
+                </li>
+              ))}
+              <li>
+                <div className="validation-history-row">
+                  <strong>Camada historica (nao bloqueante)</strong>
+                  <span className="status-badge is-progress">Somente recomendacao</span>
+                </div>
+                <small>{menuRecommendationPreview.historicalLayer.note}</small>
+                {menuRecommendationPreview.historicalLayer.recommendedCombinations.length ? (
+                  <small>
+                    Top combinacoes: {menuRecommendationPreview.historicalLayer.recommendedCombinations
+                      .map((combination) =>
+                        `${combination.recipes.join(' + ')} (nota ${combination.averageRating.toFixed(2)})`,
+                      )
+                      .join(' | ')}
+                  </small>
+                ) : (
+                  <small>Sem combinacoes historicas para recomendacao neste contexto.</small>
+                )}
+              </li>
+            </ul>
+          ) : (
+            <p className="empty-note">Sem previa de recomendacao para a importacao selecionada.</p>
           )}
         </article>
 
