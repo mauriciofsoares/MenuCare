@@ -99,6 +99,7 @@ type ComplianceExportAuditEvent = {
   exportType: string
   nonConformityId: string | null
   actionPlanId: string | null
+  filterExportId: string | null
   filterActor: string | null
   filterFrom: string | null
   filterTo: string | null
@@ -181,6 +182,7 @@ type ActionPlanHistoryFilter = {
 }
 
 type ComplianceExportAuditFilter = {
+  exportId: string
   actor: string
   from: string
   to: string
@@ -347,12 +349,14 @@ function App() {
     useState<'all' | 'non_conformity_history' | 'action_plan_history' | 'compliance_export_audit'>('all')
   const [complianceExportAuditFilter, setComplianceExportAuditFilter] =
     useState<ComplianceExportAuditFilter>({
+      exportId: '',
       actor: '',
       from: '',
       to: '',
     })
   const [appliedComplianceExportAuditFilter, setAppliedComplianceExportAuditFilter] =
     useState<ComplianceExportAuditFilter>({
+      exportId: '',
       actor: '',
       from: '',
       to: '',
@@ -662,6 +666,10 @@ function App() {
         limit: '30',
       })
 
+      if (filter.exportId.trim()) {
+        query.set('exportId', filter.exportId.trim())
+      }
+
       if (filter.actor.trim()) {
         query.set('actor', filter.actor.trim())
       }
@@ -733,6 +741,10 @@ function App() {
         page: String(complianceExportAuditPage),
         limit: '30',
       })
+
+      if (appliedComplianceExportAuditFilter.exportId.trim()) {
+        query.set('exportId', appliedComplianceExportAuditFilter.exportId.trim())
+      }
 
       if (appliedComplianceExportAuditFilter.actor.trim()) {
         query.set('actor', appliedComplianceExportAuditFilter.actor.trim())
@@ -2324,6 +2336,20 @@ function App() {
 
           <div className="history-filter-grid">
             <label>
+              <span>{uiMessage.auth.complianceExportAuditExportIdFilterLabel}</span>
+              <input
+                type="text"
+                value={complianceExportAuditFilter.exportId}
+                onChange={(event) =>
+                  setComplianceExportAuditFilter((current) => ({
+                    ...current,
+                    exportId: event.target.value,
+                  }))
+                }
+                placeholder="UUID"
+              />
+            </label>
+            <label>
               <span>{uiMessage.auth.complianceExportAuditActorLabel}</span>
               <input
                 type="text"
@@ -2371,6 +2397,7 @@ function App() {
                   {
                     setComplianceExportAuditPage(1)
                     setAppliedComplianceExportAuditFilter({
+                      exportId: complianceExportAuditFilter.exportId.trim(),
                       actor: complianceExportAuditFilter.actor.trim(),
                       from: complianceExportAuditFilter.from,
                       to: complianceExportAuditFilter.to,
@@ -2384,8 +2411,8 @@ function App() {
                 type="button"
                 className="logout-button"
                 onClick={() => {
-                  setComplianceExportAuditFilter({ actor: '', from: '', to: '' })
-                  setAppliedComplianceExportAuditFilter({ actor: '', from: '', to: '' })
+                  setComplianceExportAuditFilter({ exportId: '', actor: '', from: '', to: '' })
+                  setAppliedComplianceExportAuditFilter({ exportId: '', actor: '', from: '', to: '' })
                   setComplianceExportAuditPage(1)
                 }}
               >
@@ -2442,7 +2469,7 @@ function App() {
                     {uiMessage.auth.complianceExportAuditExportIdLabel}: {event.exportId}
                   </small>
                   <small>
-                    {uiMessage.auth.complianceExportAuditFiltersLabel}: actor={event.filterActor ?? '-'} | from={event.filterFrom ? new Date(event.filterFrom).toLocaleDateString(locale) : '-'} | to={event.filterTo ? new Date(event.filterTo).toLocaleDateString(locale) : '-'}
+                    {uiMessage.auth.complianceExportAuditFiltersLabel}: exportId={event.filterExportId ?? '-'} | actor={event.filterActor ?? '-'} | from={event.filterFrom ? new Date(event.filterFrom).toLocaleDateString(locale) : '-'} | to={event.filterTo ? new Date(event.filterTo).toLocaleDateString(locale) : '-'}
                   </small>
                   <small>
                     NC={event.nonConformityId ?? '-'} · AP={event.actionPlanId ?? '-'} · {new Date(event.createdAt).toLocaleString(locale)}
