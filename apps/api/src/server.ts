@@ -279,6 +279,20 @@ const ensureDomainTables = async () => {
   `;
 
   await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS non_conformity_action_events (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      non_conformity_id TEXT NOT NULL,
+      action_plan_id TEXT NOT NULL,
+      previous_status TEXT NOT NULL,
+      next_status TEXT NOT NULL,
+      actor_id TEXT NOT NULL,
+      actor_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_contracts_company_created_at
     ON contracts (company_name, created_at DESC)
   `;
@@ -301,6 +315,11 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_non_conformity_action_plans_non_conformity
     ON non_conformity_action_plans (non_conformity_id, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_non_conformity_action_events_action
+    ON non_conformity_action_events (action_plan_id, created_at DESC)
   `;
 
   domainTablesReady = true;
@@ -1588,6 +1607,30 @@ app.post('/non-conformities/:nonConformityId/actions', { preHandler: authenticat
     )
   `;
 
+  const creationEventId = randomUUID();
+  await prisma.$executeRaw`
+    INSERT INTO non_conformity_action_events (
+      id,
+      company_name,
+      non_conformity_id,
+      action_plan_id,
+      previous_status,
+      next_status,
+      actor_id,
+      actor_name
+    )
+    VALUES (
+      ${creationEventId},
+      ${companyName},
+      ${parsedParams.data.nonConformityId},
+      ${actionId},
+      ${parsedBody.data.status},
+      ${parsedBody.data.status},
+      ${actor.id},
+      ${actor.name}
+    )
+  `;
+
   const rows = await prisma.$queryRaw<Array<{
     id: string;
     non_conformity_id: string;
@@ -1630,11 +1673,12 @@ app.patch('/non-conformities/:nonConformityId/actions/:actionId/status', { preHa
   }
 
   const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
 
   await ensureDomainTables();
 
-  const existing = await prisma.$queryRaw<Array<{ id: string }>>`
-    SELECT id
+  const existing = await prisma.$queryRaw<Array<{ id: string; status: string }>>`
+    SELECT id, status
     FROM non_conformity_action_plans
     WHERE id = ${parsedParams.data.actionId}
       AND non_conformity_id = ${parsedParams.data.nonConformityId}
@@ -1654,7 +1698,74 @@ app.patch('/non-conformities/:nonConformityId/actions/:actionId/status', { preHa
       AND company_name = ${companyName}
   `;
 
+  const eventId = randomUUID();
+  await prisma.$executeRaw`
+    INSERT INTO non_conformity_action_events (
+      id,
+      company_name,
+      non_conformity_id,
+      action_plan_id,
+      previous_status,
+      next_status,
+      actor_id,
+      actor_name
+    )
+    VALUES (
+      ${eventId},
+      ${companyName},
+      ${parsedParams.data.nonConformityId},
+      ${parsedParams.data.actionId},
+      ${existing[0]?.status ?? parsedBody.data.status},
+      ${parsedBody.data.status},
+      ${actor.id},
+      ${actor.name}
+    )
+  `;
+
   return { status: 'ok' };
+});
+
+app.get('/non-conformities/:nonConformityId/actions/:actionId/history', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = actionPlanParamsSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    previous_status: string;
+    next_status: string;
+    actor_name: string;
+    created_at: Date;
+  }>>`
+    SELECT id, previous_status, next_status, actor_name, created_at
+    FROM non_conformity_action_events
+    WHERE company_name = ${companyName}
+      AND non_conformity_id = ${parsedParams.data.nonConformityId}
+      AND action_plan_id = ${parsedParams.data.actionId}
+    ORDER BY created_at DESC
+    LIMIT 50
+  `;
+
+  return {
+    status: 'ok',
+    events: rows.map((event) => ({
+      id: event.id,
+      previousStatus: event.previous_status,
+      nextStatus: event.next_status,
+      actorName: event.actor_name,
+      createdAt: event.created_at.toISOString(),
+    })),
+  };
 });
 
 app.get('/non-conformities/:nonConformityId/actions', { preHandler: authenticate }, async (request, reply) => {

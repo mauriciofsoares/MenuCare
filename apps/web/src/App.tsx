@@ -115,6 +115,14 @@ type ActionPlanItem = {
   createdAt: string
 }
 
+type ActionPlanEvent = {
+  id: string
+  previousStatus: string
+  nextStatus: string
+  actorName: string
+  createdAt: string
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -198,6 +206,7 @@ function App() {
   const [rules, setRules] = useState<RuleItem[]>([])
   const [nonConformities, setNonConformities] = useState<NonConformityItem[]>([])
   const [actionPlans, setActionPlans] = useState<ActionPlanItem[]>([])
+  const [actionPlanEvents, setActionPlanEvents] = useState<ActionPlanEvent[]>([])
   const [loadingSession, setLoadingSession] = useState(true)
   const [authError, setAuthError] = useState<string | null>(null)
   const [domainError, setDomainError] = useState<string | null>(null)
@@ -214,6 +223,7 @@ function App() {
   const [isSubmittingNonConformity, setIsSubmittingNonConformity] = useState(false)
   const [isSubmittingActionPlan, setIsSubmittingActionPlan] = useState(false)
   const [isUpdatingActionPlanId, setIsUpdatingActionPlanId] = useState<string | null>(null)
+  const [isLoadingActionPlanHistory, setIsLoadingActionPlanHistory] = useState(false)
   const [loginForm, setLoginForm] = useState({
     email: 'admin@menucare.local',
     password: 'Admin@123',
@@ -258,6 +268,7 @@ function App() {
     dueDate: '',
   })
   const [selectedNonConformityId, setSelectedNonConformityId] = useState('')
+  const [selectedActionPlanId, setSelectedActionPlanId] = useState('')
   const [actionPlanForm, setActionPlanForm] = useState({
     description: '',
     owner: '',
@@ -778,6 +789,7 @@ function App() {
   useEffect(() => {
     if (!authState || !selectedNonConformityId) {
       setActionPlans([])
+      setActionPlanEvents([])
       return
     }
 
@@ -803,6 +815,44 @@ function App() {
 
     void loadActionPlans()
   }, [authState?.token, selectedNonConformityId])
+
+  useEffect(() => {
+    if (!selectedActionPlanId && actionPlans.length > 0) {
+      setSelectedActionPlanId(actionPlans[0].id)
+    }
+  }, [actionPlans, selectedActionPlanId])
+
+  useEffect(() => {
+    if (!authState || !selectedNonConformityId || !selectedActionPlanId) {
+      setActionPlanEvents([])
+      return
+    }
+
+    const loadActionPlanHistory = async () => {
+      setIsLoadingActionPlanHistory(true)
+
+      try {
+        const response = await fetch(
+          `${API_URL}/non-conformities/${selectedNonConformityId}/actions/${selectedActionPlanId}/history`,
+          {
+            headers: { Authorization: `Bearer ${authState.token}` },
+          },
+        )
+
+        if (!response.ok) {
+          setActionPlanEvents([])
+          return
+        }
+
+        const payload = (await response.json()) as { events?: ActionPlanEvent[] }
+        setActionPlanEvents(payload.events ?? [])
+      } finally {
+        setIsLoadingActionPlanHistory(false)
+      }
+    }
+
+    void loadActionPlanHistory()
+  }, [authState?.token, selectedNonConformityId, selectedActionPlanId])
 
   const handleLocaleChange = (event: ChangeEvent<HTMLSelectElement>) => {
     setLocale(resolveUiLocale(event.target.value))
@@ -1209,6 +1259,7 @@ function App() {
       }
 
       setActionPlans((current) => [payload.action, ...current])
+      setSelectedActionPlanId(payload.action.id)
       setActionPlanForm({
         description: '',
         owner: '',
@@ -1254,6 +1305,20 @@ function App() {
       setActionPlans((current) =>
         current.map((item) => (item.id === actionId ? { ...item, status } : item)),
       )
+
+      if (selectedActionPlanId === actionId) {
+        const response = await fetch(
+          `${API_URL}/non-conformities/${selectedNonConformityId}/actions/${actionId}/history`,
+          {
+            headers: { Authorization: `Bearer ${authState.token}` },
+          },
+        )
+
+        if (response.ok) {
+          const payload = (await response.json()) as { events?: ActionPlanEvent[] }
+          setActionPlanEvents(payload.events ?? [])
+        }
+      }
     } catch (error) {
       setDomainError(error instanceof Error ? error.message : 'Falha ao atualizar acao.')
     } finally {
@@ -2208,6 +2273,46 @@ function App() {
               </li>
             )}
           </ul>
+
+          <div className="invite-history-head">
+            <h3>{uiMessage.auth.actionPlanHistoryTitle}</h3>
+            <label>
+              <span>{uiMessage.auth.actionPlanHistorySelectLabel}</span>
+              <select
+                value={selectedActionPlanId}
+                onChange={(event) => setSelectedActionPlanId(event.target.value)}
+              >
+                <option value="" disabled>
+                  Selecione uma acao
+                </option>
+                {actionPlans.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.description}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          {isLoadingActionPlanHistory ? (
+            <p className="empty-note">{uiMessage.auth.actionPlanHistoryLoading}</p>
+          ) : actionPlanEvents.length ? (
+            <ul className="validation-history-list">
+              {actionPlanEvents.map((event) => (
+                <li key={event.id}>
+                  <div className="validation-history-row">
+                    <strong>{getActionPlanStatusLabel(event.previousStatus)}</strong>
+                    <span>{getActionPlanStatusLabel(event.nextStatus)}</span>
+                  </div>
+                  <small>
+                    {event.actorName} · {new Date(event.createdAt).toLocaleString(locale)}
+                  </small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">{uiMessage.auth.actionPlanHistoryEmpty}</p>
+          )}
         </article>
       </section>
     </main>
