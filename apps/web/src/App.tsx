@@ -74,6 +74,15 @@ type RuleItem = {
   createdAt: string
 }
 
+type RuleValidationEvent = {
+  id: string
+  previousStatus: string
+  nextStatus: string
+  note: string | null
+  actorName: string
+  createdAt: string
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -163,6 +172,8 @@ function App() {
   const [isGeneratingInvite, setIsGeneratingInvite] = useState(false)
   const [isLoadingInviteHistory, setIsLoadingInviteHistory] = useState(false)
   const [isMutatingInvite, setIsMutatingInvite] = useState(false)
+  const [isSubmittingRuleValidation, setIsSubmittingRuleValidation] = useState(false)
+  const [isLoadingRuleHistory, setIsLoadingRuleHistory] = useState(false)
   const [isSubmittingContract, setIsSubmittingContract] = useState(false)
   const [isSubmittingRule, setIsSubmittingRule] = useState(false)
   const [loginForm, setLoginForm] = useState({
@@ -181,6 +192,12 @@ function App() {
   const [inviteGenerationError, setInviteGenerationError] = useState<string | null>(null)
   const [inviteHistory, setInviteHistory] = useState<ManagedInvite[]>([])
   const [inviteHistoryFilter, setInviteHistoryFilter] = useState<'all' | 'active' | 'used'>('all')
+  const [ruleValidationForm, setRuleValidationForm] = useState({
+    ruleId: '',
+    status: 'approved',
+    note: '',
+  })
+  const [ruleValidationEvents, setRuleValidationEvents] = useState<RuleValidationEvent[]>([])
   const [contractForm, setContractForm] = useState({
     title: '',
     sourceType: 'contract',
@@ -240,6 +257,49 @@ function App() {
       setInviteHistory([])
     } finally {
       setIsLoadingInviteHistory(false)
+    }
+  }
+
+  const fetchRules = async (token: string) => {
+    const response = await fetch(`${API_URL}/rules?limit=30`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+
+    if (!response.ok) {
+      return
+    }
+
+    const payload = (await response.json()) as { rules?: RuleItem[] }
+    setRules(payload.rules ?? [])
+  }
+
+  const fetchRuleHistory = async (token: string, ruleId: string) => {
+    if (!ruleId) {
+      setRuleValidationEvents([])
+      return
+    }
+
+    setIsLoadingRuleHistory(true)
+
+    try {
+      const response = await fetch(`${API_URL}/rules/${ruleId}/history`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; events: RuleValidationEvent[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao carregar auditoria.')
+      }
+
+      setRuleValidationEvents(payload.events ?? [])
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao carregar auditoria.')
+      setRuleValidationEvents([])
+    } finally {
+      setIsLoadingRuleHistory(false)
     }
   }
 
@@ -422,6 +482,22 @@ function App() {
       setRuleForm((current) => ({ ...current, contractId: contracts[0].id }))
     }
   }, [contracts])
+
+  useEffect(() => {
+    if (!authState) {
+      setRuleValidationEvents([])
+      return
+    }
+
+    if (!ruleValidationForm.ruleId && rules.length > 0) {
+      setRuleValidationForm((current) => ({ ...current, ruleId: rules[0].id }))
+      return
+    }
+
+    if (ruleValidationForm.ruleId) {
+      void fetchRuleHistory(authState.token, ruleValidationForm.ruleId)
+    }
+  }, [authState?.token, ruleValidationForm.ruleId, rules])
 
   const handleLocaleChange = (event: ChangeEvent<HTMLSelectElement>) => {
     setLocale(resolveUiLocale(event.target.value))
@@ -691,6 +767,50 @@ function App() {
       setDomainError(error instanceof Error ? error.message : 'Falha ao cadastrar regra.')
     } finally {
       setIsSubmittingRule(false)
+    }
+  }
+
+  const handleRuleValidationSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!authState || !ruleValidationForm.ruleId) {
+      return
+    }
+
+    setDomainError(null)
+    setIsSubmittingRuleValidation(true)
+
+    try {
+      const response = await fetch(`${API_URL}/rules/${ruleValidationForm.ruleId}/status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authState.token}`,
+        },
+        body: JSON.stringify({
+          status: ruleValidationForm.status,
+          note: ruleValidationForm.note.trim() || undefined,
+        }),
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; message?: string }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao validar regra.')
+      }
+
+      setRuleValidationForm((current) => ({ ...current, note: '' }))
+      await Promise.all([
+        fetchRules(authState.token),
+        fetchDashboardSummary(authState.token),
+        fetchRuleHistory(authState.token, ruleValidationForm.ruleId),
+      ])
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao validar regra.')
+    } finally {
+      setIsSubmittingRuleValidation(false)
     }
   }
 
@@ -1244,6 +1364,92 @@ function App() {
       </section>
 
       <section className="operations-grid">
+        <article className="panel">
+          <div className="section-head compact">
+            <div>
+              <span className="section-kicker">Validacao</span>
+              <h2>Auditoria de regras</h2>
+            </div>
+          </div>
+
+          <form className="crud-form" onSubmit={handleRuleValidationSubmit}>
+            <label>
+              <span>Regra</span>
+              <select
+                value={ruleValidationForm.ruleId}
+                onChange={(event) =>
+                  setRuleValidationForm((current) => ({ ...current, ruleId: event.target.value }))
+                }
+                required
+              >
+                <option value="" disabled>
+                  Selecione uma regra
+                </option>
+                {rules.map((rule) => (
+                  <option key={rule.id} value={rule.id}>
+                    {rule.title}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Novo status</span>
+              <select
+                value={ruleValidationForm.status}
+                onChange={(event) =>
+                  setRuleValidationForm((current) => ({ ...current, status: event.target.value }))
+                }
+              >
+                <option value="under_review">Em validacao</option>
+                <option value="approved">Aprovar</option>
+                <option value="rejected">Rejeitar</option>
+                <option value="archived">Arquivar</option>
+              </select>
+            </label>
+
+            <label>
+              <span>Observacao (opcional)</span>
+              <textarea
+                value={ruleValidationForm.note}
+                onChange={(event) =>
+                  setRuleValidationForm((current) => ({ ...current, note: event.target.value }))
+                }
+                minLength={3}
+              />
+            </label>
+
+            <button
+              type="submit"
+              className="auth-button"
+              disabled={isSubmittingRuleValidation || rules.length === 0}
+            >
+              {isSubmittingRuleValidation ? 'Registrando...' : 'Registrar validacao'}
+            </button>
+          </form>
+
+          {isLoadingRuleHistory ? (
+            <p className="empty-note">Carregando trilha de auditoria...</p>
+          ) : ruleValidationEvents.length ? (
+            <ul className="validation-history-list">
+              {ruleValidationEvents.map((event) => (
+                <li key={event.id}>
+                  <div className="validation-history-row">
+                    <strong>{event.previousStatus}</strong>
+                    <span>{event.nextStatus}</span>
+                  </div>
+                  <p>{event.note ?? 'Sem observacao registrada.'}</p>
+                  <small>
+                    {event.actorName} · {new Date(event.createdAt).toLocaleString(locale)}
+                  </small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">Sem eventos de auditoria para a regra selecionada.</p>
+          )}
+        </article>
+
         <article className="panel">
           <div className="section-head compact">
             <div>

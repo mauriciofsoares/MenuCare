@@ -55,6 +55,15 @@ const ruleSchema = z.object({
     .default('identified'),
 });
 
+const ruleStatusUpdateSchema = z.object({
+  status: z.enum(['identified', 'under_review', 'approved', 'rejected', 'archived']),
+  note: z.string().min(3).max(300).optional(),
+});
+
+const ruleParamsSchema = z.object({
+  ruleId: z.string().min(1),
+});
+
 type SupportedLocale = z.infer<typeof localeSchema>['locale'];
 
 const normalizeLocale = (locale?: string): SupportedLocale => {
@@ -187,6 +196,20 @@ const ensureDomainTables = async () => {
   `;
 
   await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS rule_validation_events (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      rule_id TEXT NOT NULL,
+      previous_status TEXT NOT NULL,
+      next_status TEXT NOT NULL,
+      note TEXT,
+      actor_id TEXT NOT NULL,
+      actor_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_contracts_company_created_at
     ON contracts (company_name, created_at DESC)
   `;
@@ -194,6 +217,11 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_rules_company_status
     ON extracted_rules (company_name, status)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_rule_validation_events_rule_created_at
+    ON rule_validation_events (rule_id, created_at DESC)
   `;
 
   domainTablesReady = true;
@@ -877,6 +905,7 @@ app.post('/rules', { preHandler: authenticate }, async (request, reply) => {
   }
 
   const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
   const payload = parsed.data;
   const ruleId = randomUUID();
 
@@ -910,6 +939,30 @@ app.post('/rules', { preHandler: authenticate }, async (request, reply) => {
     )
   `;
 
+  const creationEventId = randomUUID();
+  await prisma.$executeRaw`
+    INSERT INTO rule_validation_events (
+      id,
+      company_name,
+      rule_id,
+      previous_status,
+      next_status,
+      note,
+      actor_id,
+      actor_name
+    )
+    VALUES (
+      ${creationEventId},
+      ${companyName},
+      ${ruleId},
+      ${payload.status},
+      ${payload.status},
+      ${'Regra cadastrada no fluxo operacional.'},
+      ${actor.id},
+      ${actor.name}
+    )
+  `;
+
   const rows = await prisma.$queryRaw<Array<{
     id: string;
     contract_id: string;
@@ -937,6 +990,138 @@ app.post('/rules', { preHandler: authenticate }, async (request, reply) => {
       createdAt: (rows[0]?.created_at ?? new Date()).toISOString(),
     },
   });
+});
+
+app.patch('/rules/:ruleId/status', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = ruleParamsSchema.safeParse(request.params);
+  const parsedBody = ruleStatusUpdateSchema.safeParse(request.body);
+
+  if (!parsedParams.success || !parsedBody.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: apiMessage.auth.invalidCredentials,
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
+
+  await ensureDomainTables();
+
+  const existingRows = await prisma.$queryRaw<Array<{ id: string; status: string }>>`
+    SELECT id, status
+    FROM extracted_rules
+    WHERE id = ${parsedParams.data.ruleId}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  const existingRule = existingRows[0];
+
+  if (!existingRule) {
+    return reply.code(404).send({
+      status: 'error',
+      message: 'Regra nao encontrada para esta empresa.',
+    });
+  }
+
+  const previousStatus = existingRule.status;
+  const nextStatus = parsedBody.data.status;
+
+  await prisma.$executeRaw`
+    UPDATE extracted_rules
+    SET status = ${nextStatus}
+    WHERE id = ${parsedParams.data.ruleId}
+      AND company_name = ${companyName}
+  `;
+
+  const eventId = randomUUID();
+  await prisma.$executeRaw`
+    INSERT INTO rule_validation_events (
+      id,
+      company_name,
+      rule_id,
+      previous_status,
+      next_status,
+      note,
+      actor_id,
+      actor_name
+    )
+    VALUES (
+      ${eventId},
+      ${companyName},
+      ${parsedParams.data.ruleId},
+      ${previousStatus},
+      ${nextStatus},
+      ${parsedBody.data.note ?? null},
+      ${actor.id},
+      ${actor.name}
+    )
+  `;
+
+  return {
+    status: 'ok',
+    message: 'Status da regra atualizado com rastreabilidade.',
+  };
+});
+
+app.get('/rules/:ruleId/history', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = ruleParamsSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: apiMessage.auth.invalidCredentials,
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const events = await prisma.$queryRaw<
+    Array<{
+      id: string;
+      previous_status: string;
+      next_status: string;
+      note: string | null;
+      actor_name: string;
+      created_at: Date;
+    }>
+  >`
+    SELECT id, previous_status, next_status, note, actor_name, created_at
+    FROM rule_validation_events
+    WHERE company_name = ${companyName}
+      AND rule_id = ${parsedParams.data.ruleId}
+    ORDER BY created_at DESC
+    LIMIT 50
+  `;
+
+  return {
+    status: 'ok',
+    events: events.map((event) => ({
+      id: event.id,
+      previousStatus: event.previous_status,
+      nextStatus: event.next_status,
+      note: event.note,
+      actorName: event.actor_name,
+      createdAt: event.created_at.toISOString(),
+    })),
+  };
 });
 
 app.get('/rules', { preHandler: authenticate }, async (request, reply) => {
