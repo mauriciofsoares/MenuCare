@@ -805,8 +805,14 @@ function App() {
       const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
       const url = window.URL.createObjectURL(blob)
       const link = window.document.createElement('a')
+      const now = new Date()
+      const stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(
+        now.getDate(),
+      ).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(
+        now.getMinutes(),
+      ).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}`
       link.href = url
-      link.download = 'compliance-export-audit.csv'
+      link.download = `compliance-export-audit-${complianceExportAuditExportScope}-${stamp}.csv`
       window.document.body.appendChild(link)
       link.click()
       link.remove()
@@ -2497,6 +2503,9 @@ function App() {
                 type="button"
                 className="logout-button"
                 onClick={() => {
+                  setComplianceExportAuditTypeFilter('all')
+                  setComplianceExportAuditExportScope('page')
+                  setComplianceExportAuditLimit(30)
                   setComplianceExportAuditFilter({
                     exportId: '',
                     nonConformityId: '',
@@ -2518,7 +2527,7 @@ function App() {
                   setComplianceExportAuditPage(1)
                 }}
               >
-                {uiMessage.auth.complianceExportAuditClearButton}
+                {uiMessage.auth.complianceExportAuditResetButton}
               </button>
             </div>
           </div>
