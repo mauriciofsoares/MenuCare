@@ -2623,3 +2623,175 @@ test('cadastra data comemorativa e exibe item com sugestao de prato nobre', asyn
     nobleDishHint: 'Canjica premium',
   })
 })
+
+test('importa avaliacao PDF e exibe score com quantidade de avaliacoes', async ({ page }) => {
+  let evaluationRegistered = false
+  let evaluationPostCount = 0
+  let evaluationPayload: {
+    fileName: string
+    unitName: string
+    serviceName: string
+    referenceDate: string
+    score: number
+    evaluationsCount: number
+    comments?: string
+  } | null = null
+
+  const evaluationItem = {
+    id: 'evaluation-import-e2e-1',
+    fileName: 'AVALIACOES-JUNHO-E2E.pdf',
+    unitName: 'Hospital MenuCare',
+    serviceName: 'Almoco executivo',
+    referenceDate: '2026-06-25',
+    score: 8.7,
+    evaluationsCount: 124,
+    comments: 'Melhora percebida no sabor e variedade das preparacoes.',
+    createdAt: '2026-06-09T15:00:00.000Z',
+  }
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ contracts: [] }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rules: [] }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.route('**/menus/imports?limit=10', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', imports: [] }),
+    })
+  })
+
+  await page.route('**/evaluations/imports?limit=10', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        evaluations: evaluationRegistered ? [evaluationItem] : [],
+      }),
+    })
+  })
+
+  await page.route('**/evaluations/imports', async (route) => {
+    const request = route.request()
+
+    if (request.method() !== 'POST') {
+      await route.continue()
+      return
+    }
+
+    evaluationPostCount += 1
+    evaluationRegistered = true
+    evaluationPayload = request.postDataJSON() as {
+      fileName: string
+      unitName: string
+      serviceName: string
+      referenceDate: string
+      score: number
+      evaluationsCount: number
+      comments?: string
+    }
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', evaluation: evaluationItem }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+
+  const evaluationHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Importacao de avaliacoes (PDF)' }) })
+  const evaluationForm = evaluationHeader.locator('xpath=following-sibling::form[1]')
+
+  await evaluationForm.locator('input[type="text"]').nth(0).fill('AVALIACOES-JUNHO-E2E.pdf')
+  await evaluationForm.locator('input[type="text"]').nth(1).fill('Hospital MenuCare')
+  await evaluationForm.locator('input[type="text"]').nth(2).fill('Almoco executivo')
+  await evaluationForm.locator('input[type="date"]').fill('2026-06-25')
+  await evaluationForm.locator('input[type="number"]').nth(0).fill('8.7')
+  await evaluationForm.locator('input[type="number"]').nth(1).fill('124')
+  await evaluationForm
+    .locator('textarea')
+    .fill('Melhora percebida no sabor e variedade das preparacoes.')
+  await evaluationForm.locator('button.auth-button').click()
+
+  await expect(menuImportPanel).toContainText('AVALIACOES-JUNHO-E2E.pdf')
+  await expect(menuImportPanel).toContainText('Nota 8.7')
+  await expect(menuImportPanel).toContainText('124 avaliacoes')
+  await expect(menuImportPanel).toContainText('Melhora percebida no sabor e variedade das preparacoes.')
+
+  expect(evaluationPostCount).toBe(1)
+  expect(evaluationPayload).toEqual({
+    fileName: 'AVALIACOES-JUNHO-E2E.pdf',
+    unitName: 'Hospital MenuCare',
+    serviceName: 'Almoco executivo',
+    referenceDate: '2026-06-25',
+    score: 8.7,
+    evaluationsCount: 124,
+    comments: 'Melhora percebida no sabor e variedade das preparacoes.',
+  })
+})
