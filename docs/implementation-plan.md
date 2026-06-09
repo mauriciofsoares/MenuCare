@@ -478,7 +478,7 @@ Status da frente de governanca de entrega (jun/2026): CONCLUIDA NESTA FASE.
   - Workflow mensal de governanca no GitHub Actions (`.github/workflows/governance-audit.yml`) com validacao estrita da rodada.
   - Comando para disparo manual do workflow mensal sem `gh` (`npm run governance:audit:dispatch` -> `scripts/github/dispatch-governance-audit.ps1`).
   - Baseline E2E com Playwright na raiz (`playwright.config.ts` + `e2e/smoke.spec.ts`) e scripts operacionais (`test:e2e`, `test:e2e:list`, `test:e2e:install`).
-  - Ampliacao inicial da cobertura E2E com fluxo de autenticacao de interface, login bem-sucedido, erro 401, carga da area principal, logout e persistencia de sessao com API mockada (`e2e/auth-flow.spec.ts`) sem dependencia de backend real.
+  - Ampliacao inicial da cobertura E2E com fluxo de autenticacao de interface, login bem-sucedido, erro 401, carga da area principal, logout, persistencia e expiracao de sessao com API mockada (`e2e/auth-flow.spec.ts`) sem dependencia de backend real.
 
 - Pendente para fechamento completo do plano:
   - Suite de testes unitarios mais ampla.

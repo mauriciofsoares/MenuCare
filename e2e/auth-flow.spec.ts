@@ -305,3 +305,37 @@ test('mantem sessao apos reload usando auth/me e localStorage', async ({ page })
   await expect(page.locator('.session-chip')).toContainText('Empresa Persistida')
   await expect(page.locator('form.auth-form input[type="email"]')).toHaveCount(0)
 })
+
+test('limpa sessao expirada quando auth/me retorna 401', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      'menucare.auth',
+      JSON.stringify({
+        token: 'expired-token',
+        user: {
+          id: 'user-expired',
+          name: 'Sessao Expirada',
+          email: 'expired@menucare.local',
+          companyName: 'Empresa Expirada',
+          accessProfile: 'Administrador',
+        },
+      }),
+    )
+  })
+
+  await page.route('**/auth/me', async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'error', message: 'Sessao invalida ou expirada' }),
+    })
+  })
+
+  await page.goto('/')
+
+  await expect(page.locator('form.auth-form input[type="email"]')).toBeVisible()
+  await expect(page.locator('.session-chip')).toHaveCount(0)
+
+  const persistedSession = await page.evaluate(() => window.localStorage.getItem('menucare.auth'))
+  expect(persistedSession).toBeNull()
+})
