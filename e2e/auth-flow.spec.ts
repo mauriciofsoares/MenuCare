@@ -1231,3 +1231,224 @@ test('cria nao conformidade, adiciona plano de acao e atualiza status', async ({
   await expect(actionPlanPanel).toContainText(/Em andamento|In progress/)
   await expect(actionPlanPanel).toContainText('Admin MenuCare')
 })
+
+test('exporta historicos de nao conformidade e acao com filtros aplicados', async ({ page }) => {
+  let nonConformityExportFilterOk = false
+  let actionPlanExportFilterOk = false
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 1,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 1,
+          actionPlansInProgressCount: 1,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        contracts: [
+          {
+            id: 'contract-base-1',
+            title: 'Contrato Base E2E',
+            sourceType: 'contract',
+            status: 'active',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        rules: [
+          {
+            id: 'rule-base-1',
+            contractId: 'contract-base-1',
+            title: 'Regra Base',
+            description: 'Regra base para manter contexto.',
+            category: 'Conformidade',
+            status: 'approved',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        nonConformities: [
+          {
+            id: 'nc-e2e-1',
+            title: 'NC E2E Exportacao',
+            description: 'Registro para validar export de historico.',
+            origin: 'Inspecao interna',
+            impact: 'Risco operacional',
+            owner: 'Equipe Qualidade',
+            dueDate: '2026-06-30',
+            status: 'in_progress',
+            createdAt: '2026-06-09T10:00:00.000Z',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/non-conformities/nc-e2e-1/actions', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        actions: [
+          {
+            id: 'action-e2e-1',
+            nonConformityId: 'nc-e2e-1',
+            description: 'Acao E2E Exportacao',
+            owner: 'Equipe Operacional',
+            dueDate: '2026-06-28',
+            status: 'in_progress',
+            createdAt: '2026-06-09T10:30:00.000Z',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/non-conformities/nc-e2e-1/history?*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        events: [
+          {
+            id: 'nc-history-1',
+            previousStatus: 'open',
+            nextStatus: 'in_progress',
+            actorName: 'Carlos Filtro',
+            createdAt: '2026-06-09T10:20:00.000Z',
+          },
+        ],
+        total: 1,
+        hasNext: false,
+      }),
+    })
+  })
+
+  await page.route('**/non-conformities/nc-e2e-1/actions/action-e2e-1/history?*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        events: [
+          {
+            id: 'action-history-1',
+            previousStatus: 'pending',
+            nextStatus: 'in_progress',
+            actorName: 'Carlos Filtro',
+            createdAt: '2026-06-09T10:35:00.000Z',
+          },
+        ],
+        total: 1,
+        hasNext: false,
+      }),
+    })
+  })
+
+  await page.route('**/non-conformities/nc-e2e-1/history/export?*', async (route) => {
+    const params = new URL(route.request().url()).searchParams
+    nonConformityExportFilterOk =
+      params.get('actor') === 'Carlos Filtro' &&
+      params.get('from') === '2026-06-01' &&
+      params.get('to') === '2026-06-30'
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/csv',
+      body: 'id,previousStatus,nextStatus\nnc-history-1,open,in_progress\n',
+    })
+  })
+
+  await page.route('**/non-conformities/nc-e2e-1/actions/action-e2e-1/history/export?*', async (route) => {
+    const params = new URL(route.request().url()).searchParams
+    actionPlanExportFilterOk =
+      params.get('actor') === 'Carlos Filtro' &&
+      params.get('from') === '2026-06-01' &&
+      params.get('to') === '2026-06-30'
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/csv',
+      body: 'id,previousStatus,nextStatus\naction-history-1,pending,in_progress\n',
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const nonConformityPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: /Nao conformidades|Non-conformities/i }) })
+  await nonConformityPanel.locator('.history-filter-grid input[type="text"]').fill('Carlos Filtro')
+  await nonConformityPanel.locator('.history-filter-grid input[type="date"]').nth(0).fill('2026-06-01')
+  await nonConformityPanel.locator('.history-filter-grid input[type="date"]').nth(1).fill('2026-06-30')
+  await nonConformityPanel.locator('.history-filter-grid .history-filter-actions button').first().click()
+
+  const ncDownloadPromise = page.waitForEvent('download')
+  await nonConformityPanel.locator('.history-pagination .history-filter-actions button').first().click()
+  const ncDownload = await ncDownloadPromise
+  expect(ncDownload.suggestedFilename()).toBe('non-conformity-history-nc-e2e-1.csv')
+  expect(nonConformityExportFilterOk).toBe(true)
+
+  const actionPlanPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: /Plano de acao|Action plan/i }) })
+  await actionPlanPanel.locator('form.crud-form select').first().selectOption('nc-e2e-1')
+  await actionPlanPanel.locator('.invite-history-head select').selectOption('action-e2e-1')
+  await actionPlanPanel.locator('.history-filter-grid input[type="text"]').fill('Carlos Filtro')
+  await actionPlanPanel.locator('.history-filter-grid input[type="date"]').nth(0).fill('2026-06-01')
+  await actionPlanPanel.locator('.history-filter-grid input[type="date"]').nth(1).fill('2026-06-30')
+  await actionPlanPanel.locator('.history-filter-grid .history-filter-actions button').first().click()
+
+  const actionDownloadPromise = page.waitForEvent('download')
+  await actionPlanPanel.locator('.history-pagination .history-filter-actions button').first().click()
+  const actionDownload = await actionDownloadPromise
+  expect(actionDownload.suggestedFilename()).toBe('action-plan-history-action-e2e-1.csv')
+  expect(actionPlanExportFilterOk).toBe(true)
+})
