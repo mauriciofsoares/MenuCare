@@ -4464,3 +4464,185 @@ test('gera convite administrativo e atualiza historico com auditoria', async ({ 
   await expect(invitePanel).toContainText('Convite criado no fluxo E2E.')
   expect(invitePostCount).toBe(1)
 })
+
+test('regenera e revoga convite administrativo atualizando historico e auditoria', async ({ page }) => {
+  let regenerateCallCount = 0
+  let revokeCallCount = 0
+  let regenerated = false
+  let revoked = false
+  let regenerateTokenReceived: string | null = null
+  let revokeTokenReceived: string | null = null
+
+  const initialToken = 'INVITE-ADMIN-BASE-E2E'
+  const regeneratedToken = 'INVITE-ADMIN-REGEN-E2E'
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contracts: [] }) })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rules: [] }) })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ nonConformities: [] }) })
+  })
+
+  await page.route('**/auth/invites?status=*&limit=20', async (route) => {
+    const activeToken = regenerated ? regeneratedToken : initialToken
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        invites: [
+          {
+            token: activeToken,
+            email: 'novo.admin@menucare.local',
+            active: !revoked,
+            createdAt: '2026-06-09T19:30:00.000Z',
+            usedAt: null,
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/auth/invites/audit?limit=25', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        events: revoked
+          ? [
+              {
+                id: 'invite-audit-e2e-2',
+                inviteToken: regeneratedToken,
+                inviteEmail: 'novo.admin@menucare.local',
+                action: 'revoked',
+                note: 'Convite revogado no fluxo E2E.',
+                actorName: 'Admin MenuCare',
+                createdAt: '2026-06-09T19:35:00.000Z',
+              },
+              {
+                id: 'invite-audit-e2e-1',
+                inviteToken: regeneratedToken,
+                inviteEmail: 'novo.admin@menucare.local',
+                action: 'regenerated',
+                note: 'Convite regenerado no fluxo E2E.',
+                actorName: 'Admin MenuCare',
+                createdAt: '2026-06-09T19:33:00.000Z',
+              },
+            ]
+          : regenerated
+            ? [
+                {
+                  id: 'invite-audit-e2e-1',
+                  inviteToken: regeneratedToken,
+                  inviteEmail: 'novo.admin@menucare.local',
+                  action: 'regenerated',
+                  note: 'Convite regenerado no fluxo E2E.',
+                  actorName: 'Admin MenuCare',
+                  createdAt: '2026-06-09T19:33:00.000Z',
+                },
+              ]
+            : [],
+      }),
+    })
+  })
+
+  await page.route('**/auth/invites/*/regenerate', async (route) => {
+    const token = route.request().url().split('/').at(-2) ?? null
+    regenerateTokenReceived = token
+    regenerateCallCount += 1
+    regenerated = true
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        invite: {
+          token: regeneratedToken,
+          email: 'novo.admin@menucare.local',
+          companyName: 'Empresa Teste',
+          active: true,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/auth/invites/*/revoke', async (route) => {
+    const token = route.request().url().split('/').at(-2) ?? null
+    revokeTokenReceived = token
+    revokeCallCount += 1
+    revoked = true
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', message: 'Convite revogado com sucesso.' }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const invitePanel = page.locator('article.panel.invite-admin-panel')
+
+  const initialRow = invitePanel.locator('li').filter({ hasText: initialToken }).first()
+  await initialRow.locator('.invite-history-actions button').first().click()
+
+  await expect(invitePanel).toContainText(regeneratedToken)
+  await expect(invitePanel).toContainText('Convite regenerado no fluxo E2E.')
+
+  const regeneratedRow = invitePanel.locator('li').filter({ hasText: regeneratedToken }).first()
+  await regeneratedRow.locator('.invite-history-actions button').nth(1).click()
+
+  await expect(regeneratedRow.locator('.invite-history-actions button')).toHaveCount(1)
+  await expect(invitePanel).toContainText('Convite revogado no fluxo E2E.')
+
+  expect(regenerateCallCount).toBe(1)
+  expect(revokeCallCount).toBe(1)
+  expect(regenerateTokenReceived).toBe(initialToken)
+  expect(revokeTokenReceived).toBe(regeneratedToken)
+})
