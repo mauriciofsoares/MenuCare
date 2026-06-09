@@ -30,6 +30,7 @@ Transformar o prototipo atual em uma base SaaS pronta para evolucao com:
 - Banco PostgreSQL.
 - Login com sessao e papeis.
 - Fundacoes para contratos, regras, auditoria de cardapios, controle financeiro e conformidade.
+- Base Estruturada de Receitas como ativo central reutilizavel em conformidade, financeiro e avaliacoes.
 
 Importante:
 - O MenuCare nao substitui a Genial.
@@ -177,6 +178,31 @@ Importante:
 
 ---
 
+## Fase 5.1 - Base Estruturada de Receitas (prioritaria) (6-10 dias)
+### Escopo
+- Importacao de fichas tecnicas de receitas da Genial (PDF).
+- Leitura e armazenamento estruturado de:
+  - nome
+  - ingredientes
+  - modo de preparo
+  - per capita
+  - rendimento
+  - grupo alimentar
+  - valor nutricional (quando disponivel)
+- Classificacao automatica por categoria/subcategoria/grupo alimentar.
+- Catalogo unico de receitas reutilizavel por todos os modulos.
+- Modelo base de Biblioteca Nutricional por receita:
+  - categoria macro (proteina, carboidrato, legume, verdura, fruta, sobremesa)
+  - dieta compativel
+  - alergenos
+
+### Criterio de pronto
+- Receita importada passa a ter identidade estruturada unica no tenant.
+- Cardapio importado referencia receitas conhecidas sem depender apenas de texto livre.
+- Regras contratuais por grupo (ex.: fruta citrica, peixe) passam a operar sobre classificacao estruturada.
+
+---
+
 ## Fase 6 - Integracao operacional com relatorio da Genial (4-7 dias)
 ### Escopo
 - Importacao de PDF de cardapio com pre-custo gerado pela Genial.
@@ -308,14 +334,16 @@ Indices obrigatorios:
 8. Dashboard com dados reais.
 9. Auditoria de validacao de regras.
 10. Hardening de seguranca + testes E2E.
-11. Importacao de relatorio de cardapio da Genial com pre-custo.
-12. Auditoria contratual/financeira do cardapio importado.
-13. Motor de sugestoes de ajuste e geracao de versao ajustada.
-14. Importacao de avaliacoes e inteligencia de combinacoes.
-15. Geracao operacional da proposta de proximo cardapio com governanca explicita.
-16. Aprovacao/reprovacao da proposta e persistencia da decisao com auditoria.
-17. Hardening final de seguranca (refresh rotativo, cookies httpOnly, recuperacao de senha real).
-18. E2E completo do ciclo estrategico e pipeline CI.
+11. Importacao de fichas tecnicas de receitas da Genial.
+12. Catalogo de receitas com classificacao automatica e Biblioteca Nutricional.
+13. Importacao de relatorio de cardapio da Genial com pre-custo.
+14. Auditoria contratual/financeira do cardapio importado.
+15. Motor de sugestoes de ajuste e geracao de versao ajustada.
+16. Importacao de avaliacoes e inteligencia de combinacoes.
+17. Geracao operacional da proposta de proximo cardapio com governanca explicita.
+18. Aprovacao/reprovacao da proposta e persistencia da decisao com auditoria.
+19. Hardening final de seguranca (refresh rotativo, cookies httpOnly, recuperacao de senha real).
+20. E2E completo do ciclo estrategico e pipeline CI.
 
 ---
 
@@ -335,11 +363,11 @@ Indices obrigatorios:
 
 ## 10. Proxima acao sugerida (imediata)
 
-Fechar a Fase 10 com decisao operacional do proximo cardapio:
-- Endpoint para aprovar/reprovar proposta gerada.
-- Persistencia da decisao e versao selecionada para ciclo seguinte.
-- Auditoria detalhada da decisao com justificativa.
-- Ajustes de UI para governanca operacional completa.
+Iniciar a Fase 5.1 (Base Estruturada de Receitas):
+- Endpoints de importacao/listagem/classificacao de receitas.
+- Persistencia de receitas + ingredientes + relacionamento receita-ingrediente.
+- Normalizacao de categorias/subcategorias com dicionario inicial (citricas, peixes, etc.).
+- Integracao da auditoria para consumir classificacao estruturada antes de texto livre.
 
 ---
 
@@ -365,6 +393,9 @@ Resumo objetivo por fase:
 
 - Fase 5 (suporte e operacao inicial): PARCIAL.
   - Evidencias: operacao e governanca evoluidas; modulo de chamados dedicado ainda pendente.
+
+- Fase 5.1 (Base Estruturada de Receitas): PENDENTE PRIORITARIA.
+  - Escopo pendente: importacao de fichas tecnicas da Genial, classificacao automatica e catalogo nutricional unico.
 
 - Fase 6 (integracao com relatorio da Genial): CONCLUIDA PARA O ESCOPO MVP ESTRUTURADO.
   - Evidencias: importacao de cardapios com validacao financeira e rastreabilidade por unidade/servico.

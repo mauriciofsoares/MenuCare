@@ -259,6 +259,37 @@ Avaliações históricas nunca podem bloquear geração ou aprovação de cardá
 
 # Conceitos de Negócio
 
+## Receita (Base Estruturada)
+
+A receita deve ser tratada como entidade estruturada reutilizavel pelo sistema.
+
+Campos esperados quando disponiveis:
+
+* Nome
+* Ingredientes
+* Modo de preparo
+* Per capita
+* Rendimento
+* Grupo alimentar
+* Valor nutricional
+
+A classificacao automatica deve mapear categoria, subcategoria e grupo alimentar.
+
+Exemplos:
+
+* Laranja -> Fruta / Fruta Cítrica
+* Ponkan -> Fruta / Fruta Cítrica
+* Maçã -> Fruta / Fruta Não Cítrica
+* Salmão com Crosta de Ervas -> Proteína / Peixe
+
+Essa base estruturada deve ser a fonte primária para:
+
+* Auditoria de conformidade
+* Sugestões financeiras de substituição
+* Inteligência de combinações e avaliações
+
+---
+
 ## Contrato
 
 Documento enviado pelo cliente contendo regras e exigências.
