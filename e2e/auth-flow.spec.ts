@@ -339,3 +339,34 @@ test('limpa sessao expirada quando auth/me retorna 401', async ({ page }) => {
   const persistedSession = await page.evaluate(() => window.localStorage.getItem('menucare.auth'))
   expect(persistedSession).toBeNull()
 })
+
+test('ativa primeiro acesso com sucesso e retorna para login', async ({ page }) => {
+  await page.route('**/auth/first-access/activate', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        message: 'Primeiro acesso ativado com sucesso.',
+        email: 'novo.usuario@menucare.local',
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  const authTabs = page.locator('.auth-tabs .auth-tab')
+  await authTabs.nth(1).click()
+
+  await page.locator('form.auth-form input[type="text"]').fill('INVITE-123')
+  await page.locator('form.auth-form input[type="password"]').fill('NovaSenha@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  await expect(page.locator('form.auth-form input[type="email"]')).toBeVisible()
+  await expect(page.locator('form.auth-form .auth-success')).toHaveText(
+    'Primeiro acesso ativado com sucesso.',
+  )
+  await expect(page.locator('form.auth-form input[type="email"]')).toHaveValue(
+    'novo.usuario@menucare.local',
+  )
+})
