@@ -2471,3 +2471,155 @@ test('gera versao ajustada de cardapio importado com horizonte e impacto finance
   expect(adjustedVersionPostCount).toBe(1)
   expect(adjustedVersionMonthsAheadPayload).toBe(2)
 })
+
+test('cadastra data comemorativa e exibe item com sugestao de prato nobre', async ({ page }) => {
+  let commemorativeDateRegistered = false
+  let commemorativeDatePostCount = 0
+  let commemorativeDatePayload: {
+    referenceDate: string
+    title: string
+    nobleDishHint?: string
+  } | null = null
+
+  const commemorativeDateItem = {
+    id: 'commemorative-date-e2e-1',
+    referenceDate: '2026-06-24',
+    year: 2026,
+    title: 'Festa Junina',
+    nobleDishHint: 'Canjica premium',
+    createdBy: 'Admin MenuCare',
+    createdAt: '2026-06-09T14:30:00.000Z',
+  }
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ contracts: [] }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rules: [] }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.route('**/menus/imports?limit=10', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', imports: [] }),
+    })
+  })
+
+  await page.route('**/menus/commemorative-dates?year=*&limit=400', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        commemorativeDates: commemorativeDateRegistered ? [commemorativeDateItem] : [],
+      }),
+    })
+  })
+
+  await page.route('**/menus/commemorative-dates', async (route) => {
+    const request = route.request()
+
+    if (request.method() !== 'POST') {
+      await route.continue()
+      return
+    }
+
+    commemorativeDatePostCount += 1
+    commemorativeDateRegistered = true
+    commemorativeDatePayload = request.postDataJSON() as {
+      referenceDate: string
+      title: string
+      nobleDishHint?: string
+    }
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', commemorativeDate: commemorativeDateItem }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+
+  const commemorativeHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Aba de datas comemorativas' }) })
+  const commemorativeForm = commemorativeHeader.locator('xpath=following-sibling::form[1]')
+
+  await commemorativeForm.locator('input[type="number"]').fill('2026')
+  await commemorativeForm.locator('input[type="date"]').fill('2026-06-24')
+  await commemorativeForm.locator('input[type="text"]').nth(0).fill('Festa Junina')
+  await commemorativeForm.locator('input[type="text"]').nth(1).fill('Canjica premium')
+  await commemorativeForm.locator('button.auth-button').click()
+
+  await expect(menuImportPanel).toContainText('Festa Junina')
+  await expect(menuImportPanel).toContainText('Canjica premium')
+  await expect(menuImportPanel).toContainText('2026')
+
+  expect(commemorativeDatePostCount).toBe(1)
+  expect(commemorativeDatePayload).toEqual({
+    referenceDate: '2026-06-24',
+    title: 'Festa Junina',
+    nobleDishHint: 'Canjica premium',
+  })
+})
