@@ -4328,3 +4328,139 @@ test('exibe previa bloqueante e gera proposta baseada no cardapio atual sem hist
   await expect(menuImportPanel).toContainText('Sem base historica para esta combinacao; proposta mantida por contexto atual.')
   expect(proposalPostCount).toBe(1)
 })
+
+test('gera convite administrativo e atualiza historico com auditoria', async ({ page }) => {
+  let inviteCreated = false
+  let invitePostCount = 0
+
+  const createdInvite = {
+    token: 'INVITE-ADMIN-E2E-001',
+    email: 'novo.admin@menucare.local',
+    companyName: 'Empresa Teste',
+    active: true,
+  }
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contracts: [] }) })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rules: [] }) })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ nonConformities: [] }) })
+  })
+
+  await page.route('**/auth/invites/audit?limit=25', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        events: inviteCreated
+          ? [
+              {
+                id: 'invite-audit-e2e-1',
+                inviteToken: 'INVITE-ADMIN-E2E-001',
+                inviteEmail: 'novo.admin@menucare.local',
+                action: 'generated',
+                note: 'Convite criado no fluxo E2E.',
+                actorName: 'Admin MenuCare',
+                createdAt: '2026-06-09T19:10:00.000Z',
+              },
+            ]
+          : [],
+      }),
+    })
+  })
+
+  await page.route('**/auth/invites?status=*&limit=20', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        invites: inviteCreated
+          ? [
+              {
+                token: 'INVITE-ADMIN-E2E-001',
+                email: 'novo.admin@menucare.local',
+                active: true,
+                createdAt: '2026-06-09T19:10:00.000Z',
+                usedAt: null,
+              },
+            ]
+          : [],
+      }),
+    })
+  })
+
+  await page.route('**/auth/invites', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+
+    invitePostCount += 1
+    inviteCreated = true
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', invite: createdInvite }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const invitePanel = page.locator('article.panel.invite-admin-panel')
+  const inviteForm = invitePanel.locator('form.crud-form').first()
+
+  await inviteForm.locator('input[type="email"]').fill('novo.admin@menucare.local')
+  await inviteForm.locator('button.auth-button').click()
+
+  await expect(invitePanel).toContainText('INVITE-ADMIN-E2E-001')
+  await expect(invitePanel).toContainText('novo.admin@menucare.local')
+  await expect(invitePanel).toContainText('Admin MenuCare')
+  await expect(invitePanel).toContainText('Convite criado no fluxo E2E.')
+  expect(invitePostCount).toBe(1)
+})
