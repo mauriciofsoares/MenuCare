@@ -3,8 +3,8 @@ param(
   [switch]$Strict
 )
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
-$auditsDir = Join-Path $repoRoot "docs\governance-audits"
+$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "../.."))
+$auditsDir = Join-Path (Join-Path $repoRoot "docs") "governance-audits"
 
 if ([string]::IsNullOrWhiteSpace($Month)) {
   $Month = Get-Date -Format "yyyy-MM"

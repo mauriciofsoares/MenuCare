@@ -3,8 +3,8 @@ param(
   [switch]$SkipIfExists
 )
 
-$repoRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
-$auditsDir = Join-Path $repoRoot "docs\governance-audits"
+$repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "../.."))
+$auditsDir = Join-Path (Join-Path $repoRoot "docs") "governance-audits"
 $templatePath = Join-Path $auditsDir "_template.md"
 
 if (-not (Test-Path $templatePath)) {
