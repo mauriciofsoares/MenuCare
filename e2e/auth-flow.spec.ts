@@ -700,3 +700,119 @@ test('cria contrato e exibe item na lista de contratos', async ({ page }) => {
   await expect(contractsListPanel).toContainText('Contrato E2E Principal')
   await expect(contractsListPanel).toContainText(/Ativo|Active/)
 })
+
+test('cria regra contratual vinculada e exibe item na lista de regras', async ({ page }) => {
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 1,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        contracts: [
+          {
+            id: 'contract-base-1',
+            title: 'Contrato Base E2E',
+            sourceType: 'contract',
+            status: 'active',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rules: [] }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.route('**/rules', async (route) => {
+    const request = route.request()
+
+    if (request.method() !== 'POST') {
+      await route.continue()
+      return
+    }
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        rule: {
+          id: 'rule-e2e-1',
+          contractId: 'contract-base-1',
+          title: 'Regra E2E de Temperatura',
+          description: 'Garantir monitoramento termico continuo.',
+          category: 'Seguranca alimentar',
+          status: 'approved',
+        },
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const rulePanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Nova regra contratual' }) })
+  await rulePanel.locator('select').first().selectOption('contract-base-1')
+  await rulePanel.locator('input[type="text"]').first().fill('Regra E2E de Temperatura')
+  await rulePanel.locator('textarea').fill('Garantir monitoramento termico continuo.')
+  await rulePanel.locator('input[type="text"]').nth(1).fill('Seguranca alimentar')
+  await rulePanel.locator('select').nth(1).selectOption('approved')
+  await rulePanel.locator('button.auth-button').click()
+
+  const rulesListPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Regras contratuais' }) })
+  await expect(rulesListPanel).toContainText('Regra E2E de Temperatura')
+  await expect(rulesListPanel).toContainText(/Aprovada|Approved/)
+})
