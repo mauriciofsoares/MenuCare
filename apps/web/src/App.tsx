@@ -1,4 +1,4 @@
-import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import './App.css'
 import {
   type SuggestionEvidenceInput,
@@ -614,6 +614,8 @@ function App() {
   const [isSubmittingRecipeImport, setIsSubmittingRecipeImport] = useState(false)
   const [selectedRecipeId, setSelectedRecipeId] = useState('')
   const [isSubmittingRecipeReclassification, setIsSubmittingRecipeReclassification] = useState(false)
+  const recipeImportSubmitLockRef = useRef(false)
+  const recipeReclassificationSubmitLockRef = useRef(false)
   const [recipeReclassificationNotice, setRecipeReclassificationNotice] = useState<string | null>(null)
   const [lastRecipeReclassification, setLastRecipeReclassification] = useState<{
     recipeId: string
@@ -2558,10 +2560,11 @@ function App() {
   const handleRecipeImportSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!authState) {
+    if (!authState || recipeImportSubmitLockRef.current) {
       return
     }
 
+    recipeImportSubmitLockRef.current = true
     setDomainError(null)
     setIsSubmittingRecipeImport(true)
 
@@ -2640,18 +2643,20 @@ function App() {
       setDomainError(error instanceof Error ? error.message : 'Falha ao importar receita.')
     } finally {
       setIsSubmittingRecipeImport(false)
+      recipeImportSubmitLockRef.current = false
     }
   }
 
   const handleRecipeReclassificationSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
-    if (!authState || !selectedRecipeId) {
+    if (!authState || !selectedRecipeId || recipeReclassificationSubmitLockRef.current) {
       return
     }
 
+    recipeReclassificationSubmitLockRef.current = true
     setDomainError(null)
-  setRecipeReclassificationNotice(null)
+    setRecipeReclassificationNotice(null)
     setIsSubmittingRecipeReclassification(true)
 
     try {
@@ -2692,6 +2697,7 @@ function App() {
       setDomainError(error instanceof Error ? error.message : 'Falha ao reclassificar receita.')
     } finally {
       setIsSubmittingRecipeReclassification(false)
+      recipeReclassificationSubmitLockRef.current = false
     }
   }
 
