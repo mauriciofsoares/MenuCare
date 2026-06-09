@@ -4789,3 +4789,117 @@ test('aplica filtro de historico de convites por status all active e used', asyn
   expect(inviteHistoryStatusCalls).toContain('active')
   expect(inviteHistoryStatusCalls).toContain('used')
 })
+
+test('exibe erro quando regeneracao e revogacao de convite falham', async ({ page }) => {
+  let regenerateAttempted = false
+  let revokeAttempted = false
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contracts: [] }) })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rules: [] }) })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ nonConformities: [] }) })
+  })
+
+  await page.route('**/auth/invites?status=*&limit=20', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        invites: [
+          {
+            token: 'INVITE-ERROR-E2E-1',
+            email: 'erro@menucare.local',
+            active: true,
+            createdAt: '2026-06-09T20:30:00.000Z',
+            usedAt: null,
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/auth/invites/audit?limit=25', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', events: [] }),
+    })
+  })
+
+  await page.route('**/auth/invites/*/regenerate', async (route) => {
+    regenerateAttempted = true
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'error', message: 'Falha simulada ao regenerar convite.' }),
+    })
+  })
+
+  await page.route('**/auth/invites/*/revoke', async (route) => {
+    revokeAttempted = true
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'error', message: 'Falha simulada ao revogar convite.' }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const invitePanel = page.locator('article.panel.invite-admin-panel')
+  const inviteRow = invitePanel.locator('li').filter({ hasText: 'INVITE-ERROR-E2E-1' }).first()
+
+  await inviteRow.locator('.invite-history-actions button').first().click()
+  await expect(invitePanel).toContainText('Falha simulada ao regenerar convite.')
+
+  await inviteRow.locator('.invite-history-actions button').nth(1).click()
+  await expect(invitePanel).toContainText('Falha simulada ao revogar convite.')
+
+  expect(regenerateAttempted).toBe(true)
+  expect(revokeAttempted).toBe(true)
+})
