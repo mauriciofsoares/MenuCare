@@ -453,6 +453,8 @@ Resumo objetivo por fase:
 
 Qualidade e testes (secao 3 e backlog item 10): EM EVOLUCAO.
 
+Status da frente de governanca de entrega (jun/2026): CONCLUIDA NESTA FASE.
+
 - Entregue neste ciclo:
   - Testes de integracao de API com Supertest para saude, login e protecao de rota.
   - Script de teste no workspace apps/api e ajuste de boot para testabilidade.
@@ -475,8 +477,10 @@ Qualidade e testes (secao 3 e backlog item 10): EM EVOLUCAO.
   - Comando automatizado para validar rodadas mensais (`npm run governance:audit:check` -> `scripts/governance/check-monthly-audit.ps1`).
   - Workflow mensal de governanca no GitHub Actions (`.github/workflows/governance-audit.yml`) com validacao estrita da rodada.
   - Comando para disparo manual do workflow mensal sem `gh` (`npm run governance:audit:dispatch` -> `scripts/github/dispatch-governance-audit.ps1`).
+  - Baseline E2E com Playwright na raiz (`playwright.config.ts` + `e2e/smoke.spec.ts`) e scripts operacionais (`test:e2e`, `test:e2e:list`, `test:e2e:install`).
+  - Ampliacao inicial da cobertura E2E com fluxo de autenticacao de interface e login bem-sucedido com API mockada (`e2e/auth-flow.spec.ts`) sem dependencia de backend real.
 
 - Pendente para fechamento completo do plano:
   - Suite de testes unitarios mais ampla.
-  - E2E (Playwright).
+  - Ampliar cobertura E2E (Playwright) para fluxos criticos alem do smoke test.
   - Hardening final de seguranca (ex.: refresh token rotativo/cookies httpOnly em producao).
