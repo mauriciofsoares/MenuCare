@@ -267,9 +267,21 @@ type MenuImportSuggestionItem = {
 type MenuAdjustedVersionItem = {
   id: string
   versionLabel: string
+  targetMonth: string | null
+  planningMonthsAhead: number
   adjustedMealCost: number
   totalFinancialImpact: number
   nutritionalImpactSummary: string
+  commemorativeContext: {
+    targetMonth: string
+    planningMonthsAhead: number
+    prioritizeNobleDishes: boolean
+    commemorativeDates: Array<{
+      referenceDate: string
+      title: string
+      nobleDishHint: string | null
+    }>
+  }
   appliedSuggestions: Array<{
     id: string
     suggestionText: string
@@ -335,6 +347,16 @@ type MenuRecommendationPreview = {
       trend: 'positive' | 'stable' | 'negative'
     }>
   }
+}
+
+type MenuCommemorativeDateItem = {
+  id: string
+  referenceDate: string
+  year: number
+  title: string
+  nobleDishHint: string | null
+  createdBy: string
+  createdAt: string
 }
 
 type NextMenuProposal = {
@@ -533,6 +555,9 @@ function App() {
   const [menuAdjustedVersions, setMenuAdjustedVersions] = useState<MenuAdjustedVersionItem[]>([])
   const [isLoadingMenuAdjustedVersions, setIsLoadingMenuAdjustedVersions] = useState(false)
   const [isGeneratingAdjustedVersion, setIsGeneratingAdjustedVersion] = useState(false)
+  const [menuCommemorativeDates, setMenuCommemorativeDates] = useState<MenuCommemorativeDateItem[]>([])
+  const [isLoadingMenuCommemorativeDates, setIsLoadingMenuCommemorativeDates] = useState(false)
+  const [isSubmittingMenuCommemorativeDate, setIsSubmittingMenuCommemorativeDate] = useState(false)
   const [menuEvaluationImports, setMenuEvaluationImports] = useState<MenuEvaluationImportItem[]>([])
   const [isLoadingMenuEvaluationImports, setIsLoadingMenuEvaluationImports] = useState(false)
   const [isSubmittingMenuEvaluationImport, setIsSubmittingMenuEvaluationImport] = useState(false)
@@ -643,6 +668,13 @@ function App() {
     score: '',
     evaluationsCount: '',
     comments: '',
+  })
+  const [adjustedVersionMonthsAhead, setAdjustedVersionMonthsAhead] = useState('0')
+  const [commemorativeYear, setCommemorativeYear] = useState(String(new Date().getFullYear()))
+  const [commemorativeDateForm, setCommemorativeDateForm] = useState({
+    referenceDate: '',
+    title: '',
+    nobleDishHint: '',
   })
 
   const uiMessage = getUiMessage(locale)
@@ -1114,6 +1146,30 @@ function App() {
       setMenuAdjustedVersions([])
     } finally {
       setIsLoadingMenuAdjustedVersions(false)
+    }
+  }
+
+  const fetchMenuCommemorativeDates = async (token: string, year: number) => {
+    setIsLoadingMenuCommemorativeDates(true)
+
+    try {
+      const response = await fetch(`${API_URL}/menus/commemorative-dates?year=${year}&limit=400`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; commemorativeDates: MenuCommemorativeDateItem[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error()
+      }
+
+      setMenuCommemorativeDates(payload.commemorativeDates ?? [])
+    } catch {
+      setMenuCommemorativeDates([])
+    } finally {
+      setIsLoadingMenuCommemorativeDates(false)
     }
   }
 
@@ -1736,6 +1792,7 @@ function App() {
       setMenuAdjustedVersions([])
       setMenuEvaluationImports([])
       setMenuCombinationIntelligence([])
+      setMenuCommemorativeDates([])
       setMenuRecommendationPreview(null)
       setNextMenuProposal(null)
       setNextMenuDecisionHistory([])
@@ -1746,7 +1803,8 @@ function App() {
     void fetchMenuImports(authState.token)
     void fetchMenuEvaluationImports(authState.token)
     void fetchMenuCombinationIntelligence(authState.token)
-  }, [authState?.token])
+    void fetchMenuCommemorativeDates(authState.token, Number(commemorativeYear))
+  }, [authState?.token, commemorativeYear])
 
   useEffect(() => {
     if (!selectedMenuImportId && menuImports.length > 0) {
@@ -2362,7 +2420,11 @@ function App() {
     try {
       const response = await fetch(`${API_URL}/menus/imports/${selectedMenuImportId}/adjusted-version`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${authState.token}` },
+        headers: {
+          Authorization: `Bearer ${authState.token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ monthsAhead: Number(adjustedVersionMonthsAhead) }),
       })
 
       const payload = (await response.json()) as
@@ -2378,6 +2440,56 @@ function App() {
       setDomainError(error instanceof Error ? error.message : 'Falha ao gerar versao ajustada.')
     } finally {
       setIsGeneratingAdjustedVersion(false)
+    }
+  }
+
+  const handleCommemorativeDateSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!authState) {
+      return
+    }
+
+    setDomainError(null)
+    setIsSubmittingMenuCommemorativeDate(true)
+
+    try {
+      const response = await fetch(`${API_URL}/menus/commemorative-dates`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authState.token}`,
+        },
+        body: JSON.stringify({
+          referenceDate: commemorativeDateForm.referenceDate,
+          title: commemorativeDateForm.title.trim(),
+          nobleDishHint: commemorativeDateForm.nobleDishHint.trim() || undefined,
+        }),
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; commemorativeDate: MenuCommemorativeDateItem }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error(
+          'message' in payload ? payload.message : 'Falha ao cadastrar data comemorativa.',
+        )
+      }
+
+      setCommemorativeDateForm({
+        referenceDate: '',
+        title: '',
+        nobleDishHint: '',
+      })
+
+      await fetchMenuCommemorativeDates(authState.token, Number(commemorativeYear))
+    } catch (error) {
+      setDomainError(
+        error instanceof Error ? error.message : 'Falha ao cadastrar data comemorativa.',
+      )
+    } finally {
+      setIsSubmittingMenuCommemorativeDate(false)
     }
   }
 
@@ -4039,6 +4151,21 @@ function App() {
             <h3>Versoes ajustadas</h3>
           </div>
 
+          <form className="crud-form" onSubmit={(event) => event.preventDefault()}>
+            <label>
+              <span>Horizonte de geracao da versao ajustada</span>
+              <select
+                value={adjustedVersionMonthsAhead}
+                onChange={(event) => setAdjustedVersionMonthsAhead(event.target.value)}
+              >
+                <option value="0">Mes do cardapio importado</option>
+                <option value="1">1 mes a frente</option>
+                <option value="2">2 meses a frente</option>
+                <option value="3">3 meses a frente</option>
+              </select>
+            </label>
+          </form>
+
           <div className="history-filter-actions">
             <button
               type="button"
@@ -4063,14 +4190,95 @@ function App() {
                     </span>
                   </div>
                   <small>
+                    Mes alvo: {item.targetMonth ?? '-'} | Horizonte: {item.planningMonthsAhead} mes(es)
+                  </small>
+                  <small>
                     Custo ajustado: R$ {item.adjustedMealCost.toFixed(2)} | Impacto financeiro total: R$ {item.totalFinancialImpact.toFixed(2)}
                   </small>
                   <small>{item.nutritionalImpactSummary}</small>
+                  <small>
+                    Datas comemorativas: {item.commemorativeContext.prioritizeNobleDishes ? 'priorizando pratos nobres' : 'sem prioridade especial'}
+                  </small>
                 </li>
               ))}
             </ul>
           ) : (
             <p className="empty-note">Nenhuma versao ajustada gerada ainda.</p>
+          )}
+
+          <div className="invite-history-head">
+            <h3>Aba de datas comemorativas</h3>
+          </div>
+
+          <form className="crud-form" onSubmit={handleCommemorativeDateSubmit}>
+            <label>
+              <span>Ano de trabalho</span>
+              <input
+                type="number"
+                min="2000"
+                max="2100"
+                value={commemorativeYear}
+                onChange={(event) => setCommemorativeYear(event.target.value)}
+                required
+              />
+            </label>
+
+            <label>
+              <span>Data comemorativa</span>
+              <input
+                type="date"
+                value={commemorativeDateForm.referenceDate}
+                onChange={(event) =>
+                  setCommemorativeDateForm((current) => ({ ...current, referenceDate: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>Titulo</span>
+              <input
+                type="text"
+                value={commemorativeDateForm.title}
+                onChange={(event) =>
+                  setCommemorativeDateForm((current) => ({ ...current, title: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>Sugestao de prato nobre (opcional)</span>
+              <input
+                type="text"
+                value={commemorativeDateForm.nobleDishHint}
+                onChange={(event) =>
+                  setCommemorativeDateForm((current) => ({ ...current, nobleDishHint: event.target.value }))
+                }
+              />
+            </label>
+
+            <button type="submit" className="auth-button" disabled={isSubmittingMenuCommemorativeDate}>
+              {isSubmittingMenuCommemorativeDate ? 'Salvando data...' : 'Cadastrar data comemorativa'}
+            </button>
+          </form>
+
+          {isLoadingMenuCommemorativeDates ? (
+            <p className="empty-note">Carregando datas comemorativas...</p>
+          ) : menuCommemorativeDates.length ? (
+            <ul className="validation-history-list">
+              {menuCommemorativeDates.map((item) => (
+                <li key={item.id}>
+                  <div className="validation-history-row">
+                    <strong>{new Date(item.referenceDate).toLocaleDateString(locale)} · {item.title}</strong>
+                    <span className="status-badge is-progress">{item.year}</span>
+                  </div>
+                  <small>{item.nobleDishHint || 'Sem prato nobre sugerido para esta data.'}</small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">Nenhuma data comemorativa cadastrada para o ano selecionado.</p>
           )}
 
           <div className="invite-history-head">

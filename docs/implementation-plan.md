@@ -233,6 +233,8 @@ Importante:
 - Persistir versao aprovada como referencia operacional do ciclo seguinte.
 - Registrar auditoria completa da decisao (quem, quando, o que, por que).
 - Disponibilizar historico de decisoes para rastreabilidade e analise.
+- Permitir gerar versao ajustada para o mes base do cardapio importado ou ate 3 meses futuros.
+- Incluir aba de datas comemorativas para cadastro anual e uso pelo gerador na priorizacao de pratos nobres em datas especiais.
 
 ### Criterio de pronto
 - Fluxo estrategico fica completo ponta a ponta:
@@ -377,7 +379,13 @@ Resumo objetivo por fase:
   - Evidencias: endpoint dedicado, teste de integracao e acao de UI para gerar proposta com camada historica nao bloqueante.
 
 - Fase 10 (decisao operacional final): PENDENTE.
-  - Escopo pendente: aprovar/reprovar proposta, persistir decisao e trilha de auditoria dessa aprovacao.
+  - Escopo pendente: evoluir governanca de publicacao final e politicas avancadas de aprovacao.
+
+- Incremento de escopo (jun/2026): CONCLUIDO.
+  - Evidencias:
+    - Geracao de versao ajustada com horizonte configuravel (mes atual ate +3 meses).
+    - Cadastro anual de datas comemorativas com aplicacao no gerador.
+    - Priorizacao de pratos nobres em meses com datas comemorativas cadastradas.
 
 Qualidade e testes (secao 3 e backlog item 10): EM EVOLUCAO.
 

@@ -68,6 +68,21 @@ const menuImportParamsSchema = z.object({
   importId: z.string().min(1),
 });
 
+const adjustedVersionGenerationSchema = z.object({
+  monthsAhead: z.coerce.number().int().min(0).max(3).default(0),
+});
+
+const commemorativeDateSchema = z.object({
+  referenceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  title: z.string().min(2).max(140),
+  nobleDishHint: z.string().max(240).optional(),
+});
+
+const commemorativeDateListQuerySchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100).default(new Date().getUTCFullYear()),
+  limit: z.coerce.number().int().min(1).max(400).default(200),
+});
+
 const nextMenuDecisionSchema = z.object({
   decision: z.enum(['approved', 'rejected']),
   justification: z.string().trim().min(3).max(500),
@@ -511,10 +526,26 @@ const ensureDomainTables = async () => {
       company_name TEXT NOT NULL,
       menu_import_id TEXT NOT NULL,
       version_label TEXT NOT NULL,
+      target_month TEXT,
+      planning_months_ahead INT,
       adjusted_meal_cost NUMERIC(12, 2) NOT NULL,
       total_financial_impact NUMERIC(12, 2) NOT NULL,
       nutritional_impact_summary TEXT NOT NULL,
+      commemorative_context_json TEXT,
       applied_suggestions_json TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS menu_commemorative_dates (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      reference_date DATE NOT NULL,
+      date_year INT NOT NULL,
+      title TEXT NOT NULL,
+      noble_dish_hint TEXT,
+      created_by TEXT NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )
   `;
@@ -593,6 +624,26 @@ const ensureDomainTables = async () => {
   `;
 
   await prisma.$executeRaw`
+    ALTER TABLE menu_adjusted_versions
+    ADD COLUMN IF NOT EXISTS target_month TEXT
+  `;
+
+  await prisma.$executeRaw`
+    ALTER TABLE menu_adjusted_versions
+    ADD COLUMN IF NOT EXISTS planning_months_ahead INT
+  `;
+
+  await prisma.$executeRaw`
+    ALTER TABLE menu_adjusted_versions
+    ADD COLUMN IF NOT EXISTS commemorative_context_json TEXT
+  `;
+
+  await prisma.$executeRaw`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_menu_commemorative_dates_company_refdate
+    ON menu_commemorative_dates (company_name, reference_date)
+  `;
+
+  await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_contracts_company_created_at
     ON contracts (company_name, created_at DESC)
   `;
@@ -655,6 +706,11 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_menu_adjusted_versions_import_created_at
     ON menu_adjusted_versions (menu_import_id, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_menu_commemorative_dates_company_year_date
+    ON menu_commemorative_dates (company_name, date_year, reference_date)
   `;
 
   await prisma.$executeRaw`
@@ -2728,11 +2784,19 @@ app.get('/menus/imports/:importId/suggestions', { preHandler: authenticate }, as
 
 app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate }, async (request, reply) => {
   const parsedParams = menuImportParamsSchema.safeParse(request.params);
+  const parsedBody = adjustedVersionGenerationSchema.safeParse(request.body ?? {});
 
   if (!parsedParams.success) {
     return reply.code(400).send({
       status: 'error',
       message: 'Identificador de importacao invalido.',
+    });
+  }
+
+  if (!parsedBody.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Payload de geracao de versao ajustada invalido.',
     });
   }
 
@@ -2745,14 +2809,16 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
 
   const companyName = getCompanyFromJwt(request);
   const importId = parsedParams.data.importId;
+  const { monthsAhead } = parsedBody.data;
 
   await ensureDomainTables();
 
   const importRows = await prisma.$queryRaw<Array<{
     meal_cost: number | string;
     financial_goal: number | string;
+    reference_date: Date | string;
   }>>`
-    SELECT meal_cost, financial_goal
+    SELECT meal_cost, financial_goal, reference_date
     FROM menu_pdf_imports
     WHERE id = ${importId}
       AND company_name = ${companyName}
@@ -2806,8 +2872,44 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
       .reduce((sum, item) => sum + parseNumber(item.estimated_financial_impact), 0)
       .toFixed(2),
   );
+
+  const baseReferenceDate = new Date(imported.reference_date);
+  const shiftedDate = new Date(Date.UTC(
+    baseReferenceDate.getUTCFullYear(),
+    baseReferenceDate.getUTCMonth() + monthsAhead,
+    1,
+  ));
+  const targetMonth = `${shiftedDate.getUTCFullYear()}-${String(shiftedDate.getUTCMonth() + 1).padStart(2, '0')}`;
+
+  const commemorativeRows = await prisma.$queryRaw<Array<{
+    reference_date: Date | string;
+    title: string;
+    noble_dish_hint: string | null;
+  }>>`
+    SELECT reference_date, title, noble_dish_hint
+    FROM menu_commemorative_dates
+    WHERE company_name = ${companyName}
+      AND TO_CHAR(reference_date, 'YYYY-MM') = ${targetMonth}
+    ORDER BY reference_date ASC
+  `;
+
+  const commemorativeContext = {
+    targetMonth,
+    planningMonthsAhead: monthsAhead,
+    prioritizeNobleDishes: commemorativeRows.length > 0,
+    commemorativeDates: commemorativeRows.map((item) => ({
+      referenceDate:
+        item.reference_date instanceof Date
+          ? item.reference_date.toISOString().slice(0, 10)
+          : String(item.reference_date).slice(0, 10),
+      title: item.title,
+      nobleDishHint: item.noble_dish_hint,
+    })),
+  };
+
+  const nobleDishExtraCostFactor = commemorativeContext.prioritizeNobleDishes ? 1.08 : 1;
   const adjustedMealCost = Number(
-    Math.max(currentMealCost + totalFinancialImpact, financialGoal * 0.85).toFixed(2),
+    Math.max((currentMealCost + totalFinancialImpact) * nobleDishExtraCostFactor, financialGoal * 0.85).toFixed(2),
   );
 
   const versionCountRows = await prisma.$queryRaw<Array<{ total: number }>>`
@@ -2838,9 +2940,12 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
       company_name,
       menu_import_id,
       version_label,
+      target_month,
+      planning_months_ahead,
       adjusted_meal_cost,
       total_financial_impact,
       nutritional_impact_summary,
+      commemorative_context_json,
       applied_suggestions_json
     )
     VALUES (
@@ -2848,9 +2953,12 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
       ${companyName},
       ${importId},
       ${versionLabel},
+      ${targetMonth},
+      ${monthsAhead},
       ${adjustedMealCost},
       ${totalFinancialImpact},
       ${nutritionalImpactSummary || 'Sem alteracoes nutricionais relevantes.'},
+      ${JSON.stringify(commemorativeContext)},
       ${JSON.stringify(appliedSuggestions)}
     )
   `;
@@ -2860,9 +2968,12 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
     adjustedVersion: {
       id: versionId,
       versionLabel,
+      targetMonth,
+      planningMonthsAhead: monthsAhead,
       adjustedMealCost,
       totalFinancialImpact,
       nutritionalImpactSummary: nutritionalImpactSummary || 'Sem alteracoes nutricionais relevantes.',
+      commemorativeContext,
       appliedSuggestions,
       createdAt: new Date().toISOString(),
     },
@@ -2894,18 +3005,24 @@ app.get('/menus/imports/:importId/adjusted-versions', { preHandler: authenticate
   const rows = await prisma.$queryRaw<Array<{
     id: string;
     version_label: string;
+    target_month: string | null;
+    planning_months_ahead: number | null;
     adjusted_meal_cost: number | string;
     total_financial_impact: number | string;
     nutritional_impact_summary: string;
+    commemorative_context_json: string | null;
     applied_suggestions_json: string;
     created_at: Date;
   }>>`
     SELECT
       id,
       version_label,
+      target_month,
+      planning_months_ahead,
       adjusted_meal_cost,
       total_financial_impact,
       nutritional_impact_summary,
+      commemorative_context_json,
       applied_suggestions_json,
       created_at
     FROM menu_adjusted_versions
@@ -2924,9 +3041,28 @@ app.get('/menus/imports/:importId/adjusted-versions', { preHandler: authenticate
     versions: rows.map((item) => ({
       id: item.id,
       versionLabel: item.version_label,
+      targetMonth: item.target_month,
+      planningMonthsAhead: item.planning_months_ahead ?? 0,
       adjustedMealCost: parseNumber(item.adjusted_meal_cost),
       totalFinancialImpact: parseNumber(item.total_financial_impact),
       nutritionalImpactSummary: item.nutritional_impact_summary,
+      commemorativeContext: item.commemorative_context_json
+        ? JSON.parse(item.commemorative_context_json) as {
+            targetMonth: string;
+            planningMonthsAhead: number;
+            prioritizeNobleDishes: boolean;
+            commemorativeDates: Array<{
+              referenceDate: string;
+              title: string;
+              nobleDishHint: string | null;
+            }>;
+          }
+        : {
+            targetMonth: item.target_month ?? '',
+            planningMonthsAhead: item.planning_months_ahead ?? 0,
+            prioritizeNobleDishes: false,
+            commemorativeDates: [],
+          },
       appliedSuggestions: JSON.parse(item.applied_suggestions_json) as Array<{
         id: string;
         suggestionText: string;
@@ -2935,6 +3071,149 @@ app.get('/menus/imports/:importId/adjusted-versions', { preHandler: authenticate
         priorityLevel: 'high' | 'medium';
       }>,
       createdAt: item.created_at.toISOString(),
+    })),
+  };
+});
+
+app.post('/menus/commemorative-dates', { preHandler: authenticate }, async (request, reply) => {
+  const parsed = commemorativeDateSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Payload de data comemorativa invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
+  const payload = parsed.data;
+  const dateYear = Number(payload.referenceDate.slice(0, 4));
+  const id = randomUUID();
+
+  await ensureDomainTables();
+
+  await prisma.$executeRaw`
+    INSERT INTO menu_commemorative_dates (
+      id,
+      company_name,
+      reference_date,
+      date_year,
+      title,
+      noble_dish_hint,
+      created_by
+    )
+    VALUES (
+      ${id},
+      ${companyName},
+      ${payload.referenceDate},
+      ${dateYear},
+      ${payload.title.trim()},
+      ${payload.nobleDishHint?.trim() || null},
+      ${actor.name}
+    )
+    ON CONFLICT (company_name, reference_date)
+    DO UPDATE SET
+      title = EXCLUDED.title,
+      noble_dish_hint = EXCLUDED.noble_dish_hint,
+      created_by = EXCLUDED.created_by
+  `;
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    reference_date: Date | string;
+    date_year: number;
+    title: string;
+    noble_dish_hint: string | null;
+    created_by: string;
+    created_at: Date | string;
+  }>>`
+    SELECT id, reference_date, date_year, title, noble_dish_hint, created_by, created_at
+    FROM menu_commemorative_dates
+    WHERE company_name = ${companyName}
+      AND reference_date = ${payload.referenceDate}
+    LIMIT 1
+  `;
+
+  const created = rows[0];
+
+  return reply.code(201).send({
+    status: 'ok',
+    commemorativeDate: {
+      id: created.id,
+      referenceDate:
+        created.reference_date instanceof Date
+          ? created.reference_date.toISOString().slice(0, 10)
+          : String(created.reference_date).slice(0, 10),
+      year: created.date_year,
+      title: created.title,
+      nobleDishHint: created.noble_dish_hint,
+      createdBy: created.created_by,
+      createdAt: created.created_at,
+    },
+  });
+});
+
+app.get('/menus/commemorative-dates', { preHandler: authenticate }, async (request, reply) => {
+  const parsedQuery = commemorativeDateListQuerySchema.safeParse(request.query);
+
+  if (!parsedQuery.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Parametros de consulta invalidos para datas comemorativas.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const { year, limit } = parsedQuery.data;
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    reference_date: Date | string;
+    date_year: number;
+    title: string;
+    noble_dish_hint: string | null;
+    created_by: string;
+    created_at: Date | string;
+  }>>`
+    SELECT id, reference_date, date_year, title, noble_dish_hint, created_by, created_at
+    FROM menu_commemorative_dates
+    WHERE company_name = ${companyName}
+      AND date_year = ${year}
+    ORDER BY reference_date ASC
+    LIMIT ${limit}
+  `;
+
+  return {
+    status: 'ok',
+    year,
+    commemorativeDates: rows.map((item) => ({
+      id: item.id,
+      referenceDate:
+        item.reference_date instanceof Date
+          ? item.reference_date.toISOString().slice(0, 10)
+          : String(item.reference_date).slice(0, 10),
+      year: item.date_year,
+      title: item.title,
+      nobleDishHint: item.noble_dish_hint,
+      createdBy: item.created_by,
+      createdAt: item.created_at,
     })),
   };
 });

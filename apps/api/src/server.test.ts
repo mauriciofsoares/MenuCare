@@ -342,10 +342,12 @@ describe('API integration', () => {
     const adjustedVersionResponse = await request(app.server)
       .post(`/menus/imports/${importId}/adjusted-version`)
       .set('Authorization', `Bearer ${token}`)
+      .send({ monthsAhead: 0 })
 
     assert.equal(adjustedVersionResponse.status, 201)
     assert.equal(adjustedVersionResponse.body.status, 'ok')
     assert.equal(typeof adjustedVersionResponse.body.adjustedVersion?.versionLabel, 'string')
+    assert.equal(adjustedVersionResponse.body.adjustedVersion?.planningMonthsAhead, 0)
     assert.equal(Array.isArray(adjustedVersionResponse.body.adjustedVersion?.appliedSuggestions), true)
 
     const listAdjustedVersionsResponse = await request(app.server)
@@ -355,6 +357,75 @@ describe('API integration', () => {
     assert.equal(listAdjustedVersionsResponse.status, 200)
     assert.equal(listAdjustedVersionsResponse.body.status, 'ok')
     assert.ok((listAdjustedVersionsResponse.body.versions as Array<{ id: string }>).length >= 1)
+  })
+
+  it('commemorative dates should influence adjusted version for future months', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const importResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-08',
+        mealType: 'Almoco',
+        financialGoal: 11,
+        mealCost: 12,
+        recipes: ['Arroz', 'Feijao', 'Frango'],
+      })
+
+    if (importResponse.status === 503) {
+      assert.equal(importResponse.body.status, 'error')
+      return
+    }
+
+    const importId = importResponse.body.import?.id as string
+
+    const commemResponse = await request(app.server)
+      .post('/menus/commemorative-dates')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        referenceDate: '2026-08-15',
+        title: 'Dia da Gastronomia Hospitalar',
+        nobleDishHint: 'Filé mignon ao molho madeira',
+      })
+
+    assert.equal(commemResponse.status, 201)
+    assert.equal(commemResponse.body.status, 'ok')
+
+    const suggestionsResponse = await request(app.server)
+      .post(`/menus/imports/${importId}/suggestions`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(suggestionsResponse.status, 200)
+
+    const adjustedVersionResponse = await request(app.server)
+      .post(`/menus/imports/${importId}/adjusted-version`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({ monthsAhead: 2 })
+
+    assert.equal(adjustedVersionResponse.status, 201)
+    assert.equal(adjustedVersionResponse.body.status, 'ok')
+    assert.equal(adjustedVersionResponse.body.adjustedVersion?.targetMonth, '2026-08')
+    assert.equal(adjustedVersionResponse.body.adjustedVersion?.commemorativeContext?.prioritizeNobleDishes, true)
+
+    const listCommemorativeResponse = await request(app.server)
+      .get('/menus/commemorative-dates?year=2026&limit=10')
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(listCommemorativeResponse.status, 200)
+    assert.equal(listCommemorativeResponse.body.status, 'ok')
+    assert.ok((listCommemorativeResponse.body.commemorativeDates as Array<{ id: string }>).length >= 1)
   })
 
   it('evaluation import and intelligence rebuild should generate combination insights', async () => {
