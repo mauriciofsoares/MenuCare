@@ -4646,3 +4646,146 @@ test('regenera e revoga convite administrativo atualizando historico e auditoria
   expect(regenerateTokenReceived).toBe(initialToken)
   expect(revokeTokenReceived).toBe(regeneratedToken)
 })
+
+test('aplica filtro de historico de convites por status all active e used', async ({ page }) => {
+  const inviteHistoryStatusCalls: string[] = []
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contracts: [] }) })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rules: [] }) })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ nonConformities: [] }) })
+  })
+
+  await page.route('**/auth/invites?status=*&limit=20', async (route) => {
+    const url = new URL(route.request().url())
+    const status = url.searchParams.get('status') ?? 'all'
+    inviteHistoryStatusCalls.push(status)
+
+    const invitesByStatus: Record<string, Array<{
+      token: string
+      email: string
+      active: boolean
+      createdAt: string
+      usedAt: string | null
+    }>> = {
+      all: [
+        {
+          token: 'INVITE-ACTIVE-E2E',
+          email: 'ativo@menucare.local',
+          active: true,
+          createdAt: '2026-06-09T20:00:00.000Z',
+          usedAt: null,
+        },
+        {
+          token: 'INVITE-USED-E2E',
+          email: 'usado@menucare.local',
+          active: false,
+          createdAt: '2026-06-08T20:00:00.000Z',
+          usedAt: '2026-06-09T08:00:00.000Z',
+        },
+      ],
+      active: [
+        {
+          token: 'INVITE-ACTIVE-E2E',
+          email: 'ativo@menucare.local',
+          active: true,
+          createdAt: '2026-06-09T20:00:00.000Z',
+          usedAt: null,
+        },
+      ],
+      used: [
+        {
+          token: 'INVITE-USED-E2E',
+          email: 'usado@menucare.local',
+          active: false,
+          createdAt: '2026-06-08T20:00:00.000Z',
+          usedAt: '2026-06-09T08:00:00.000Z',
+        },
+      ],
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', invites: invitesByStatus[status] ?? [] }),
+    })
+  })
+
+  await page.route('**/auth/invites/audit?limit=25', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', events: [] }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const invitePanel = page.locator('article.panel.invite-admin-panel')
+  const filterSelect = invitePanel.locator('.invite-history-head select').first()
+
+  await expect(invitePanel).toContainText('INVITE-ACTIVE-E2E')
+  await expect(invitePanel).toContainText('INVITE-USED-E2E')
+
+  await filterSelect.selectOption('active')
+  await expect(invitePanel).toContainText('INVITE-ACTIVE-E2E')
+  await expect(invitePanel).not.toContainText('INVITE-USED-E2E')
+
+  const activeRow = invitePanel.locator('li').filter({ hasText: 'INVITE-ACTIVE-E2E' }).first()
+  await expect(activeRow.locator('.invite-history-actions button')).toHaveCount(2)
+
+  await filterSelect.selectOption('used')
+  await expect(invitePanel).toContainText('INVITE-USED-E2E')
+  await expect(invitePanel).not.toContainText('INVITE-ACTIVE-E2E')
+
+  const usedRow = invitePanel.locator('li').filter({ hasText: 'INVITE-USED-E2E' }).first()
+  await expect(usedRow.locator('.invite-history-actions button')).toHaveCount(1)
+
+  expect(inviteHistoryStatusCalls).toContain('all')
+  expect(inviteHistoryStatusCalls).toContain('active')
+  expect(inviteHistoryStatusCalls).toContain('used')
+})
