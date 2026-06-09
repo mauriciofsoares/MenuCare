@@ -4126,3 +4126,205 @@ test('impede registro de decisao quando justificativa e menor que 5 caracteres',
   await expect(page.getByText('Informe uma justificativa com pelo menos 5 caracteres para registrar a decisao.')).toBeVisible()
   expect(decisionEndpointCalled).toBe(false)
 })
+
+test('exibe previa bloqueante e gera proposta baseada no cardapio atual sem historico', async ({ page }) => {
+  let proposalPostCount = 0
+
+  const nextMenuProposal = {
+    importId: 'menu-import-preview-blocking-e2e-1',
+    unitName: 'Hospital MenuCare',
+    serviceName: 'Almoco executivo',
+    proposalType: 'current_baseline',
+    recipes: ['Carne assada', 'Arroz branco', 'Batata saute'],
+    estimatedCost: 15.6,
+    financialGoal: 15,
+    historicalLayer: {
+      nonBlocking: true,
+      sourceCombinationId: null,
+      sourceAverageRating: null,
+      sourceEvaluationsCount: 0,
+      note: 'Sem base historica para esta combinacao.',
+    },
+    governance: {
+      blocksApproval: true,
+      mandatoryFindings: [{ criterion: 'Meta financeira', status: 'violation' }],
+    },
+  }
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contracts: [] }) })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rules: [] }) })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ nonConformities: [] }) })
+  })
+
+  await page.route('**/menus/imports?limit=10', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        imports: [
+          {
+            id: 'menu-import-preview-blocking-e2e-1',
+            fileName: 'CARDAPIO-PREVIEW-BLOCK-E2E.pdf',
+            unitName: 'Hospital MenuCare',
+            serviceName: 'Almoco executivo',
+            referenceDate: '2026-07-01',
+            mealType: 'Almoco',
+            financialGoal: 15,
+            mealCost: 15.8,
+            exceededValue: 0.8,
+            exceededPercent: 5.33,
+            validationStatus: 'above_goal',
+            recipes: ['Carne assada', 'Arroz branco', 'Batata saute'],
+            createdAt: '2026-06-09T18:40:00.000Z',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-preview-blocking-e2e-1/audit', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', results: [] }) })
+  })
+
+  await page.route('**/menus/imports/menu-import-preview-blocking-e2e-1/suggestions', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', suggestions: [] }) })
+  })
+
+  await page.route('**/menus/imports/menu-import-preview-blocking-e2e-1/adjusted-versions', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', versions: [] }) })
+  })
+
+  await page.route('**/menus/commemorative-dates?year=*&limit=400', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', commemorativeDates: [] }) })
+  })
+
+  await page.route('**/evaluations/imports?limit=10', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', evaluations: [] }) })
+  })
+
+  await page.route('**/evaluations/intelligence?limit=10', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', combinations: [] }) })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-preview-blocking-e2e-1', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recommendation: {
+          policy: {
+            priorityOrder: ['financial_goal', 'nutritional_restrictions', 'operational_rules', 'historical_ratings'],
+            levels: [{ key: 'mandatory', blocksApproval: true }],
+            blockingCriteria: ['financial_goal'],
+          },
+          importContext: {
+            importId: 'menu-import-preview-blocking-e2e-1',
+            unitName: 'Hospital MenuCare',
+            serviceName: 'Almoco executivo',
+            financialGoal: 15,
+            mealCost: 15.8,
+            currentRecipes: ['Carne assada', 'Arroz branco', 'Batata saute'],
+          },
+          decision: {
+            blocksApproval: true,
+            mandatoryFindings: [
+              {
+                criterion: 'Meta financeira',
+                status: 'violation',
+                detail: 'Custo atual acima da meta contratada.',
+              },
+            ],
+          },
+          historicalLayer: {
+            nonBlocking: true,
+            note: 'Sem combinacoes historicas para recomendacao neste contexto.',
+            recommendedCombinations: [],
+          },
+        },
+      }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-preview-blocking-e2e-1/next-menu/decisions?limit=10', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', decisions: [] }) })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-preview-blocking-e2e-1/next-menu', async (route) => {
+    proposalPostCount += 1
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', nextMenuProposal }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+  const menuAuditHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Auditoria contratual do cardapio' }) })
+  await menuAuditHeader.locator('select').selectOption('menu-import-preview-blocking-e2e-1')
+
+  await expect(menuImportPanel).toContainText('Aprovacao bloqueada por camada obrigatoria')
+  await expect(menuImportPanel).toContainText('Bloqueante')
+  await expect(menuImportPanel).toContainText('Violacao')
+  await expect(menuImportPanel).toContainText('Custo atual acima da meta contratada.')
+
+  await menuImportPanel
+    .locator('button.logout-button', { hasText: 'Gerar proposta do proximo cardapio' })
+    .click()
+
+  await expect(menuImportPanel).toContainText('Proposta baseada no cardapio atual')
+  await expect(menuImportPanel).toContainText('Sem base historica para esta combinacao; proposta mantida por contexto atual.')
+  expect(proposalPostCount).toBe(1)
+})
