@@ -1849,3 +1849,206 @@ test('importa cardapio PDF e atualiza lista de importacoes', async ({ page }) =>
   await expect(menuImportPanel).toContainText('Hospital MenuCare')
   await expect(menuImportPanel).toContainText('Dentro da meta')
 })
+
+test('executa auditoria contratual de cardapio importado e exibe resultados', async ({ page }) => {
+  let menuImportListFetchCount = 0
+  let menuImportAuditPostCount = 0
+  let auditWasExecuted = false
+
+  const auditResults = [
+    {
+      id: 'menu-audit-e2e-1',
+      ruleId: 'rule-e2e-1',
+      ruleTitle: 'Fruta citrica 3x por semana',
+      resultStatus: 'compliant',
+      evidence: 'classificacao estruturada validou presenca de fruta citrica no periodo.',
+      executedAt: '2026-06-09T12:20:00.000Z',
+    },
+    {
+      id: 'menu-audit-e2e-2',
+      ruleId: 'rule-e2e-2',
+      ruleTitle: 'Nao repetir peixe em menos de 7 dias',
+      resultStatus: 'non_compliant',
+      evidence: 'classificacao estruturada encontrou recorrencia de peixe em intervalo inferior a 7 dias.',
+      executedAt: '2026-06-09T12:20:00.000Z',
+    },
+  ]
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ contracts: [] }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rules: [] }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.route('**/menus/imports?limit=10', async (route) => {
+    menuImportListFetchCount += 1
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        imports: [
+          {
+            id: 'menu-import-audit-e2e-1',
+            fileName: 'CARDAPIO-AUDITORIA-E2E.pdf',
+            unitName: 'Hospital MenuCare',
+            serviceName: 'Almoco executivo',
+            referenceDate: '2026-06-22',
+            mealType: 'Almoco',
+            financialGoal: 15.3,
+            mealCost: 14.8,
+            exceededValue: 0,
+            exceededPercent: 0,
+            validationStatus: 'within_goal',
+            recipes: ['Laranja em gomos', 'Arroz integral', 'Peixe assado'],
+            createdAt: '2026-06-09T12:00:00.000Z',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-audit-e2e-1/audit', async (route) => {
+    const request = route.request()
+
+    if (request.method() === 'POST') {
+      menuImportAuditPostCount += 1
+      auditWasExecuted = true
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok', results: auditResults }),
+      })
+      return
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        results: auditWasExecuted ? auditResults : [],
+      }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-audit-e2e-1/suggestions', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', suggestions: [] }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-audit-e2e-1/adjusted-versions', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', versions: [] }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-audit-e2e-1', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', recommendations: [] }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-audit-e2e-1/next-menu', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', proposal: null }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-audit-e2e-1/next-menu/decisions**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', decisions: [] }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+  const menuAuditHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Auditoria contratual do cardapio' }) })
+
+  await menuAuditHeader.locator('select').selectOption('menu-import-audit-e2e-1')
+  await menuImportPanel
+    .locator('button.logout-button', { hasText: 'Executar auditoria contratual' })
+    .click()
+
+  await expect(menuImportPanel).toContainText('Fruta citrica 3x por semana')
+  await expect(menuImportPanel).toContainText('Nao repetir peixe em menos de 7 dias')
+  await expect(menuImportPanel).toContainText('Conforme')
+  await expect(menuImportPanel).toContainText('Nao conforme')
+  await expect(menuImportPanel).toContainText('classificacao estruturada')
+  expect(menuImportAuditPostCount).toBe(1)
+  expect(menuImportListFetchCount).toBeGreaterThanOrEqual(2)
+})
