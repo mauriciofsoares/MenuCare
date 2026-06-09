@@ -774,3 +774,9 @@ Manutenibilidade
 Performance
 
 Segurança
+
+Para frontend web, adotar como padrao:
+
+* Componentizar badges e blocos de evidência para reduzir acoplamento em telas monolíticas.
+* Cobrir componentes de evidência com teste de integração de render (rótulo + classe CSS).
+* Configurar Vitest com setup global (jsdom + limpeza automática do DOM entre casos).

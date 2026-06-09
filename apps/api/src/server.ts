@@ -8,6 +8,12 @@ import { scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { z } from 'zod';
 import { getApiMessage } from './messages.js';
+import {
+  buildMenuPreparationContext,
+  buildRecipeImportContext,
+  buildRulePreparationContext,
+  classifyRecipeFromText,
+} from './ai-prep.js';
 
 export const app = Fastify({ logger: true });
 const apiMessage = getApiMessage(process.env.API_LOCALE);
@@ -47,6 +53,42 @@ const contractSchema = z.object({
   title: z.string().min(3),
   sourceType: z.enum(['contract', 'bid_notice', 'reference_term', 'regulation']),
   status: z.enum(['draft', 'processing', 'active', 'archived']).default('processing'),
+});
+
+const recipeImportSchema = z.object({
+  fileName: z.string().min(5).max(240).regex(/\.pdf$/i),
+  sourceReference: z.string().min(2).max(180).optional(),
+  recipes: z.array(
+    z.object({
+      name: z.string().min(2).max(180),
+      ingredients: z.array(z.string().min(1).max(180)).max(60).default([]),
+      preparationMethod: z.string().max(2000).optional(),
+      perCapita: z.coerce.number().positive().optional(),
+      yield: z.coerce.number().positive().optional(),
+      group: z.string().max(120).optional(),
+      nutritionalInfo: z.record(z.string(), z.unknown()).optional(),
+      compatibleDiets: z.array(z.string().min(1).max(80)).max(20).default([]),
+      allergens: z.array(z.string().min(1).max(80)).max(20).default([]),
+      cost: z.coerce.number().nonnegative().optional(),
+    }),
+  ).min(1),
+});
+
+const recipeImportListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+const recipeParamsSchema = z.object({
+  recipeId: z.string().min(1),
+});
+
+const recipeClassificationUpdateSchema = z.object({
+  category: z.string().trim().min(2).max(80),
+  subcategory: z.string().trim().min(2).max(80),
+  foodGroup: z.string().trim().min(2).max(80),
+  confidence: z.coerce.number().min(0).max(1).optional(),
+  tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+  reason: z.string().trim().min(3).max(500).optional(),
 });
 
 const menuImportSchema = z.object({
@@ -583,6 +625,94 @@ const ensureDomainTables = async () => {
   `;
 
   await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS recipe_library_items (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      source_file_name TEXT NOT NULL,
+      source_reference TEXT,
+      name TEXT NOT NULL,
+      normalized_name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      subcategory TEXT NOT NULL,
+      food_group TEXT NOT NULL,
+      cost_per_capita NUMERIC(12, 2),
+      serving_yield NUMERIC(12, 2),
+      preparation_method TEXT,
+      nutritional_info_json TEXT,
+      compatible_diets_json TEXT,
+      allergens_json TEXT,
+      ai_classification_json TEXT NOT NULL,
+      ai_provider TEXT NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS recipe_ingredients (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      name TEXT NOT NULL,
+      normalized_name TEXT NOT NULL,
+      ingredient_group TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS recipe_item_ingredients (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      recipe_id TEXT NOT NULL,
+      ingredient_id TEXT NOT NULL,
+      quantity NUMERIC(12, 2),
+      unit TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS recipe_import_events (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      imported_count INT NOT NULL,
+      classified_count INT NOT NULL,
+      warnings_json TEXT NOT NULL,
+      actor_id TEXT NOT NULL,
+      actor_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS recipe_classification_events (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      recipe_id TEXT NOT NULL,
+      previous_classification_json TEXT NOT NULL,
+      next_classification_json TEXT NOT NULL,
+      reason TEXT,
+      actor_id TEXT NOT NULL,
+      actor_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS ai_preparation_events (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      module_key TEXT NOT NULL,
+      source_kind TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      provider_key TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
     CREATE TABLE IF NOT EXISTS menu_next_menu_decisions (
       id TEXT PRIMARY KEY,
       company_name TEXT NOT NULL,
@@ -721,6 +851,46 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_menu_combination_intelligence_company_created_at
     ON menu_combination_intelligence (company_name, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_recipe_library_items_company_category
+    ON recipe_library_items (company_name, category, subcategory)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_recipe_library_items_company_normalized_name
+    ON recipe_library_items (company_name, normalized_name)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_company_group
+    ON recipe_ingredients (company_name, ingredient_group)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_recipe_ingredients_company_normalized_name
+    ON recipe_ingredients (company_name, normalized_name)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_recipe_item_ingredients_recipe
+    ON recipe_item_ingredients (recipe_id, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_recipe_import_events_company_created_at
+    ON recipe_import_events (company_name, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_recipe_classification_events_recipe_created_at
+    ON recipe_classification_events (recipe_id, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_ai_preparation_events_company_module_created_at
+    ON ai_preparation_events (company_name, module_key, created_at DESC)
   `;
 
   await prisma.$executeRaw`
@@ -877,6 +1047,212 @@ const getUserFromJwt = (request: FastifyRequest) => {
     name: payload.name ?? demoUser.name,
   };
 };
+
+const normalizeTerm = (value: string) =>
+  value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+
+const inferSuggestionEvidenceSource = (input: {
+  sourceType: 'rule' | 'financial_goal';
+  suggestionText: string;
+  estimatedNutritionalImpact: string;
+  sourceReference: string | null;
+}) => {
+  if (input.sourceType === 'financial_goal') {
+    return 'financial_goal' as const;
+  }
+
+  if (input.sourceReference === 'preventive_optimization') {
+    return 'preventive' as const;
+  }
+
+  if (
+    /^Substituir\s+/i.test(input.suggestionText) &&
+    /grupo\s+.+?\s+com substituicao/i.test(input.estimatedNutritionalImpact)
+  ) {
+    return 'structured' as const;
+  }
+
+  return 'textual_fallback' as const;
+}
+
+const inferSuggestionEvidenceSubtype = (input: {
+  evidenceSource: 'structured' | 'textual_fallback' | 'financial_goal' | 'preventive';
+  suggestionText: string;
+  sourceReference: string | null;
+}) => {
+  if (input.evidenceSource !== 'structured') {
+    return null;
+  }
+
+  const normalizedContent = normalizeTerm(
+    `${input.suggestionText} ${input.sourceReference ?? ''}`,
+  );
+
+  if (
+    /\b\d+x\s+por\s+semana\b/.test(normalizedContent) ||
+    /vez\(es\)\s+na\s+semana/.test(normalizedContent) ||
+    /frequencia/.test(normalizedContent)
+  ) {
+    return 'frequency' as const;
+  }
+
+  if (/nao\s+repetir/.test(normalizedContent) || /recorrencia/.test(normalizedContent)) {
+    return 'recurrence' as const;
+  }
+
+  return 'classification' as const;
+}
+
+const extractRuleTarget = (value: string) => {
+  const normalized = normalizeTerm(value);
+
+  if (normalized.includes('fruta citrica')) {
+    return {
+      label: 'Fruta Citrica',
+      matches: (item: { category: string; subcategory: string; food_group: string }) =>
+        normalizeTerm(item.subcategory).includes('fruta citrica'),
+    };
+  }
+
+  if (normalized.includes('peixe')) {
+    return {
+      label: 'Peixe',
+      matches: (item: { category: string; subcategory: string; food_group: string }) =>
+        normalizeTerm(item.subcategory).includes('peixe'),
+    };
+  }
+
+  if (normalized.includes('frango')) {
+    return {
+      label: 'Frango',
+      matches: (item: { category: string; subcategory: string; food_group: string }) =>
+        normalizeTerm(item.subcategory).includes('frango'),
+    };
+  }
+
+  if (normalized.includes('proteina')) {
+    return {
+      label: 'Proteina',
+      matches: (item: { category: string; subcategory: string; food_group: string }) =>
+        normalizeTerm(item.category).includes('proteina') || normalizeTerm(item.food_group).includes('proteina'),
+    };
+  }
+
+  if (normalized.includes('carboidrato')) {
+    return {
+      label: 'Carboidrato',
+      matches: (item: { category: string; subcategory: string; food_group: string }) =>
+        normalizeTerm(item.category).includes('carboidrato'),
+    };
+  }
+
+  if (normalized.includes('legume') || normalized.includes('verdura')) {
+    return {
+      label: 'Vegetais',
+      matches: (item: { category: string; subcategory: string; food_group: string }) =>
+        ['legume', 'verdura', 'vegetais', 'hortifruti'].some((term) =>
+          [item.category, item.subcategory, item.food_group]
+            .map((entry) => normalizeTerm(entry))
+            .some((entry) => entry.includes(term)),
+        ),
+    };
+  }
+
+  return null;
+};
+
+const getDateOnlyString = (value: Date | string) =>
+  typeof value === 'string' ? value.slice(0, 10) : value.toISOString().slice(0, 10)
+
+const parseUtcDate = (value: string) => new Date(`${value}T00:00:00.000Z`)
+
+const addUtcDays = (value: string, days: number) => {
+  const nextDate = parseUtcDate(value)
+  nextDate.setUTCDate(nextDate.getUTCDate() + days)
+  return nextDate.toISOString().slice(0, 10)
+}
+
+const startOfIsoWeek = (value: string) => {
+  const currentDate = parseUtcDate(value)
+  const currentWeekDay = currentDate.getUTCDay()
+  const diff = currentWeekDay === 0 ? -6 : 1 - currentWeekDay
+  currentDate.setUTCDate(currentDate.getUTCDate() + diff)
+  return currentDate.toISOString().slice(0, 10)
+}
+
+const diffUtcDays = (from: string, to: string) => {
+  const fromDate = parseUtcDate(from)
+  const toDate = parseUtcDate(to)
+  return Math.round((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24))
+}
+
+const extractWeeklyMinimum = (normalizedRuleText: string) => {
+  const digitMatch = normalizedRuleText.match(/(\d+)\s*(x|vezes)?\s*(por semana|na semana)/)
+
+  if (digitMatch) {
+    return Number(digitMatch[1])
+  }
+
+  if (/tres\s+vezes|tres\s+ocorrencias/.test(normalizedRuleText)) {
+    return 3
+  }
+
+  return null
+}
+
+const extractRecurrenceDays = (normalizedRuleText: string) => {
+  if (!normalizedRuleText.includes('nao repetir') && !normalizedRuleText.includes('repet')) {
+    return null
+  }
+
+  const digitMatch = normalizedRuleText.match(/(\d+)\s*dias/)
+
+  if (digitMatch) {
+    return Number(digitMatch[1])
+  }
+
+  if (normalizedRuleText.includes('sete dias')) {
+    return 7
+  }
+
+  return null
+}
+
+const recordAiPreparationEvent = async (payload: {
+  companyName: string;
+  moduleKey: 'rules' | 'menus' | 'recipes';
+  sourceKind: string;
+  providerKey: string;
+  data: unknown;
+}) => {
+  if (!prisma) {
+    return
+  }
+
+  await ensureDomainTables()
+
+  await prisma.$executeRaw`
+    INSERT INTO ai_preparation_events (
+      id,
+      company_name,
+      module_key,
+      source_kind,
+      payload_json,
+      provider_key
+    )
+    VALUES (
+      ${randomUUID()},
+      ${payload.companyName},
+      ${payload.moduleKey},
+      ${payload.sourceKind},
+      ${JSON.stringify(payload.data)},
+      ${payload.providerKey}
+    )
+  `
+}
 
 type NextMenuProposalData = {
   importId: string;
@@ -1382,6 +1758,21 @@ app.post('/governance/recommendations/:importId/next-menu', { preHandler: authen
   const companyName = getCompanyFromJwt(request);
   const importId = parsedParams.data.importId;
 
+  const importedRows = await prisma.$queryRaw<Array<{
+    unit_name: string;
+    service_name: string;
+    reference_date: Date | string;
+    recipes_json: string;
+  }>>`
+    SELECT unit_name, service_name, reference_date, recipes_json
+    FROM menu_pdf_imports
+    WHERE id = ${importId}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  const imported = importedRows[0];
+
   const nextMenuProposal = await buildNextMenuProposal({ companyName, importId });
 
   if (!nextMenuProposal) {
@@ -1390,6 +1781,40 @@ app.post('/governance/recommendations/:importId/next-menu', { preHandler: authen
       message: 'Importacao de cardapio nao encontrada para esta empresa.',
     });
   }
+
+  await recordAiPreparationEvent({
+    companyName,
+    moduleKey: 'menus',
+    sourceKind: 'next-menu-proposal',
+    providerKey: 'structured-ready',
+    data: buildMenuPreparationContext({
+      companyName,
+      importId,
+      unitName: imported?.unit_name ?? nextMenuProposal.unitName,
+      serviceName: imported?.service_name ?? nextMenuProposal.serviceName,
+      referenceDate:
+        typeof imported?.reference_date === 'string'
+          ? imported.reference_date.slice(0, 10)
+          : imported?.reference_date instanceof Date
+            ? imported.reference_date.toISOString().slice(0, 10)
+            : new Date().toISOString().slice(0, 10),
+      monthsAhead: 0,
+      recipes: (() => {
+        try {
+          return JSON.parse(imported?.recipes_json ?? '[]') as string[];
+        } catch {
+          return nextMenuProposal.recipes;
+        }
+      })(),
+      targetMonth:
+        typeof imported?.reference_date === 'string'
+          ? imported.reference_date.slice(0, 7)
+          : imported?.reference_date instanceof Date
+            ? imported.reference_date.toISOString().slice(0, 7)
+            : new Date().toISOString().slice(0, 7),
+      commemorativeDates: [],
+    }),
+  });
 
   return {
     status: 'ok',
@@ -2292,6 +2717,602 @@ app.get('/menus/imports', { preHandler: authenticate }, async (request, reply) =
   };
 });
 
+app.post('/recipes/imports', { preHandler: authenticate }, async (request, reply) => {
+  const parsed = recipeImportSchema.safeParse(request.body);
+
+  if (!parsed.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Payload de importacao de receitas invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
+  const payload = parsed.data;
+
+  await ensureDomainTables();
+
+  const aiContext = buildRecipeImportContext({
+    companyName,
+    sourceFileName: payload.fileName.trim(),
+    recipes: payload.recipes.map((recipe) => ({
+      name: recipe.name.trim(),
+      ingredients: recipe.ingredients,
+      preparationMethod: recipe.preparationMethod ?? null,
+      perCapita: recipe.perCapita ?? null,
+      yield: recipe.yield ?? null,
+      group: recipe.group ?? null,
+      nutritionalInfo: recipe.nutritionalInfo ?? null,
+      compatibleDiets: recipe.compatibleDiets ?? [],
+      allergens: recipe.allergens ?? [],
+      cost: recipe.cost ?? null,
+    })),
+  });
+
+  await recordAiPreparationEvent({
+    companyName,
+    moduleKey: 'recipes',
+    sourceKind: 'pdf-import',
+    providerKey: 'structured-ready',
+    data: aiContext,
+  });
+
+  const importEventId = randomUUID();
+  const importedItems: Array<{
+    id: string;
+    name: string;
+    category: string;
+    subcategory: string;
+    foodGroup: string;
+    confidence: number;
+  }> = [];
+
+  for (const recipe of payload.recipes) {
+    const classification = classifyRecipeFromText(recipe.name, recipe.ingredients)
+    const normalizedName = normalizeTerm(recipe.name)
+    const recipeId = randomUUID()
+
+    await prisma.$executeRaw`
+      INSERT INTO recipe_library_items (
+        id,
+        company_name,
+        source_file_name,
+        source_reference,
+        name,
+        normalized_name,
+        category,
+        subcategory,
+        food_group,
+        cost_per_capita,
+        serving_yield,
+        preparation_method,
+        nutritional_info_json,
+        compatible_diets_json,
+        allergens_json,
+        ai_classification_json,
+        ai_provider,
+        is_active
+      )
+      VALUES (
+        ${recipeId},
+        ${companyName},
+        ${payload.fileName.trim()},
+        ${payload.sourceReference?.trim() || null},
+        ${recipe.name.trim()},
+        ${normalizedName},
+        ${classification.category},
+        ${classification.subcategory},
+        ${classification.foodGroup},
+        ${recipe.cost ?? null},
+        ${recipe.yield ?? null},
+        ${recipe.preparationMethod ?? null},
+        ${JSON.stringify(recipe.nutritionalInfo ?? null)},
+        ${JSON.stringify(recipe.compatibleDiets ?? [])},
+        ${JSON.stringify(recipe.allergens ?? [])},
+        ${JSON.stringify({ classification, source: 'heuristic-ready' })},
+        ${'heuristic-ready'},
+        TRUE
+      )
+      ON CONFLICT (company_name, normalized_name)
+      DO UPDATE SET
+        source_file_name = EXCLUDED.source_file_name,
+        source_reference = EXCLUDED.source_reference,
+        category = EXCLUDED.category,
+        subcategory = EXCLUDED.subcategory,
+        food_group = EXCLUDED.food_group,
+        cost_per_capita = EXCLUDED.cost_per_capita,
+        serving_yield = EXCLUDED.serving_yield,
+        preparation_method = EXCLUDED.preparation_method,
+        nutritional_info_json = EXCLUDED.nutritional_info_json,
+        compatible_diets_json = EXCLUDED.compatible_diets_json,
+        allergens_json = EXCLUDED.allergens_json,
+        ai_classification_json = EXCLUDED.ai_classification_json,
+        ai_provider = EXCLUDED.ai_provider,
+        is_active = TRUE,
+        updated_at = NOW()
+    `;
+
+    for (const ingredientName of recipe.ingredients) {
+      const normalizedIngredientName = normalizeTerm(ingredientName)
+      const ingredientId = randomUUID()
+
+      await prisma.$executeRaw`
+        INSERT INTO recipe_ingredients (
+          id,
+          company_name,
+          name,
+          normalized_name,
+          ingredient_group
+        )
+        VALUES (
+          ${ingredientId},
+          ${companyName},
+          ${ingredientName.trim()},
+          ${normalizedIngredientName},
+          ${classification.foodGroup}
+        )
+        ON CONFLICT (company_name, normalized_name)
+        DO UPDATE SET
+          name = EXCLUDED.name,
+          ingredient_group = EXCLUDED.ingredient_group
+      `;
+
+      const linkedIngredientRows = await prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT id
+        FROM recipe_ingredients
+        WHERE company_name = ${companyName}
+          AND normalized_name = ${normalizedIngredientName}
+        LIMIT 1
+      `;
+
+      const linkedIngredientId = linkedIngredientRows[0]?.id ?? ingredientId;
+
+      await prisma.$executeRaw`
+        INSERT INTO recipe_item_ingredients (
+          id,
+          company_name,
+          recipe_id,
+          ingredient_id,
+          quantity,
+          unit
+        )
+        VALUES (
+          ${randomUUID()},
+          ${companyName},
+          ${recipeId},
+          ${linkedIngredientId},
+          ${null},
+          ${null}
+        )
+      `;
+    }
+
+    importedItems.push({
+      id: recipeId,
+      name: recipe.name.trim(),
+      category: classification.category,
+      subcategory: classification.subcategory,
+      foodGroup: classification.foodGroup,
+      confidence: classification.confidence,
+    });
+  }
+
+  await prisma.$executeRaw`
+    INSERT INTO recipe_import_events (
+      id,
+      company_name,
+      file_name,
+      imported_count,
+      classified_count,
+      warnings_json,
+      actor_id,
+      actor_name
+    )
+    VALUES (
+      ${importEventId},
+      ${companyName},
+      ${payload.fileName.trim()},
+      ${payload.recipes.length},
+      ${importedItems.length},
+      ${JSON.stringify([])},
+      ${actor.id},
+      ${actor.name}
+    )
+  `;
+
+  return reply.code(201).send({
+    status: 'ok',
+    recipeImport: {
+      id: importEventId,
+      fileName: payload.fileName.trim(),
+      sourceReference: payload.sourceReference?.trim() || null,
+      importedCount: importedItems.length,
+      classifiedCount: importedItems.length,
+      recipes: importedItems,
+      createdAt: new Date().toISOString(),
+      aiPreparation: aiContext,
+    },
+  });
+});
+
+app.get('/recipes', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const query = z.object({
+    limit: z.coerce.number().int().min(1).max(100).default(20),
+    category: z.string().trim().max(80).optional(),
+    subcategory: z.string().trim().max(80).optional(),
+    foodGroup: z.string().trim().max(80).optional(),
+    active: z.enum(['all', 'active', 'inactive']).default('active'),
+  }).safeParse(request.query);
+
+  const { limit, category, subcategory, foodGroup, active } = query.success
+    ? query.data
+    : { limit: 20, category: undefined, subcategory: undefined, foodGroup: undefined, active: 'active' as const };
+
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    source_file_name: string;
+    source_reference: string | null;
+    name: string;
+    normalized_name: string;
+    category: string;
+    subcategory: string;
+    food_group: string;
+    cost_per_capita: number | string | null;
+    serving_yield: number | string | null;
+    preparation_method: string | null;
+    nutritional_info_json: string | null;
+    compatible_diets_json: string | null;
+    allergens_json: string | null;
+    ai_classification_json: string;
+    ai_provider: string;
+    is_active: boolean;
+    created_at: Date;
+    updated_at: Date;
+  }>>`
+    SELECT
+      id,
+      source_file_name,
+      source_reference,
+      name,
+      normalized_name,
+      category,
+      subcategory,
+      food_group,
+      cost_per_capita,
+      serving_yield,
+      preparation_method,
+      nutritional_info_json,
+      compatible_diets_json,
+      allergens_json,
+      ai_classification_json,
+      ai_provider,
+      is_active,
+      created_at,
+      updated_at
+    FROM recipe_library_items
+    WHERE company_name = ${companyName}
+      AND (${category ?? null} IS NULL OR category = ${category ?? null})
+      AND (${subcategory ?? null} IS NULL OR subcategory = ${subcategory ?? null})
+      AND (${foodGroup ?? null} IS NULL OR food_group = ${foodGroup ?? null})
+      AND (
+        ${active} = 'all'
+        OR (${active} = 'active' AND is_active = TRUE)
+        OR (${active} = 'inactive' AND is_active = FALSE)
+      )
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `;
+
+  const parseNumber = (value: number | string | null) => {
+    if (value === null) {
+      return null;
+    }
+
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number(parsed.toFixed(2));
+  };
+
+  return {
+    status: 'ok',
+    recipes: rows.map((item) => ({
+      id: item.id,
+      sourceFileName: item.source_file_name,
+      sourceReference: item.source_reference,
+      name: item.name,
+      normalizedName: item.normalized_name,
+      category: item.category,
+      subcategory: item.subcategory,
+      foodGroup: item.food_group,
+      costPerCapita: parseNumber(item.cost_per_capita),
+      servingYield: parseNumber(item.serving_yield),
+      preparationMethod: item.preparation_method,
+      nutritionalInfo: item.nutritional_info_json ? JSON.parse(item.nutritional_info_json) : null,
+      compatibleDiets: item.compatible_diets_json ? JSON.parse(item.compatible_diets_json) as string[] : [],
+      allergens: item.allergens_json ? JSON.parse(item.allergens_json) as string[] : [],
+      aiClassification: JSON.parse(item.ai_classification_json) as ReturnType<typeof buildRecipeImportContext>['classifiedRecipes'][number]['classification'],
+      aiProvider: item.ai_provider,
+      isActive: item.is_active,
+      createdAt: item.created_at.toISOString(),
+      updatedAt: item.updated_at.toISOString(),
+    })),
+  };
+});
+
+app.get('/recipes/coverage', { preHandler: authenticate }, async (request, reply) => {
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+
+  await ensureDomainTables();
+
+  const summaryRows = await prisma.$queryRaw<Array<{
+    total_recipes: number | string;
+    active_recipes: number | string;
+    classified_recipes: number | string;
+    manual_reviewed_recipes: number | string;
+  }>>`
+    SELECT
+      COUNT(*) AS total_recipes,
+      SUM(CASE WHEN is_active = TRUE THEN 1 ELSE 0 END) AS active_recipes,
+      SUM(CASE WHEN category <> 'Outros' AND subcategory <> 'Nao classificado' THEN 1 ELSE 0 END) AS classified_recipes,
+      SUM(CASE WHEN ai_provider = 'manual-reviewed' THEN 1 ELSE 0 END) AS manual_reviewed_recipes
+    FROM recipe_library_items
+    WHERE company_name = ${companyName}
+  `;
+
+  const categoryRows = await prisma.$queryRaw<Array<{
+    category: string;
+    total: number | string;
+  }>>`
+    SELECT category, COUNT(*) AS total
+    FROM recipe_library_items
+    WHERE company_name = ${companyName}
+    GROUP BY category
+    ORDER BY total DESC
+    LIMIT 8
+  `;
+
+  const toInt = (value: number | string | null | undefined) => {
+    if (value === null || value === undefined) {
+      return 0;
+    }
+
+    return typeof value === 'number' ? value : Number(value);
+  };
+
+  const summary = summaryRows[0] ?? {
+    total_recipes: 0,
+    active_recipes: 0,
+    classified_recipes: 0,
+    manual_reviewed_recipes: 0,
+  };
+
+  const totalRecipes = toInt(summary.total_recipes);
+  const activeRecipes = toInt(summary.active_recipes);
+  const classifiedRecipes = toInt(summary.classified_recipes);
+  const manualReviewedRecipes = toInt(summary.manual_reviewed_recipes);
+  const heuristicRecipes = Math.max(0, totalRecipes - manualReviewedRecipes);
+  const coveragePercent =
+    totalRecipes > 0
+      ? Number(((classifiedRecipes / totalRecipes) * 100).toFixed(2))
+      : 0;
+
+  return {
+    status: 'ok',
+    coverage: {
+      totalRecipes,
+      activeRecipes,
+      classifiedRecipes,
+      manualReviewedRecipes,
+      heuristicRecipes,
+      coveragePercent,
+      categoryDistribution: categoryRows.map((item) => ({
+        category: item.category,
+        total: toInt(item.total),
+      })),
+    },
+  };
+});
+
+app.patch('/recipes/:recipeId/classification', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = recipeParamsSchema.safeParse(request.params);
+  const parsedBody = recipeClassificationUpdateSchema.safeParse(request.body);
+
+  if (!parsedParams.success || !parsedBody.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Payload de reclassificacao de receita invalido.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
+  const { recipeId } = parsedParams.data;
+  const payload = parsedBody.data;
+
+  await ensureDomainTables();
+
+  const recipeRows = await prisma.$queryRaw<Array<{
+    id: string;
+    name: string;
+    category: string;
+    subcategory: string;
+    food_group: string;
+    ai_classification_json: string;
+  }>>`
+    SELECT id, name, category, subcategory, food_group, ai_classification_json
+    FROM recipe_library_items
+    WHERE id = ${recipeId}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  const recipe = recipeRows[0];
+
+  if (!recipe) {
+    return reply.code(404).send({
+      status: 'error',
+      message: 'Receita nao encontrada para reclassificacao.',
+    });
+  }
+
+  const extractClassification = (rawValue: string) => {
+    try {
+      const parsed = JSON.parse(rawValue) as unknown;
+
+      if (parsed && typeof parsed === 'object' && 'classification' in parsed) {
+        const wrapped = (parsed as { classification?: unknown }).classification;
+
+        if (wrapped && typeof wrapped === 'object') {
+          return wrapped as {
+            category?: string;
+            subcategory?: string;
+            foodGroup?: string;
+            confidence?: number;
+            tags?: string[];
+          };
+        }
+      }
+
+      if (parsed && typeof parsed === 'object') {
+        return parsed as {
+          category?: string;
+          subcategory?: string;
+          foodGroup?: string;
+          confidence?: number;
+          tags?: string[];
+        };
+      }
+    } catch {
+      return null;
+    }
+
+    return null;
+  };
+
+  const previousClassificationParsed = extractClassification(recipe.ai_classification_json);
+
+  const previousClassification = {
+    category: previousClassificationParsed?.category ?? recipe.category,
+    subcategory: previousClassificationParsed?.subcategory ?? recipe.subcategory,
+    foodGroup: previousClassificationParsed?.foodGroup ?? recipe.food_group,
+    confidence:
+      typeof previousClassificationParsed?.confidence === 'number'
+        ? previousClassificationParsed.confidence
+        : 0,
+    tags: Array.isArray(previousClassificationParsed?.tags)
+      ? previousClassificationParsed.tags
+      : [],
+  };
+
+  const nextClassification = {
+    category: payload.category,
+    subcategory: payload.subcategory,
+    foodGroup: payload.foodGroup,
+    confidence: payload.confidence ?? previousClassification.confidence,
+    tags: payload.tags ?? previousClassification.tags,
+  };
+
+  await prisma.$executeRaw`
+    UPDATE recipe_library_items
+    SET
+      category = ${nextClassification.category},
+      subcategory = ${nextClassification.subcategory},
+      food_group = ${nextClassification.foodGroup},
+      ai_classification_json = ${JSON.stringify({
+        classification: nextClassification,
+        source: 'manual-reviewed',
+        reason: payload.reason ?? null,
+      })},
+      ai_provider = ${'manual-reviewed'},
+      updated_at = NOW()
+    WHERE id = ${recipe.id}
+      AND company_name = ${companyName}
+  `;
+
+  await prisma.$executeRaw`
+    INSERT INTO recipe_classification_events (
+      id,
+      company_name,
+      recipe_id,
+      previous_classification_json,
+      next_classification_json,
+      reason,
+      actor_id,
+      actor_name
+    )
+    VALUES (
+      ${randomUUID()},
+      ${companyName},
+      ${recipe.id},
+      ${JSON.stringify(previousClassification)},
+      ${JSON.stringify(nextClassification)},
+      ${payload.reason ?? null},
+      ${actor.id},
+      ${actor.name}
+    )
+  `;
+
+  await recordAiPreparationEvent({
+    companyName,
+    moduleKey: 'recipes',
+    sourceKind: 'manual-reclassification',
+    providerKey: 'manual-reviewed',
+    data: {
+      recipeId: recipe.id,
+      recipeName: recipe.name,
+      previousClassification,
+      nextClassification,
+      reason: payload.reason ?? null,
+      actor,
+    },
+  });
+
+  return reply.send({
+    status: 'ok',
+    recipe: {
+      id: recipe.id,
+      name: recipe.name,
+      category: nextClassification.category,
+      subcategory: nextClassification.subcategory,
+      foodGroup: nextClassification.foodGroup,
+      aiClassification: nextClassification,
+      aiProvider: 'manual-reviewed',
+    },
+  });
+});
+
 app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (request, reply) => {
   const parsedParams = menuImportParamsSchema.safeParse(request.params);
 
@@ -2314,8 +3335,14 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
 
   await ensureDomainTables();
 
-  const importedRows = await prisma.$queryRaw<Array<{ id: string; recipes_json: string }>>`
-    SELECT id, recipes_json
+  const importedRows = await prisma.$queryRaw<Array<{
+    id: string;
+    unit_name: string;
+    service_name: string;
+    reference_date: Date | string;
+    recipes_json: string;
+  }>>`
+    SELECT id, unit_name, service_name, reference_date, recipes_json
     FROM menu_pdf_imports
     WHERE id = ${importId}
       AND company_name = ${companyName}
@@ -2353,13 +3380,47 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
     }
   })();
 
-  const recipeCorpus = importedRecipes.join(' ').toLowerCase();
+  const normalizedImportedRecipes = importedRecipes.map((item) => normalizeTerm(item));
+  const importReferenceDate = getDateOnlyString(imported.reference_date);
 
-  const normalize = (value: string) =>
-    value
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase();
+  const structuredRecipeRows = await prisma.$queryRaw<Array<{
+    name: string;
+    normalized_name: string;
+    category: string;
+    subcategory: string;
+    food_group: string;
+  }>>`
+    SELECT name, normalized_name, category, subcategory, food_group
+    FROM recipe_library_items
+    WHERE company_name = ${companyName}
+      AND is_active = TRUE
+  `;
+
+  const structuredRecipeByNormalizedName = new Map(
+    structuredRecipeRows.map((item) => [item.normalized_name, item]),
+  );
+
+  const importedStructuredRecipes = normalizedImportedRecipes
+    .map((normalizedName) => structuredRecipeByNormalizedName.get(normalizedName))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+  const recipeCorpus = normalizeTerm(importedRecipes.join(' '));
+
+  const buildTermVariants = (value: string) => {
+    const normalized = normalizeTerm(value);
+
+    if (!normalized || normalized === 'outros' || normalized === 'nao classificado') {
+      return [] as string[];
+    }
+
+    const variants = new Set<string>([normalized]);
+
+    if (normalized.endsWith('s') && normalized.length > 4) {
+      variants.add(normalized.slice(0, -1));
+    }
+
+    return Array.from(variants);
+  };
 
   await prisma.$executeRaw`
     DELETE FROM menu_import_rule_audits
@@ -2377,17 +3438,213 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
   }> = [];
 
   for (const rule of approvedRules) {
-    const tokenSource = normalize(`${rule.title} ${rule.description}`)
+    const normalizedRuleText = normalizeTerm(`${rule.title} ${rule.description}`);
+    const tokenSource = normalizedRuleText
       .split(/[^a-z0-9]+/)
       .filter((token) => token.length >= 4)
       .slice(0, 12);
-    const hasEvidence = tokenSource.some((token) => normalize(recipeCorpus).includes(token));
+    const ruleTarget = extractRuleTarget(normalizedRuleText);
+    const weeklyMinimum = extractWeeklyMinimum(normalizedRuleText);
+    const recurrenceDays = extractRecurrenceDays(normalizedRuleText);
+
+    if (ruleTarget && weeklyMinimum !== null) {
+      const weekStart = startOfIsoWeek(importReferenceDate);
+      const weekEnd = addUtcDays(weekStart, 6);
+      const weekImportRows = await prisma.$queryRaw<Array<{
+        reference_date: Date | string;
+        recipes_json: string;
+      }>>`
+        SELECT reference_date, recipes_json
+        FROM menu_pdf_imports
+        WHERE company_name = ${companyName}
+          AND unit_name = ${imported.unit_name}
+          AND service_name = ${imported.service_name}
+          AND reference_date BETWEEN ${weekStart} AND ${weekEnd}
+        ORDER BY reference_date ASC
+      `;
+
+      const weeklyOccurrences = weekImportRows.filter((item) => {
+        try {
+          const parsedRecipes = JSON.parse(item.recipes_json) as string[];
+          const structuredRecipes = parsedRecipes
+            .map((recipeName) => structuredRecipeByNormalizedName.get(normalizeTerm(recipeName)))
+            .filter((recipe): recipe is NonNullable<typeof recipe> => Boolean(recipe));
+
+          return structuredRecipes.some((recipe) => ruleTarget.matches(recipe));
+        } catch {
+          return false;
+        }
+      }).length;
+
+      const resultStatus: 'compliant' | 'non_compliant' = weeklyOccurrences >= weeklyMinimum
+        ? 'compliant'
+        : 'non_compliant';
+      const evidence = `Regra avaliada por frequencia estruturada: ${ruleTarget.label} encontrado ${weeklyOccurrences} vez(es) na semana de ${weekStart} a ${weekEnd}; minimo exigido ${weeklyMinimum}.`;
+      const rowId = randomUUID();
+
+      await prisma.$executeRaw`
+        INSERT INTO menu_import_rule_audits (
+          id,
+          company_name,
+          menu_import_id,
+          rule_id,
+          rule_title,
+          result_status,
+          evidence
+        )
+        VALUES (
+          ${rowId},
+          ${companyName},
+          ${importId},
+          ${rule.id},
+          ${rule.title},
+          ${resultStatus},
+          ${evidence}
+        )
+      `;
+
+      auditRows.push({
+        id: rowId,
+        ruleId: rule.id,
+        ruleTitle: rule.title,
+        resultStatus,
+        evidence,
+        createdAt: new Date().toISOString(),
+      });
+      continue;
+    }
+
+    if (ruleTarget && recurrenceDays !== null) {
+      const currentHasTarget = importedStructuredRecipes.some((recipe) => ruleTarget.matches(recipe));
+
+      if (!currentHasTarget) {
+        const rowId = randomUUID();
+        const evidence = `Regra avaliada por recorrencia estruturada: ${ruleTarget.label} nao aparece nesta importacao, sem violacao de recorrencia.`;
+
+        await prisma.$executeRaw`
+          INSERT INTO menu_import_rule_audits (
+            id,
+            company_name,
+            menu_import_id,
+            rule_id,
+            rule_title,
+            result_status,
+            evidence
+          )
+          VALUES (
+            ${rowId},
+            ${companyName},
+            ${importId},
+            ${rule.id},
+            ${rule.title},
+            ${'compliant'},
+            ${evidence}
+          )
+        `;
+
+        auditRows.push({
+          id: rowId,
+          ruleId: rule.id,
+          ruleTitle: rule.title,
+          resultStatus: 'compliant',
+          evidence,
+          createdAt: new Date().toISOString(),
+        });
+        continue;
+      }
+
+      const recurrenceWindowStart = addUtcDays(importReferenceDate, -(recurrenceDays - 1));
+      const previousImportRows = await prisma.$queryRaw<Array<{
+        reference_date: Date | string;
+        recipes_json: string;
+      }>>`
+        SELECT reference_date, recipes_json
+        FROM menu_pdf_imports
+        WHERE company_name = ${companyName}
+          AND unit_name = ${imported.unit_name}
+          AND service_name = ${imported.service_name}
+          AND reference_date BETWEEN ${recurrenceWindowStart} AND ${addUtcDays(importReferenceDate, -1)}
+        ORDER BY reference_date DESC
+      `;
+
+      const previousOccurrence = previousImportRows.find((item) => {
+        try {
+          const parsedRecipes = JSON.parse(item.recipes_json) as string[];
+          const structuredRecipes = parsedRecipes
+            .map((recipeName) => structuredRecipeByNormalizedName.get(normalizeTerm(recipeName)))
+            .filter((recipe): recipe is NonNullable<typeof recipe> => Boolean(recipe));
+
+          return structuredRecipes.some((recipe) => ruleTarget.matches(recipe));
+        } catch {
+          return false;
+        }
+      });
+
+      const previousOccurrenceDate = previousOccurrence
+        ? getDateOnlyString(previousOccurrence.reference_date)
+        : null;
+      const daysSincePreviousOccurrence = previousOccurrenceDate
+        ? diffUtcDays(previousOccurrenceDate, importReferenceDate)
+        : null;
+      const resultStatus: 'compliant' | 'non_compliant' = previousOccurrenceDate ? 'non_compliant' : 'compliant';
+      const evidence = previousOccurrenceDate
+        ? `Regra avaliada por recorrencia estruturada: ${ruleTarget.label} reapareceu apos ${daysSincePreviousOccurrence} dia(s), abaixo do minimo de ${recurrenceDays} dias.`
+        : `Regra avaliada por recorrencia estruturada: ${ruleTarget.label} sem repeticao nos ultimos ${recurrenceDays} dias.`;
+      const rowId = randomUUID();
+
+      await prisma.$executeRaw`
+        INSERT INTO menu_import_rule_audits (
+          id,
+          company_name,
+          menu_import_id,
+          rule_id,
+          rule_title,
+          result_status,
+          evidence
+        )
+        VALUES (
+          ${rowId},
+          ${companyName},
+          ${importId},
+          ${rule.id},
+          ${rule.title},
+          ${resultStatus},
+          ${evidence}
+        )
+      `;
+
+      auditRows.push({
+        id: rowId,
+        ruleId: rule.id,
+        ruleTitle: rule.title,
+        resultStatus,
+        evidence,
+        createdAt: new Date().toISOString(),
+      });
+      continue;
+    }
+
+    const structuredEvidence = importedStructuredRecipes.find((recipe) => {
+      const candidates = [
+        ...buildTermVariants(recipe.name),
+        ...buildTermVariants(recipe.category),
+        ...buildTermVariants(recipe.subcategory),
+        ...buildTermVariants(recipe.food_group),
+      ];
+
+      return candidates.some((candidate) => candidate.length >= 4 && normalizedRuleText.includes(candidate));
+    });
+
+    const hasTextualEvidence = tokenSource.some((token) => recipeCorpus.includes(token));
+    const hasEvidence = Boolean(structuredEvidence) || hasTextualEvidence;
     const resultStatus: 'compliant' | 'non_compliant' = hasEvidence
       ? 'compliant'
       : 'non_compliant';
-    const evidence = hasEvidence
-      ? 'Regra com evidencia textual nas receitas importadas.'
-      : 'Regra sem evidencia textual nas receitas importadas.';
+    const evidence = structuredEvidence
+      ? `Regra com evidencia por classificacao estruturada: ${structuredEvidence.name} (${structuredEvidence.category} / ${structuredEvidence.subcategory} / ${structuredEvidence.food_group}).`
+      : hasTextualEvidence
+        ? 'Regra com evidencia textual nas receitas importadas por fallback.'
+        : 'Regra sem evidencia estruturada ou textual nas receitas importadas.';
     const rowId = randomUUID();
 
     await prisma.$executeRaw`
@@ -2520,8 +3777,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
     meal_cost: number | string;
     financial_goal: number | string;
     exceeded_value: number | string;
+    recipes_json: string;
   }>>`
-    SELECT id, meal_cost, financial_goal, exceeded_value
+    SELECT id, meal_cost, financial_goal, exceeded_value, recipes_json
     FROM menu_pdf_imports
     WHERE id = ${importId}
       AND company_name = ${companyName}
@@ -2561,6 +3819,48 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
   };
 
   const exceededValue = parseNumber(imported.exceeded_value);
+  const importedRecipes = (() => {
+    try {
+      const parsed = JSON.parse(imported.recipes_json) as string[];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  })();
+
+  const normalizedImportedRecipes = importedRecipes.map((item) => normalizeTerm(item));
+
+  const structuredRecipeRows = await prisma.$queryRaw<Array<{
+    name: string;
+    normalized_name: string;
+    category: string;
+    subcategory: string;
+    food_group: string;
+    cost_per_capita: number | string | null;
+  }>>`
+    SELECT name, normalized_name, category, subcategory, food_group, cost_per_capita
+    FROM recipe_library_items
+    WHERE company_name = ${companyName}
+      AND is_active = TRUE
+  `;
+
+  const structuredRecipeByNormalizedName = new Map(
+    structuredRecipeRows.map((item) => [item.normalized_name, item]),
+  );
+
+  const importedStructuredRecipes = normalizedImportedRecipes
+    .map((normalizedName) => structuredRecipeByNormalizedName.get(normalizedName))
+    .filter((item): item is NonNullable<typeof item> => Boolean(item));
+
+  const parseOptionalNumber = (value: number | string | null) => {
+    if (value === null) {
+      return null;
+    }
+
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : null;
+  };
+
   const suggestions: Array<{
     id: string;
     sourceType: 'rule' | 'financial_goal';
@@ -2568,14 +3868,40 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
     suggestionText: string;
     estimatedFinancialImpact: number;
     estimatedNutritionalImpact: string;
+    evidenceSource: 'structured' | 'textual_fallback' | 'financial_goal' | 'preventive';
+    evidenceSubtype: 'frequency' | 'recurrence' | 'classification' | null;
     priorityLevel: 'high' | 'medium';
     createdAt: string;
   }> = [];
 
   for (const audit of auditRows.filter((item) => item.result_status === 'non_compliant')) {
     const suggestionId = randomUUID();
-    const suggestionText = `Ajustar composicao da refeicao para atender a regra: ${audit.rule_title}.`;
-    const estimatedFinancialImpact = Number((-Math.max(exceededValue * 0.35, 0.5)).toFixed(2));
+    const ruleTarget = extractRuleTarget(audit.rule_title);
+    const replacementCandidate = ruleTarget
+      ? structuredRecipeRows.find(
+          (item) =>
+            ruleTarget.matches(item) &&
+            !normalizedImportedRecipes.includes(item.normalized_name),
+        )
+      : null;
+    const recipeToReplace = importedStructuredRecipes.find(
+      (item) => !ruleTarget?.matches(item),
+    );
+    const fallbackRecipeToReplace = importedRecipes[0] ?? 'um item atual da refeicao';
+    const replacementName = replacementCandidate?.name ?? `uma receita classificada como ${ruleTarget?.label ?? 'equivalente'}`;
+    const recipeToReplaceName = recipeToReplace?.name ?? fallbackRecipeToReplace;
+    const suggestionText = ruleTarget
+      ? `Substituir ${recipeToReplaceName} por ${replacementName} para atender a regra: ${audit.rule_title}.`
+      : `Ajustar composicao da refeicao para atender a regra: ${audit.rule_title}.`;
+    const replacementImpactBase = parseOptionalNumber(replacementCandidate?.cost_per_capita ?? null);
+    const estimatedFinancialImpact = Number((
+      replacementImpactBase !== null
+        ? -Math.max(replacementImpactBase, 0.5)
+        : -Math.max(exceededValue * 0.35, 0.5)
+    ).toFixed(2));
+    const estimatedNutritionalImpact = ruleTarget
+      ? `Reforca aderencia ao grupo ${ruleTarget.label} com substituicao equivalente.`
+      : 'Preserva aderencia nutricional com substituicoes equivalentes.';
 
     await prisma.$executeRaw`
       INSERT INTO menu_import_adjustment_suggestions (
@@ -2597,10 +3923,17 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         ${audit.rule_id ?? audit.rule_title},
         ${suggestionText},
         ${estimatedFinancialImpact},
-        ${'Preserva aderencia nutricional com substituicoes equivalentes.'},
+        ${estimatedNutritionalImpact},
         ${'high'}
       )
     `;
+
+    const evidenceSource = inferSuggestionEvidenceSource({
+      sourceType: 'rule',
+      suggestionText,
+      estimatedNutritionalImpact,
+      sourceReference: audit.rule_id ?? audit.rule_title,
+    });
 
     suggestions.push({
       id: suggestionId,
@@ -2608,7 +3941,13 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
       sourceReference: audit.rule_id ?? audit.rule_title,
       suggestionText,
       estimatedFinancialImpact,
-      estimatedNutritionalImpact: 'Preserva aderencia nutricional com substituicoes equivalentes.',
+      estimatedNutritionalImpact,
+      evidenceSource,
+      evidenceSubtype: inferSuggestionEvidenceSubtype({
+        evidenceSource,
+        suggestionText,
+        sourceReference: audit.rule_id ?? audit.rule_title,
+      }),
       priorityLevel: 'high',
       createdAt: new Date().toISOString(),
     });
@@ -2644,6 +3983,13 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
       )
     `;
 
+    const evidenceSource = inferSuggestionEvidenceSource({
+      sourceType: 'financial_goal',
+      suggestionText,
+      estimatedNutritionalImpact: 'Mantem cobertura nutricional prevista para a refeicao.',
+      sourceReference: 'meal_cost_vs_goal',
+    });
+
     suggestions.push({
       id: suggestionId,
       sourceType: 'financial_goal',
@@ -2651,6 +3997,12 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
       suggestionText,
       estimatedFinancialImpact,
       estimatedNutritionalImpact: 'Mantem cobertura nutricional prevista para a refeicao.',
+      evidenceSource,
+      evidenceSubtype: inferSuggestionEvidenceSubtype({
+        evidenceSource,
+        suggestionText,
+        sourceReference: 'meal_cost_vs_goal',
+      }),
       priorityLevel: 'high',
       createdAt: new Date().toISOString(),
     });
@@ -2684,6 +4036,14 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
       )
     `;
 
+    const evidenceSource = inferSuggestionEvidenceSource({
+      sourceType: 'rule',
+      suggestionText:
+        'Manter cardapio atual e registrar combinacoes de melhor aceitacao para proxima versao.',
+      estimatedNutritionalImpact: 'Sem impacto nutricional adverso previsto.',
+      sourceReference: 'preventive_optimization',
+    });
+
     suggestions.push({
       id: suggestionId,
       sourceType: 'rule',
@@ -2692,6 +4052,13 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         'Manter cardapio atual e registrar combinacoes de melhor aceitacao para proxima versao.',
       estimatedFinancialImpact: 0,
       estimatedNutritionalImpact: 'Sem impacto nutricional adverso previsto.',
+      evidenceSource,
+      evidenceSubtype: inferSuggestionEvidenceSubtype({
+        evidenceSource,
+        suggestionText:
+          'Manter cardapio atual e registrar combinacoes de melhor aceitacao para proxima versao.',
+        sourceReference: 'preventive_optimization',
+      }),
       priorityLevel: 'medium',
       createdAt: new Date().toISOString(),
     });
@@ -2769,16 +4136,31 @@ app.get('/menus/imports/:importId/suggestions', { preHandler: authenticate }, as
         rows.reduce((sum, item) => sum + parseNumber(item.estimated_financial_impact), 0).toFixed(2),
       ),
     },
-    suggestions: rows.map((item) => ({
-      id: item.id,
-      sourceType: item.source_type,
-      sourceReference: item.source_reference,
-      suggestionText: item.suggestion_text,
-      estimatedFinancialImpact: parseNumber(item.estimated_financial_impact),
-      estimatedNutritionalImpact: item.estimated_nutritional_impact,
-      priorityLevel: item.priority_level,
-      createdAt: item.created_at.toISOString(),
-    })),
+    suggestions: rows.map((item) => {
+      const evidenceSource = inferSuggestionEvidenceSource({
+        sourceType: item.source_type,
+        suggestionText: item.suggestion_text,
+        estimatedNutritionalImpact: item.estimated_nutritional_impact,
+        sourceReference: item.source_reference,
+      });
+
+      return {
+        id: item.id,
+        sourceType: item.source_type,
+        sourceReference: item.source_reference,
+        suggestionText: item.suggestion_text,
+        estimatedFinancialImpact: parseNumber(item.estimated_financial_impact),
+        estimatedNutritionalImpact: item.estimated_nutritional_impact,
+        evidenceSource,
+        evidenceSubtype: inferSuggestionEvidenceSubtype({
+          evidenceSource,
+          suggestionText: item.suggestion_text,
+          sourceReference: item.source_reference,
+        }),
+        priorityLevel: item.priority_level,
+        createdAt: item.created_at.toISOString(),
+      };
+    }),
   };
 });
 
@@ -2814,11 +4196,14 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
   await ensureDomainTables();
 
   const importRows = await prisma.$queryRaw<Array<{
+    unit_name: string;
+    service_name: string;
     meal_cost: number | string;
     financial_goal: number | string;
     reference_date: Date | string;
+    recipes_json: string;
   }>>`
-    SELECT meal_cost, financial_goal, reference_date
+    SELECT unit_name, service_name, meal_cost, financial_goal, reference_date, recipes_json
     FROM menu_pdf_imports
     WHERE id = ${importId}
       AND company_name = ${companyName}
@@ -2962,6 +4347,33 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
       ${JSON.stringify(appliedSuggestions)}
     )
   `;
+
+  await recordAiPreparationEvent({
+    companyName,
+    moduleKey: 'menus',
+    sourceKind: 'adjusted-version-generation',
+    providerKey: 'structured-ready',
+    data: buildMenuPreparationContext({
+      companyName,
+      importId,
+      unitName: imported.unit_name,
+      serviceName: imported.service_name,
+      referenceDate:
+        typeof imported.reference_date === 'string'
+          ? imported.reference_date.slice(0, 10)
+          : imported.reference_date.toISOString().slice(0, 10),
+      monthsAhead,
+      recipes: (() => {
+        try {
+          return JSON.parse(imported.recipes_json) as string[];
+        } catch {
+          return [];
+        }
+      })(),
+      targetMonth,
+      commemorativeDates: commemorativeContext.commemorativeDates,
+    }),
+  });
 
   return reply.code(201).send({
     status: 'ok',
@@ -3667,6 +5079,20 @@ app.post('/rules', { preHandler: authenticate }, async (request, reply) => {
       ${actor.name}
     )
   `;
+
+  await recordAiPreparationEvent({
+    companyName,
+    moduleKey: 'rules',
+    sourceKind: 'contract-rule-creation',
+    providerKey: 'structured-ready',
+    data: buildRulePreparationContext({
+      companyName,
+      contractId: payload.contractId,
+      title: payload.title,
+      description: payload.description,
+      category: payload.category,
+    }),
+  });
 
   const rows = await prisma.$queryRaw<Array<{
     id: string;

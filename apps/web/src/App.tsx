@@ -1,6 +1,13 @@
 import { useEffect, useState, type ChangeEvent, type FormEvent } from 'react'
 import './App.css'
 import {
+  type SuggestionEvidenceInput,
+} from './evidence-badges'
+import {
+  MenuImportAuditEvidenceBadge,
+  MenuSuggestionEvidenceBadge,
+} from './components/EvidenceBadges'
+import {
   getSupportedUiLocales,
   getUiMessage,
   resolveUiLocale,
@@ -244,6 +251,47 @@ type MenuImportItem = {
   createdAt: string
 }
 
+type RecipeLibraryItem = {
+  id: string
+  sourceFileName: string
+  sourceReference: string | null
+  name: string
+  normalizedName: string
+  category: string
+  subcategory: string
+  foodGroup: string
+  costPerCapita: number | null
+  servingYield: number | null
+  preparationMethod: string | null
+  nutritionalInfo: Record<string, unknown> | null
+  compatibleDiets: string[]
+  allergens: string[]
+  aiClassification: {
+    category: string
+    subcategory: string
+    foodGroup: string
+    confidence: number
+    tags: string[]
+  }
+  aiProvider: string
+  isActive: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+type RecipeCoverageSummary = {
+  totalRecipes: number
+  activeRecipes: number
+  classifiedRecipes: number
+  manualReviewedRecipes: number
+  heuristicRecipes: number
+  coveragePercent: number
+  categoryDistribution: Array<{
+    category: string
+    total: number
+  }>
+}
+
 type MenuImportAuditItem = {
   id: string
   ruleId: string | null
@@ -260,9 +308,16 @@ type MenuImportSuggestionItem = {
   suggestionText: string
   estimatedFinancialImpact: number
   estimatedNutritionalImpact: string
+  evidenceSource: 'structured' | 'textual_fallback' | 'financial_goal' | 'preventive'
+  evidenceSubtype: 'frequency' | 'recurrence' | 'classification' | null
   priorityLevel: 'high' | 'medium'
   createdAt: string
 }
+
+const toSuggestionEvidenceInput = (item: MenuImportSuggestionItem): SuggestionEvidenceInput => ({
+  evidenceSource: item.evidenceSource,
+  evidenceSubtype: item.evidenceSubtype,
+})
 
 type MenuAdjustedVersionItem = {
   id: string
@@ -439,6 +494,7 @@ const modules = [
   { label: 'Dashboard', value: 'Indicadores, contratos recentes e alertas' },
   { label: 'Contratos', value: 'Upload, versionamento e processamento' },
   { label: 'Regras contratuais', value: 'Fila de validacao e trilha de mudancas' },
+  { label: 'Receitas estruturadas', value: 'Catalogo consolidado para importacao e consulta' },
   { label: 'Conformidade', value: 'Regras atendidas, parciais e nao atendidas' },
 ]
 
@@ -473,6 +529,12 @@ const getInitialLocale = (): UiLocale => {
   const globalLocale = window.localStorage.getItem(GLOBAL_LOCALE_STORAGE_KEY)
   return resolveUiLocale(globalLocale ?? APP_LOCALE_HINT)
 }
+
+const splitRecipeEntries = (value: string) =>
+  value
+    .split(/\n|,|;/)
+    .map((item) => item.trim())
+    .filter(Boolean)
 
 function App() {
   const [authMode, setAuthMode] = useState<'login' | 'invite'>('login')
@@ -545,6 +607,18 @@ function App() {
   const [menuImports, setMenuImports] = useState<MenuImportItem[]>([])
   const [isLoadingMenuImports, setIsLoadingMenuImports] = useState(false)
   const [isSubmittingMenuImport, setIsSubmittingMenuImport] = useState(false)
+  const [recipeLibrary, setRecipeLibrary] = useState<RecipeLibraryItem[]>([])
+  const [isLoadingRecipeLibrary, setIsLoadingRecipeLibrary] = useState(false)
+  const [recipeCoverage, setRecipeCoverage] = useState<RecipeCoverageSummary | null>(null)
+  const [isLoadingRecipeCoverage, setIsLoadingRecipeCoverage] = useState(false)
+  const [isSubmittingRecipeImport, setIsSubmittingRecipeImport] = useState(false)
+  const [selectedRecipeId, setSelectedRecipeId] = useState('')
+  const [isSubmittingRecipeReclassification, setIsSubmittingRecipeReclassification] = useState(false)
+  const [recipeReclassificationNotice, setRecipeReclassificationNotice] = useState<string | null>(null)
+  const [lastRecipeReclassification, setLastRecipeReclassification] = useState<{
+    recipeId: string
+    at: string
+  } | null>(null)
   const [selectedMenuImportId, setSelectedMenuImportId] = useState('')
   const [menuImportAuditItems, setMenuImportAuditItems] = useState<MenuImportAuditItem[]>([])
   const [isLoadingMenuImportAudit, setIsLoadingMenuImportAudit] = useState(false)
@@ -659,6 +733,28 @@ function App() {
     financialGoal: '',
     mealCost: '',
     recipesText: '',
+  })
+  const [recipeImportForm, setRecipeImportForm] = useState({
+    fileName: 'FICHAS-TECNICAS-GENIALNET.pdf',
+    sourceReference: '',
+    name: '',
+    ingredientsText: '',
+    preparationMethod: '',
+    group: '',
+    perCapita: '',
+    yield: '',
+    cost: '',
+    compatibleDietsText: '',
+    allergensText: '',
+    nutritionalInfoJson: '',
+  })
+  const [recipeReclassificationForm, setRecipeReclassificationForm] = useState({
+    category: '',
+    subcategory: '',
+    foodGroup: '',
+    confidence: '',
+    tagsText: '',
+    reason: '',
   })
   const [evaluationImportForm, setEvaluationImportForm] = useState({
     fileName: 'AVALIACOES-GENIALNET.pdf',
@@ -964,6 +1060,24 @@ function App() {
     return 'status-badge is-progress'
   }
 
+  const parseMenuSuggestionDetails = (item: MenuImportSuggestionItem) => {
+    const replacementMatch = item.suggestionText.match(
+      /^Substituir\s+(.+?)\s+por\s+(.+?)\s+para atender a regra:\s+(.+)\.$/i,
+    )
+    const groupMatch = item.estimatedNutritionalImpact.match(/grupo\s+(.+?)\s+com substituicao/i)
+
+    if (!replacementMatch) {
+      return null
+    }
+
+    return {
+      recipeToReplace: replacementMatch[1],
+      replacementRecipe: replacementMatch[2],
+      ruleTitle: replacementMatch[3],
+      targetGroup: groupMatch?.[1] ?? null,
+    }
+  }
+
   const getCombinationTrendLabel = (trend: MenuCombinationIntelligenceItem['trend']) => {
     if (trend === 'positive') {
       return 'Tendencia positiva'
@@ -1059,6 +1173,54 @@ function App() {
       setMenuImports([])
     } finally {
       setIsLoadingMenuImports(false)
+    }
+  }
+
+  const fetchRecipeLibrary = async (token: string) => {
+    setIsLoadingRecipeLibrary(true)
+
+    try {
+      const response = await fetch(`${API_URL}/recipes?limit=20`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; recipes: RecipeLibraryItem[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao carregar receitas.')
+      }
+
+      setRecipeLibrary(payload.recipes ?? [])
+    } catch {
+      setRecipeLibrary([])
+    } finally {
+      setIsLoadingRecipeLibrary(false)
+    }
+  }
+
+  const fetchRecipeCoverage = async (token: string) => {
+    setIsLoadingRecipeCoverage(true)
+
+    try {
+      const response = await fetch(`${API_URL}/recipes/coverage`, {
+        headers: { Authorization: `Bearer ${token}` },
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; coverage: RecipeCoverageSummary }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao carregar cobertura de receitas.')
+      }
+
+      setRecipeCoverage(payload.coverage)
+    } catch {
+      setRecipeCoverage(null)
+    } finally {
+      setIsLoadingRecipeCoverage(false)
     }
   }
 
@@ -1786,6 +1948,10 @@ function App() {
     if (!authState) {
       setRecommendationPolicy(null)
       setMenuImports([])
+      setRecipeLibrary([])
+      setRecipeCoverage(null)
+      setSelectedRecipeId('')
+      setLastRecipeReclassification(null)
       setSelectedMenuImportId('')
       setMenuImportAuditItems([])
       setMenuImportSuggestions([])
@@ -1801,6 +1967,8 @@ function App() {
 
     void fetchRecommendationPolicy(authState.token)
     void fetchMenuImports(authState.token)
+    void fetchRecipeLibrary(authState.token)
+    void fetchRecipeCoverage(authState.token)
     void fetchMenuEvaluationImports(authState.token)
     void fetchMenuCombinationIntelligence(authState.token)
     void fetchMenuCommemorativeDates(authState.token, Number(commemorativeYear))
@@ -1811,6 +1979,45 @@ function App() {
       setSelectedMenuImportId(menuImports[0].id)
     }
   }, [menuImports, selectedMenuImportId])
+
+  useEffect(() => {
+    if (!selectedRecipeId && recipeLibrary.length > 0) {
+      setSelectedRecipeId(recipeLibrary[0].id)
+    }
+  }, [recipeLibrary, selectedRecipeId])
+
+  useEffect(() => {
+    const selectedRecipe = recipeLibrary.find((item) => item.id === selectedRecipeId)
+
+    if (!selectedRecipe) {
+      return
+    }
+
+    setRecipeReclassificationNotice(null)
+
+    setRecipeReclassificationForm({
+      category: selectedRecipe.category,
+      subcategory: selectedRecipe.subcategory,
+      foodGroup: selectedRecipe.foodGroup,
+      confidence: String(selectedRecipe.aiClassification.confidence),
+      tagsText: selectedRecipe.aiClassification.tags.join(', '),
+      reason: '',
+    })
+  }, [recipeLibrary, selectedRecipeId])
+
+  useEffect(() => {
+    if (!recipeReclassificationNotice) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setRecipeReclassificationNotice(null)
+    }, 4000)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [recipeReclassificationNotice])
 
   useEffect(() => {
     if (!authState || !selectedMenuImportId) {
@@ -2345,6 +2552,146 @@ function App() {
       setDomainError(error instanceof Error ? error.message : 'Falha ao importar cardapio PDF.')
     } finally {
       setIsSubmittingMenuImport(false)
+    }
+  }
+
+  const handleRecipeImportSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!authState) {
+      return
+    }
+
+    setDomainError(null)
+    setIsSubmittingRecipeImport(true)
+
+    try {
+      const ingredients = splitRecipeEntries(recipeImportForm.ingredientsText)
+
+      if (!ingredients.length) {
+        throw new Error('Informe pelo menos um ingrediente para a receita.')
+      }
+
+      const nutritionalInfoText = recipeImportForm.nutritionalInfoJson.trim()
+      let nutritionalInfo: Record<string, unknown> | undefined
+
+      if (nutritionalInfoText) {
+        const parsed = JSON.parse(nutritionalInfoText) as unknown
+
+        if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+          throw new Error('O campo de informacoes nutricionais precisa ser um objeto JSON valido.')
+        }
+
+        nutritionalInfo = parsed as Record<string, unknown>
+      }
+
+      const response = await fetch(`${API_URL}/recipes/imports`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authState.token}`,
+        },
+        body: JSON.stringify({
+          fileName: recipeImportForm.fileName.trim(),
+          sourceReference: recipeImportForm.sourceReference.trim() || undefined,
+          recipes: [
+            {
+              name: recipeImportForm.name.trim(),
+              ingredients,
+              preparationMethod: recipeImportForm.preparationMethod.trim() || undefined,
+              perCapita: recipeImportForm.perCapita ? Number(recipeImportForm.perCapita) : undefined,
+              yield: recipeImportForm.yield ? Number(recipeImportForm.yield) : undefined,
+              group: recipeImportForm.group.trim() || undefined,
+              nutritionalInfo,
+              compatibleDiets: splitRecipeEntries(recipeImportForm.compatibleDietsText),
+              allergens: splitRecipeEntries(recipeImportForm.allergensText),
+              cost: recipeImportForm.cost ? Number(recipeImportForm.cost) : undefined,
+            },
+          ],
+        }),
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; recipeImport: { id: string } }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao importar receita.')
+      }
+
+      setRecipeImportForm((current) => ({
+        ...current,
+        sourceReference: '',
+        name: '',
+        ingredientsText: '',
+        preparationMethod: '',
+        group: '',
+        perCapita: '',
+        yield: '',
+        cost: '',
+        compatibleDietsText: '',
+        allergensText: '',
+        nutritionalInfoJson: '',
+      }))
+
+      await fetchRecipeLibrary(authState.token)
+      await fetchRecipeCoverage(authState.token)
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao importar receita.')
+    } finally {
+      setIsSubmittingRecipeImport(false)
+    }
+  }
+
+  const handleRecipeReclassificationSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!authState || !selectedRecipeId) {
+      return
+    }
+
+    setDomainError(null)
+  setRecipeReclassificationNotice(null)
+    setIsSubmittingRecipeReclassification(true)
+
+    try {
+      const response = await fetch(`${API_URL}/recipes/${selectedRecipeId}/classification`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${authState.token}`,
+        },
+        body: JSON.stringify({
+          category: recipeReclassificationForm.category.trim(),
+          subcategory: recipeReclassificationForm.subcategory.trim(),
+          foodGroup: recipeReclassificationForm.foodGroup.trim(),
+          confidence: recipeReclassificationForm.confidence
+            ? Number(recipeReclassificationForm.confidence)
+            : undefined,
+          tags: splitRecipeEntries(recipeReclassificationForm.tagsText),
+          reason: recipeReclassificationForm.reason.trim() || undefined,
+        }),
+      })
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; recipe: { id: string } }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao reclassificar receita.')
+      }
+
+      await fetchRecipeLibrary(authState.token)
+      await fetchRecipeCoverage(authState.token)
+      setRecipeReclassificationNotice('Reclassificacao salva com sucesso e registrada na auditoria.')
+      setLastRecipeReclassification({
+        recipeId: selectedRecipeId,
+        at: new Date().toISOString(),
+      })
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao reclassificar receita.')
+    } finally {
+      setIsSubmittingRecipeReclassification(false)
     }
   }
 
@@ -4060,6 +4407,359 @@ function App() {
           )}
 
           <div className="invite-history-head">
+            <h3>Base estruturada de receitas</h3>
+          </div>
+
+          <form className="crud-form" onSubmit={handleRecipeImportSubmit}>
+            <label>
+              <span>Arquivo de origem</span>
+              <input
+                type="text"
+                value={recipeImportForm.fileName}
+                onChange={(event) =>
+                  setRecipeImportForm((current) => ({ ...current, fileName: event.target.value }))
+                }
+                required
+              />
+            </label>
+
+            <label>
+              <span>Referencia da origem</span>
+              <input
+                type="text"
+                value={recipeImportForm.sourceReference}
+                onChange={(event) =>
+                  setRecipeImportForm((current) => ({ ...current, sourceReference: event.target.value }))
+                }
+                placeholder="Ficha tecnica, PDF, lote..."
+              />
+            </label>
+
+            <label>
+              <span>Nome da receita</span>
+              <input
+                type="text"
+                value={recipeImportForm.name}
+                onChange={(event) =>
+                  setRecipeImportForm((current) => ({ ...current, name: event.target.value }))
+                }
+                required
+                minLength={2}
+              />
+            </label>
+
+            <label>
+              <span>Ingredientes</span>
+              <textarea
+                value={recipeImportForm.ingredientsText}
+                onChange={(event) =>
+                  setRecipeImportForm((current) => ({ ...current, ingredientsText: event.target.value }))
+                }
+                placeholder="Uma linha ou item por ingrediente"
+                required
+              />
+            </label>
+
+            <label>
+              <span>Modo de preparo</span>
+              <textarea
+                value={recipeImportForm.preparationMethod}
+                onChange={(event) =>
+                  setRecipeImportForm((current) => ({ ...current, preparationMethod: event.target.value }))
+                }
+                placeholder="Opcional"
+              />
+            </label>
+
+            <label>
+              <span>Grupo</span>
+              <input
+                type="text"
+                value={recipeImportForm.group}
+                onChange={(event) =>
+                  setRecipeImportForm((current) => ({ ...current, group: event.target.value }))
+                }
+                placeholder="Fruta, proteina, legume..."
+              />
+            </label>
+
+            <label>
+              <span>Informacao nutricional em JSON</span>
+              <textarea
+                value={recipeImportForm.nutritionalInfoJson}
+                onChange={(event) =>
+                  setRecipeImportForm((current) => ({ ...current, nutritionalInfoJson: event.target.value }))
+                }
+                placeholder='{"calories": 120, "protein": 8}'
+              />
+            </label>
+
+            <label>
+              <span>Dietas compativeis</span>
+              <input
+                type="text"
+                value={recipeImportForm.compatibleDietsText}
+                onChange={(event) =>
+                  setRecipeImportForm((current) => ({ ...current, compatibleDietsText: event.target.value }))
+                }
+                placeholder="geral, vegetariana"
+              />
+            </label>
+
+            <label>
+              <span>Alergenos</span>
+              <input
+                type="text"
+                value={recipeImportForm.allergensText}
+                onChange={(event) =>
+                  setRecipeImportForm((current) => ({ ...current, allergensText: event.target.value }))
+                }
+                placeholder="leite, gluten"
+              />
+            </label>
+
+            <label>
+              <span>Per capita</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={recipeImportForm.perCapita}
+                onChange={(event) =>
+                  setRecipeImportForm((current) => ({ ...current, perCapita: event.target.value }))
+                }
+              />
+            </label>
+
+            <label>
+              <span>Rendimento</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={recipeImportForm.yield}
+                onChange={(event) =>
+                  setRecipeImportForm((current) => ({ ...current, yield: event.target.value }))
+                }
+              />
+            </label>
+
+            <label>
+              <span>Custo estimado (R$)</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={recipeImportForm.cost}
+                onChange={(event) =>
+                  setRecipeImportForm((current) => ({ ...current, cost: event.target.value }))
+                }
+              />
+            </label>
+
+            <button type="submit" className="auth-button" disabled={isSubmittingRecipeImport}>
+              {isSubmittingRecipeImport ? 'Importando receita...' : 'Importar receita estruturada'}
+            </button>
+          </form>
+
+          {isLoadingRecipeLibrary ? (
+            <p className="empty-note">Carregando base de receitas...</p>
+          ) : recipeLibrary.length ? (
+            <ul className="records-list">
+              {recipeLibrary.map((item) => (
+                <li key={item.id}>
+                  <div className="validation-history-row">
+                    <strong>{item.name}</strong>
+                    <span className={item.isActive ? 'status-badge is-positive' : 'status-badge is-muted'}>
+                      {item.isActive ? 'Ativa' : 'Inativa'}
+                    </span>
+                  </div>
+                  <span>
+                    {item.category} · {item.subcategory} · {item.foodGroup}
+                  </span>
+                  <small>
+                    Origem: {item.sourceFileName}
+                    {item.sourceReference ? ` · ${item.sourceReference}` : ''}
+                  </small>
+                  <small>
+                    Base estruturada: {item.aiClassification.tags.join(' | ') || item.normalizedName}
+                  </small>
+                  <small>
+                    Atualizada em {new Date(item.updatedAt).toLocaleString(locale)}
+                    {lastRecipeReclassification?.recipeId === item.id
+                      ? ` · Reclassificada manualmente agora (${new Date(lastRecipeReclassification.at).toLocaleTimeString(locale)})`
+                      : ''}
+                  </small>
+                  <small>
+                    Custo R$ {item.costPerCapita !== null ? item.costPerCapita.toFixed(2) : '-'} ·
+                    Rendimento {item.servingYield !== null ? item.servingYield.toFixed(2) : '-'}
+                  </small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">Nenhuma receita estruturada cadastrada ainda.</p>
+          )}
+
+          <div className="invite-history-head">
+            <h3>Cobertura da classificacao</h3>
+          </div>
+
+          {isLoadingRecipeCoverage ? (
+            <p className="empty-note">Carregando metricas de cobertura...</p>
+          ) : recipeCoverage ? (
+            <ul className="records-list">
+              <li>
+                <strong>Cobertura classificada: {recipeCoverage.coveragePercent.toFixed(2)}%</strong>
+                <span>
+                  {recipeCoverage.classifiedRecipes} classificadas de {recipeCoverage.totalRecipes} receitas
+                </span>
+                <small>
+                  Ativas: {recipeCoverage.activeRecipes} · Revisadas manualmente: {recipeCoverage.manualReviewedRecipes} · Heuristica: {recipeCoverage.heuristicRecipes}
+                </small>
+              </li>
+              {recipeCoverage.categoryDistribution.map((item) => (
+                <li key={item.category}>
+                  <strong>{item.category}</strong>
+                  <small>{item.total} receita(s)</small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="empty-note">Sem metricas de cobertura disponiveis no momento.</p>
+          )}
+
+          <div className="invite-history-head">
+            <h3>Reclassificacao manual auditada</h3>
+          </div>
+
+          <form className="crud-form" onSubmit={handleRecipeReclassificationSubmit}>
+            <label>
+              <span>Receita alvo</span>
+              <select
+                value={selectedRecipeId}
+                onChange={(event) => setSelectedRecipeId(event.target.value)}
+                disabled={!recipeLibrary.length || isSubmittingRecipeReclassification}
+              >
+                <option value="">Selecione</option>
+                {recipeLibrary.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name} · {item.category}/{item.subcategory}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              <span>Categoria</span>
+              <input
+                type="text"
+                value={recipeReclassificationForm.category}
+                onChange={(event) =>
+                  setRecipeReclassificationForm((current) => ({
+                    ...current,
+                    category: event.target.value,
+                  }))
+                }
+                required
+                minLength={2}
+              />
+            </label>
+
+            <label>
+              <span>Subcategoria</span>
+              <input
+                type="text"
+                value={recipeReclassificationForm.subcategory}
+                onChange={(event) =>
+                  setRecipeReclassificationForm((current) => ({
+                    ...current,
+                    subcategory: event.target.value,
+                  }))
+                }
+                required
+                minLength={2}
+              />
+            </label>
+
+            <label>
+              <span>Grupo alimentar</span>
+              <input
+                type="text"
+                value={recipeReclassificationForm.foodGroup}
+                onChange={(event) =>
+                  setRecipeReclassificationForm((current) => ({
+                    ...current,
+                    foodGroup: event.target.value,
+                  }))
+                }
+                required
+                minLength={2}
+              />
+            </label>
+
+            <label>
+              <span>Confianca (0 a 1)</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                max="1"
+                value={recipeReclassificationForm.confidence}
+                onChange={(event) =>
+                  setRecipeReclassificationForm((current) => ({
+                    ...current,
+                    confidence: event.target.value,
+                  }))
+                }
+              />
+            </label>
+
+            <label>
+              <span>Tags</span>
+              <input
+                type="text"
+                value={recipeReclassificationForm.tagsText}
+                onChange={(event) =>
+                  setRecipeReclassificationForm((current) => ({
+                    ...current,
+                    tagsText: event.target.value,
+                  }))
+                }
+                placeholder="protein, poultry"
+              />
+            </label>
+
+            <label>
+              <span>Motivo da reclassificacao</span>
+              <textarea
+                value={recipeReclassificationForm.reason}
+                onChange={(event) =>
+                  setRecipeReclassificationForm((current) => ({
+                    ...current,
+                    reason: event.target.value,
+                  }))
+                }
+                placeholder="Justifique a revisao para trilha de auditoria."
+              />
+            </label>
+
+            <button
+              type="submit"
+              className="logout-button"
+              disabled={!selectedRecipeId || isSubmittingRecipeReclassification}
+            >
+              {isSubmittingRecipeReclassification
+                ? 'Reclassificando...'
+                : 'Salvar reclassificacao'}
+            </button>
+
+            {recipeReclassificationNotice ? (
+              <p className="auth-success">{recipeReclassificationNotice}</p>
+            ) : null}
+          </form>
+
+          <div className="invite-history-head">
             <h3>Auditoria contratual do cardapio</h3>
             <label>
               <span>Importacao alvo</span>
@@ -4101,6 +4801,9 @@ function App() {
                       {getMenuImportAuditStatusLabel(item.resultStatus)}
                     </span>
                   </div>
+                  <small>
+                    <MenuImportAuditEvidenceBadge evidence={item.evidence} />
+                  </small>
                   <small>{item.evidence}</small>
                 </li>
               ))}
@@ -4128,20 +4831,45 @@ function App() {
             <p className="empty-note">Carregando sugestoes...</p>
           ) : menuImportSuggestions.length ? (
             <ul className="validation-history-list">
-              {menuImportSuggestions.map((item) => (
-                <li key={item.id}>
-                  <div className="validation-history-row">
-                    <strong>{item.suggestionText}</strong>
-                    <span className={getSuggestionPriorityBadgeClass(item.priorityLevel)}>
-                      {getSuggestionPriorityLabel(item.priorityLevel)}
-                    </span>
-                  </div>
-                  <small>
-                    Impacto financeiro estimado: R$ {item.estimatedFinancialImpact.toFixed(2)}
-                  </small>
-                  <small>{item.estimatedNutritionalImpact}</small>
-                </li>
-              ))}
+              {menuImportSuggestions.map((item) => {
+                const suggestionDetails = parseMenuSuggestionDetails(item)
+
+                return (
+                  <li key={item.id}>
+                    <div className="validation-history-row">
+                      <strong>
+                        {suggestionDetails ? 'Troca sugerida com base estruturada' : item.suggestionText}
+                      </strong>
+                      <span className={getSuggestionPriorityBadgeClass(item.priorityLevel)}>
+                        {getSuggestionPriorityLabel(item.priorityLevel)}
+                      </span>
+                    </div>
+                    {suggestionDetails ? (
+                      <>
+                        <small>
+                          <MenuSuggestionEvidenceBadge item={toSuggestionEvidenceInput(item)} />
+                        </small>
+                        <small>Substituir: {suggestionDetails.recipeToReplace}</small>
+                        <small>Receita sugerida: {suggestionDetails.replacementRecipe}</small>
+                        <small>
+                          Regra alvo: {suggestionDetails.ruleTitle}
+                          {suggestionDetails.targetGroup
+                            ? ` · Grupo: ${suggestionDetails.targetGroup}`
+                            : ''}
+                        </small>
+                      </>
+                    ) : (
+                      <small>
+                        <MenuSuggestionEvidenceBadge item={toSuggestionEvidenceInput(item)} />
+                      </small>
+                    )}
+                    <small>
+                      Impacto financeiro estimado: R$ {item.estimatedFinancialImpact.toFixed(2)}
+                    </small>
+                    <small>{item.estimatedNutritionalImpact}</small>
+                  </li>
+                )
+              })}
             </ul>
           ) : (
             <p className="empty-note">Sem sugestoes geradas para a importacao selecionada.</p>

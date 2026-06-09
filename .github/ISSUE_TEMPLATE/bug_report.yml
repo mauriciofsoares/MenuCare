@@ -1,0 +1,62 @@
+name: Bug report
+description: Reportar comportamento incorreto no sistema
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use este formulario para registrar bugs com contexto suficiente para reproduzir e corrigir.
+
+  - type: input
+    id: summary
+    attributes:
+      label: Resumo
+      description: Descreva o problema em uma frase
+      placeholder: Ex.: Badge de evidencia nao corresponde ao subtipo retornado pela API
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Passos para reproduzir
+      description: Liste os passos em ordem
+      placeholder: |
+        1. Acesse ...
+        2. Clique em ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportamento esperado
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Comportamento atual
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area impactada
+      options:
+        - web
+        - api
+        - docs
+        - ci/infra
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidencias
+      description: Logs, screenshots, payloads ou links relevantes

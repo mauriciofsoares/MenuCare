@@ -1,0 +1,39 @@
+# Auditoria Mensal de Governanca - AAAA-MM
+
+Data da auditoria:
+Responsavel:
+Status geral: Conforme / Nao conforme
+
+## 1. Integridade da CI
+- [ ] Workflow CI ativo em `.github/workflows/ci.yml`.
+- [ ] Ultima execucao da branch principal com status verde.
+- [ ] Check obrigatorio mantido como `CI / validate`.
+
+## 2. Regras da branch main
+- [ ] Require a pull request before merging ativo.
+- [ ] Require status checks to pass before merging ativo.
+- [ ] Require branches to be up to date before merging ativo.
+- [ ] Require conversation resolution before merging ativo.
+- [ ] Require review from Code Owners ativo.
+
+## 3. Governanca de revisao
+- [ ] `.github/CODEOWNERS` revisado e atualizado, se necessario.
+- [ ] `.github/pull_request_template.md` alinhado com o processo atual.
+- [ ] `CONTRIBUTING.md` alinhado com o processo atual.
+
+## 4. Triagem de demandas
+- [ ] `blank_issues_enabled: false` mantido em `.github/ISSUE_TEMPLATE/config.yml`.
+- [ ] Templates de issue revisados (`bug_report.yml` e `feature_request.yml`).
+- [ ] `contact_links` revisados e atualizados.
+
+## 5. Verificacao tecnica local
+- [ ] `npm test` executado com sucesso.
+- [ ] `npm run build` executado com sucesso.
+- [ ] `npm run ci:validate` executado quando houve mudanca de CI/infra.
+
+## 6. Desvios e plano de acao
+Desvios encontrados:
+
+Acoes propostas:
+
+Prazo:

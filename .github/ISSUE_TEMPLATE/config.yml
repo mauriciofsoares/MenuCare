@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Guia de contribuicao
+    url: https://github.com/mauriciofsoares/MenuCare/blob/main/CONTRIBUTING.md
+    about: Leia o fluxo de contribuicao e validacoes antes de abrir uma demanda.
+  - name: Padroes de produto e arquitetura
+    url: https://github.com/mauriciofsoares/MenuCare/blob/main/docs/product-specification.md
+    about: Consulte diretrizes de governanca, conformidade e linguagem de negocio.

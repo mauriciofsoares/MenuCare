@@ -14,6 +14,24 @@ A plataforma deve transmitir confiança, governança, rastreabilidade e conformi
 
 A inteligência artificial é apenas um mecanismo interno de apoio ao processamento documental e não deve ser o foco da experiência do usuário.
 
+## Princípio de Arquitetura
+
+A IA é utilizada apenas para:
+
+* interpretação documental
+* classificação semântica
+* geração de sugestões
+* recomendações futuras
+
+A IA não é responsável por:
+
+* validar conformidade
+* calcular metas financeiras
+* determinar aprovação
+* bloquear cardápios
+
+Todas as validações de conformidade devem ocorrer através de regras estruturadas e mecanismos determinísticos auditáveis.
+
 O sistema não deve utilizar textos como:
 
 * "A IA gerou seu cardápio"
@@ -167,6 +185,13 @@ Também deve validar:
 * Valor excedido e percentual de excedente
 * Impacto financeiro mensal
 
+Explicabilidade obrigatória da auditoria:
+
+* Toda evidência deve priorizar classificação estruturada de receitas antes de texto livre.
+* Regras de frequência semanal devem informar evidência estruturada específica de frequência.
+* Regras de recorrência mínima devem informar evidência estruturada específica de recorrência.
+* Fallback textual só pode aparecer quando não houver base estruturada suficiente para a validação.
+
 ---
 
 ## Etapa 7 - Sugestões de Ajuste e Nova Versão
@@ -182,6 +207,18 @@ Ao gerar versão ajustada, cada alteração deve informar:
 * regra que motivou a alteração
 * impacto financeiro
 * impacto nutricional
+
+Explicabilidade obrigatória das sugestões:
+
+* Sugestões baseadas em receita classificada devem explicitar a regra alvo e o grupo alimentar relacionado.
+* Sugestões financeiras devem permanecer separadas das sugestões de conformidade.
+* O contrato técnico interno da API deve distinguir subtipo de evidência estruturada em sugestões (`frequency`, `recurrence`, `classification` ou `null`) para evitar heurística textual no frontend.
+
+Qualidade de implementação no frontend:
+
+* Badges de evidência de auditoria e sugestões devem ser componentizados para reduzir acoplamento e facilitar manutenção.
+* O frontend deve possuir teste de integração de componente para validar renderização de rótulo e classe CSS dos badges.
+* O ambiente de testes deve usar setup global com jsdom e limpeza automática do DOM entre casos.
 
 ---
 
@@ -287,6 +324,12 @@ Essa base estruturada deve ser a fonte primária para:
 * Auditoria de conformidade
 * Sugestões financeiras de substituição
 * Inteligência de combinações e avaliações
+
+Além disso, a base estruturada deve sustentar de forma determinística:
+
+* contagem de frequência semanal por grupo nutricional
+* controle de recorrência mínima entre ocorrências de receitas ou grupos
+* explicabilidade rastreável em auditoria e sugestões
 
 ---
 
@@ -479,6 +522,13 @@ Exemplos:
 * Regra rejeitada
 * Cardápio gerado
 * Contrato enviado
+
+Na auditoria de cardápios e sugestões, também registrar e expor evidências com semântica clara:
+
+* Evidência estruturada de classificação
+* Evidência estruturada de frequência
+* Evidência estruturada de recorrência
+* Fallback textual, quando aplicável
 
 ---
 

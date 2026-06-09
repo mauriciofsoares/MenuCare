@@ -119,6 +119,153 @@ describe('API integration', () => {
     assert.ok((listResponse.body.imports as Array<{ id: string }>).length >= 1)
   })
 
+  it('recipe import endpoint should accept structured recipes or return db fallback', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const response = await request(app.server)
+      .post('/recipes/imports')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .send({
+        fileName: 'FICHAS-TECNICAS-GENIAL.pdf',
+        sourceReference: 'Genial',
+        recipes: [
+          {
+            name: 'Laranja em Gomos',
+            ingredients: ['Laranja'],
+            preparationMethod: 'Higienizar, descascar e cortar em gomos.',
+            perCapita: 0.18,
+            yield: 100,
+            group: 'Fruta',
+            nutritionalInfo: { calories: 46 },
+            compatibleDiets: ['geral'],
+            allergens: [],
+            cost: 0.5,
+          },
+        ],
+      })
+
+    if (response.status === 503) {
+      assert.equal(response.body.status, 'error')
+      return
+    }
+
+    assert.equal(response.status, 201)
+    assert.equal(response.body.status, 'ok')
+    assert.equal(Array.isArray(response.body.recipeImport?.recipes), true)
+  })
+
+  it('recipe manual classification endpoint should reclassify recipe or return db fallback', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+    const uniqueName = `Receita de Teste ${Date.now()}`
+
+    const importResponse = await request(app.server)
+      .post('/recipes/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'FICHAS-TECNICAS-GENIAL.pdf',
+        sourceReference: 'Genial',
+        recipes: [
+          {
+            name: uniqueName,
+            ingredients: ['Frango', 'Ervas'],
+            preparationMethod: 'Assar e servir.',
+            cost: 2.5,
+          },
+        ],
+      })
+
+    if (importResponse.status === 503) {
+      assert.equal(importResponse.body.status, 'error')
+      return
+    }
+
+    assert.equal(importResponse.status, 201)
+
+    const recipeId = importResponse.body.recipeImport?.recipes?.[0]?.id as string
+    assert.equal(typeof recipeId, 'string')
+    assert.ok(recipeId.length > 10)
+
+    const reclassifyResponse = await request(app.server)
+      .patch(`/recipes/${recipeId}/classification`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        category: 'Proteina',
+        subcategory: 'Frango',
+        foodGroup: 'Proteinas',
+        confidence: 0.99,
+        tags: ['protein', 'poultry'],
+        reason: 'Classificacao revisada por nutricionista.',
+      })
+
+    assert.equal(reclassifyResponse.status, 200)
+    assert.equal(reclassifyResponse.body.status, 'ok')
+    assert.equal(reclassifyResponse.body.recipe?.id, recipeId)
+    assert.equal(reclassifyResponse.body.recipe?.category, 'Proteina')
+    assert.equal(reclassifyResponse.body.recipe?.subcategory, 'Frango')
+    assert.equal(reclassifyResponse.body.recipe?.foodGroup, 'Proteinas')
+
+    const listResponse = await request(app.server)
+      .get('/recipes?limit=20&active=all')
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(listResponse.status, 200)
+    assert.equal(listResponse.body.status, 'ok')
+    assert.equal(Array.isArray(listResponse.body.recipes), true)
+
+    const reclassified = (listResponse.body.recipes as Array<{
+      id: string
+      category: string
+      subcategory: string
+      foodGroup: string
+      aiProvider: string
+    }>).find((item) => item.id === recipeId)
+
+    assert.ok(reclassified)
+    assert.equal(reclassified?.category, 'Proteina')
+    assert.equal(reclassified?.subcategory, 'Frango')
+    assert.equal(reclassified?.foodGroup, 'Proteinas')
+    assert.equal(reclassified?.aiProvider, 'manual-reviewed')
+  })
+
+  it('recipe coverage endpoint should return metrics or db fallback', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const response = await request(app.server)
+      .get('/recipes/coverage')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+
+    if (response.status === 503) {
+      assert.equal(response.body.status, 'error')
+      return
+    }
+
+    assert.equal(response.status, 200)
+    assert.equal(response.body.status, 'ok')
+    assert.equal(typeof response.body.coverage?.totalRecipes, 'number')
+    assert.equal(typeof response.body.coverage?.coveragePercent, 'number')
+    assert.equal(Array.isArray(response.body.coverage?.categoryDistribution), true)
+  })
+
   it('menu import audit should compare imported recipes against approved rules', async () => {
     const loginResponse = await request(app.server).post('/auth/login').send({
       email: 'admin@menucare.local',
@@ -159,6 +306,25 @@ describe('API integration', () => {
 
     assert.equal(ruleResponse.status, 201)
 
+    const recipeImportResponse = await request(app.server)
+      .post('/recipes/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'FICHAS-TECNICAS-GENIAL.pdf',
+        sourceReference: 'Genial',
+        recipes: [
+          {
+            name: 'Frango grelhado',
+            ingredients: ['Frango', 'Sal'],
+            preparationMethod: 'Grelhar e servir.',
+            group: 'Proteina',
+            cost: 2.1,
+          },
+        ],
+      })
+
+    assert.equal(recipeImportResponse.status, 201)
+
     const importResponse = await request(app.server)
       .post('/menus/imports')
       .set('Authorization', `Bearer ${token}`)
@@ -182,6 +348,14 @@ describe('API integration', () => {
     assert.equal(auditResponse.status, 200)
     assert.equal(auditResponse.body.status, 'ok')
     assert.ok((auditResponse.body.summary?.auditedRules as number) >= 1)
+    assert.equal(
+      typeof auditResponse.body.results?.[0]?.evidence,
+      'string',
+    )
+    assert.match(
+      auditResponse.body.results?.[0]?.evidence as string,
+      /classificacao estruturada/i,
+    )
 
     const fetchAuditResponse = await request(app.server)
       .get(`/menus/imports/${importResponse.body.import?.id as string}/audit`)
@@ -190,6 +364,156 @@ describe('API integration', () => {
     assert.equal(fetchAuditResponse.status, 200)
     assert.equal(fetchAuditResponse.body.status, 'ok')
     assert.equal(Array.isArray(fetchAuditResponse.body.results), true)
+    assert.match(fetchAuditResponse.body.results?.[0]?.evidence as string, /classificacao estruturada/i)
+  })
+
+  it('menu import audit should evaluate structured frequency and recurrence rules', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const contractResponse = await request(app.server)
+      .post('/contracts')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        title: 'Contrato Frequencia e Recorrencia',
+        sourceType: 'contract',
+        status: 'active',
+      })
+
+    if (contractResponse.status === 503) {
+      assert.equal(contractResponse.body.status, 'error')
+      return
+    }
+
+    const contractId = contractResponse.body.contract?.id as string
+
+    const citrusRuleResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId,
+        title: 'Fruta citrica 3x por semana',
+        description: 'Cardapio deve contemplar fruta citrica ao menos 3 vezes por semana.',
+        category: 'fruta',
+        status: 'approved',
+      })
+
+    assert.equal(citrusRuleResponse.status, 201)
+
+    const recurrenceRuleResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId,
+        title: 'Nao repetir peixe em menos de 7 dias',
+        description: 'Peixe nao pode reaparecer em menos de 7 dias no mesmo servico.',
+        category: 'proteina',
+        status: 'approved',
+      })
+
+    assert.equal(recurrenceRuleResponse.status, 201)
+
+    const recipeImportResponse = await request(app.server)
+      .post('/recipes/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'FICHAS-TECNICAS-GENIAL.pdf',
+        sourceReference: 'Genial',
+        recipes: [
+          {
+            name: 'Laranja em Gomos',
+            ingredients: ['Laranja'],
+            preparationMethod: 'Servir gelada.',
+            group: 'Fruta',
+            cost: 0.6,
+          },
+          {
+            name: 'Peixe assado',
+            ingredients: ['Peixe', 'Ervas'],
+            preparationMethod: 'Assar e servir.',
+            group: 'Proteina',
+            cost: 3.4,
+          },
+        ],
+      })
+
+    assert.equal(recipeImportResponse.status, 201)
+
+    const importPayloads = [
+      {
+        referenceDate: '2026-06-01',
+        recipes: ['Arroz', 'Feijao', 'Laranja em Gomos'],
+      },
+      {
+        referenceDate: '2026-06-03',
+        recipes: ['Peixe assado', 'Arroz', 'Laranja em Gomos'],
+      },
+      {
+        referenceDate: '2026-06-05',
+        recipes: ['Arroz', 'Feijao', 'Laranja em Gomos'],
+      },
+      {
+        referenceDate: '2026-06-08',
+        recipes: ['Peixe assado', 'Arroz', 'Feijao'],
+      },
+    ]
+
+    let lastImportId = ''
+
+    for (const payload of importPayloads) {
+      const importResponse = await request(app.server)
+        .post('/menus/imports')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+          unitName: 'Hospital Sao Marcelino Champagnat',
+          serviceName: 'Almoco',
+          referenceDate: payload.referenceDate,
+          mealType: 'Almoco',
+          financialGoal: 14,
+          mealCost: 13,
+          recipes: payload.recipes,
+        })
+
+      assert.equal(importResponse.status, 201)
+      lastImportId = importResponse.body.import?.id as string
+    }
+
+    const auditResponse = await request(app.server)
+      .post(`/menus/imports/${lastImportId}/audit`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(auditResponse.status, 200)
+    assert.equal(auditResponse.body.status, 'ok')
+
+    const citrusRuleResult = (auditResponse.body.results as Array<{
+      ruleTitle: string
+      resultStatus: string
+      evidence: string
+    }>).find((item) => item.ruleTitle === 'Fruta citrica 3x por semana')
+
+    assert.ok(citrusRuleResult)
+    assert.equal(citrusRuleResult?.resultStatus, 'non_compliant')
+    assert.match(citrusRuleResult?.evidence as string, /frequencia estruturada/i)
+    assert.match(citrusRuleResult?.evidence as string, /minimo exigido 3/i)
+
+    const recurrenceRuleResult = (auditResponse.body.results as Array<{
+      ruleTitle: string
+      resultStatus: string
+      evidence: string
+    }>).find((item) => item.ruleTitle === 'Nao repetir peixe em menos de 7 dias')
+
+    assert.ok(recurrenceRuleResult)
+    assert.equal(recurrenceRuleResult?.resultStatus, 'non_compliant')
+    assert.match(recurrenceRuleResult?.evidence as string, /recorrencia estruturada/i)
+    assert.match(recurrenceRuleResult?.evidence as string, /abaixo do minimo de 7 dias/i)
   })
 
   it('menu import suggestions should be generated from audit and financial context', async () => {
@@ -230,6 +554,32 @@ describe('API integration', () => {
 
     assert.equal(ruleResponse.status, 201)
 
+    const recipeImportResponse = await request(app.server)
+      .post('/recipes/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'FICHAS-TECNICAS-GENIAL.pdf',
+        sourceReference: 'Genial',
+        recipes: [
+          {
+            name: 'Peixe assado',
+            ingredients: ['Peixe', 'Ervas'],
+            preparationMethod: 'Assar e servir.',
+            group: 'Proteina',
+            cost: 3.2,
+          },
+          {
+            name: 'Frango grelhado',
+            ingredients: ['Frango', 'Sal'],
+            preparationMethod: 'Grelhar e servir.',
+            group: 'Proteina',
+            cost: 2.1,
+          },
+        ],
+      })
+
+    assert.equal(recipeImportResponse.status, 201)
+
     const importResponse = await request(app.server)
       .post('/menus/imports')
       .set('Authorization', `Bearer ${token}`)
@@ -261,6 +611,12 @@ describe('API integration', () => {
     assert.equal(runSuggestionsResponse.status, 200)
     assert.equal(runSuggestionsResponse.body.status, 'ok')
     assert.ok((runSuggestionsResponse.body.summary?.generatedSuggestions as number) >= 1)
+    assert.equal(runSuggestionsResponse.body.suggestions?.[0]?.evidenceSource, 'structured')
+    assert.equal(runSuggestionsResponse.body.suggestions?.[0]?.evidenceSubtype, 'classification')
+    assert.match(
+      runSuggestionsResponse.body.suggestions?.[0]?.suggestionText as string,
+      /substituir|peixe assado|classificada como peixe/i,
+    )
 
     const listSuggestionsResponse = await request(app.server)
       .get(`/menus/imports/${importId}/suggestions`)
@@ -269,6 +625,197 @@ describe('API integration', () => {
     assert.equal(listSuggestionsResponse.status, 200)
     assert.equal(listSuggestionsResponse.body.status, 'ok')
     assert.equal(Array.isArray(listSuggestionsResponse.body.suggestions), true)
+    assert.equal(listSuggestionsResponse.body.suggestions?.[0]?.evidenceSource, 'structured')
+    assert.equal(listSuggestionsResponse.body.suggestions?.[0]?.evidenceSubtype, 'classification')
+    assert.match(
+      listSuggestionsResponse.body.suggestions?.[0]?.suggestionText as string,
+      /substituir|peixe assado|classificada como peixe/i,
+    )
+  })
+
+  it('menu import suggestions should expose explicit structured frequency and recurrence subtypes', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const contractResponse = await request(app.server)
+      .post('/contracts')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        title: 'Contrato Sugestoes Estruturadas R4',
+        sourceType: 'contract',
+        status: 'active',
+      })
+
+    if (contractResponse.status === 503) {
+      assert.equal(contractResponse.body.status, 'error')
+      return
+    }
+
+    const contractId = contractResponse.body.contract?.id as string
+
+    const citrusRuleResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId,
+        title: 'Fruta citrica 3x por semana',
+        description: 'Cardapio deve contemplar fruta citrica ao menos 3 vezes por semana.',
+        category: 'fruta',
+        status: 'approved',
+      })
+
+    assert.equal(citrusRuleResponse.status, 201)
+
+    const recurrenceRuleResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId,
+        title: 'Nao repetir peixe em menos de 7 dias',
+        description: 'Peixe nao pode reaparecer em menos de 7 dias no mesmo servico.',
+        category: 'proteina',
+        status: 'approved',
+      })
+
+    assert.equal(recurrenceRuleResponse.status, 201)
+
+    const recipeImportResponse = await request(app.server)
+      .post('/recipes/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'FICHAS-TECNICAS-GENIAL.pdf',
+        sourceReference: 'Genial',
+        recipes: [
+          {
+            name: 'Laranja em Gomos',
+            ingredients: ['Laranja'],
+            preparationMethod: 'Servir gelada.',
+            group: 'Fruta',
+            cost: 0.6,
+          },
+          {
+            name: 'Peixe assado',
+            ingredients: ['Peixe', 'Ervas'],
+            preparationMethod: 'Assar e servir.',
+            group: 'Proteina',
+            cost: 3.4,
+          },
+          {
+            name: 'Frango grelhado',
+            ingredients: ['Frango', 'Sal'],
+            preparationMethod: 'Grelhar e servir.',
+            group: 'Proteina',
+            cost: 2.1,
+          },
+        ],
+      })
+
+    assert.equal(recipeImportResponse.status, 201)
+
+    const importPayloads = [
+      {
+        referenceDate: '2026-06-01',
+        recipes: ['Arroz', 'Feijao', 'Laranja em Gomos'],
+      },
+      {
+        referenceDate: '2026-06-03',
+        recipes: ['Peixe assado', 'Arroz', 'Laranja em Gomos'],
+      },
+      {
+        referenceDate: '2026-06-05',
+        recipes: ['Arroz', 'Feijao', 'Laranja em Gomos'],
+      },
+      {
+        referenceDate: '2026-06-08',
+        recipes: ['Peixe assado', 'Arroz', 'Feijao', 'Frango grelhado'],
+      },
+    ]
+
+    let lastImportId = ''
+
+    for (const payload of importPayloads) {
+      const importResponse = await request(app.server)
+        .post('/menus/imports')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+          unitName: 'Hospital Sao Marcelino Champagnat',
+          serviceName: 'Almoco',
+          referenceDate: payload.referenceDate,
+          mealType: 'Almoco',
+          financialGoal: 14,
+          mealCost: 13,
+          recipes: payload.recipes,
+        })
+
+      assert.equal(importResponse.status, 201)
+      lastImportId = importResponse.body.import?.id as string
+    }
+
+    const auditResponse = await request(app.server)
+      .post(`/menus/imports/${lastImportId}/audit`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(auditResponse.status, 200)
+
+    const suggestionsResponse = await request(app.server)
+      .post(`/menus/imports/${lastImportId}/suggestions`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(suggestionsResponse.status, 200)
+    assert.equal(suggestionsResponse.body.status, 'ok')
+
+    const suggestions = suggestionsResponse.body.suggestions as Array<{
+      evidenceSource: string
+      evidenceSubtype: string | null
+      suggestionText: string
+    }>
+
+    const frequencySuggestion = suggestions.find((item) =>
+      /fruta citrica 3x por semana/i.test(item.suggestionText),
+    )
+    const recurrenceSuggestion = suggestions.find((item) =>
+      /nao repetir peixe em menos de 7 dias/i.test(item.suggestionText),
+    )
+
+    assert.ok(frequencySuggestion)
+    assert.equal(frequencySuggestion?.evidenceSource, 'structured')
+    assert.equal(frequencySuggestion?.evidenceSubtype, 'frequency')
+
+    assert.ok(recurrenceSuggestion)
+    assert.equal(recurrenceSuggestion?.evidenceSource, 'structured')
+    assert.equal(recurrenceSuggestion?.evidenceSubtype, 'recurrence')
+
+    const listSuggestionsResponse = await request(app.server)
+      .get(`/menus/imports/${lastImportId}/suggestions`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(listSuggestionsResponse.status, 200)
+    assert.equal(listSuggestionsResponse.body.status, 'ok')
+
+    const listedSuggestions = listSuggestionsResponse.body.suggestions as Array<{
+      evidenceSource: string
+      evidenceSubtype: string | null
+      suggestionText: string
+    }>
+
+    assert.equal(
+      listedSuggestions.find((item) => /fruta citrica 3x por semana/i.test(item.suggestionText))
+        ?.evidenceSubtype,
+      'frequency',
+    )
+    assert.equal(
+      listedSuggestions.find((item) => /nao repetir peixe em menos de 7 dias/i.test(item.suggestionText))
+        ?.evidenceSubtype,
+      'recurrence',
+    )
   })
 
   it('menu adjusted version should track applied suggestions and impacts', async () => {

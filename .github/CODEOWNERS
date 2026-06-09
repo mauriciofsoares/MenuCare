@@ -1,0 +1,14 @@
+# Default owner for the whole repository
+* @mauriciofsoares
+
+# Frontend workspace
+/apps/web/ @mauriciofsoares
+
+# Backend workspace
+/apps/api/ @mauriciofsoares
+
+# Product and implementation documentation
+/docs/ @mauriciofsoares
+
+# CI and repository governance
+/.github/ @mauriciofsoares

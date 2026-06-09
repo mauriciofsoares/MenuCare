@@ -8,6 +8,26 @@ Sem essa base, os modulos de conformidade, custo e avaliacoes dependem de interp
 
 Com a base estruturada, o sistema passa a operar sobre entidades nutricionais e operacionais consistentes.
 
+## 1.1. Principio de arquitetura
+
+A IA pode apoiar a leitura documental e a classificacao semantica inicial, mas nao deve executar a validacao operacional.
+
+As validacoes de negocio da biblioteca de receitas devem ser deterministicas e auditaveis.
+
+A IA atua em:
+
+- interpretacao de fichas tecnicas
+- classificacao semantica
+- sugestoes de normalizacao
+- recomendacoes futuras
+
+A IA nao atua em:
+
+- aprovar ou reprovar conformidade
+- calcular meta financeira
+- determinar bloqueio de cardapio
+- substituir regra contratual estruturada
+
 ## 2. Ordem de modulos (visao alvo)
 
 1. Contratos
@@ -28,6 +48,8 @@ PDF de Receitas Genial
 -> Classificacao automatica
 
 -> Base Estruturada de Receitas
+
+-> Validacao deterministica por regras estruturadas
 
 ## 4. Campos minimos por receita
 
@@ -130,6 +152,7 @@ Exemplos de mapeamento:
 - Reclassificacao manual deve gerar evento de auditoria.
 - Toda regra contratual por grupo deve priorizar consulta por classificacao estruturada.
 - Fallback textual so e usado quando nao houver receita classificada.
+- Conformidade, frequencia, meta financeira e bloqueios devem ser calculados por regras estruturadas.
 
 ## 8. Impacto por modulo
 
@@ -171,6 +194,21 @@ Exemplo:
 
 - integracao da auditoria contratual usando receita classificada como fonte primaria
 - metricas de cobertura de classificacao por tenant
+
+Status:
+- concluida no backend
+- exposta no frontend com explicabilidade de evidencia estruturada vs fallback textual
+
+### Iteracao R4
+
+- ampliar sugestoes especificas por grupo alimentar com substituicoes equivalentes mais precisas
+- reduzir dependencia de fallback textual em auditoria e sugestoes
+- preparar base para regras contratuais por frequencia e recorrencia usando classificacao estruturada
+
+Status:
+- concluida no backend para auditoria e sugestoes estruturadas
+- concluida no frontend com badges dedicados para frequencia e recorrencia estruturadas
+- concluida no contrato da API de sugestoes com `evidenceSubtype` explicito (`frequency`, `recurrence`, `classification` ou `null`)
 
 ## 10. Criterios de sucesso
 

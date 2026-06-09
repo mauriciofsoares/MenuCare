@@ -1,0 +1,64 @@
+name: Feature request
+description: Sugerir evolucao funcional do produto
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use este formulario para propor melhorias alinhadas ao contexto de governanca do MenuCare.
+
+  - type: input
+    id: goal
+    attributes:
+      label: Objetivo
+      description: Qual resultado de negocio esta sendo buscado?
+      placeholder: Ex.: Melhorar explicabilidade das sugestoes para nutricionistas
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problema atual
+      description: O que nao funciona bem hoje?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposta
+      description: Descreva a solucao sugerida
+    validations:
+      required: true
+
+  - type: dropdown
+    id: impact
+    attributes:
+      label: Impacto esperado
+      options:
+        - baixo
+        - medio
+        - alto
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area principal
+      options:
+        - web
+        - api
+        - dados
+        - docs
+        - ci/infra
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Criterios de aceite
+      description: Como saberemos que a feature esta pronta?
