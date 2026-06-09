@@ -1452,3 +1452,199 @@ test('exporta historicos de nao conformidade e acao com filtros aplicados', asyn
   expect(actionDownload.suggestedFilename()).toBe('action-plan-history-action-e2e-1.csv')
   expect(actionPlanExportFilterOk).toBe(true)
 })
+
+test('exporta trilha de compliance com filtros avancados e escopos page/all', async ({ page }) => {
+  const complianceExportCalls: Array<{
+    exportType: string | null
+    sortOrder: string | null
+    exportScope: string | null
+    page: string | null
+    limit: string | null
+    exportId: string | null
+    nonConformityId: string | null
+    actionPlanId: string | null
+    actor: string | null
+    from: string | null
+    to: string | null
+  }> = []
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 1,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 1,
+          actionPlansInProgressCount: 1,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ contracts: [] }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rules: [] }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.route('**/compliance/exports/audit?*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        events: [
+          {
+            id: 'audit-event-1',
+            exportId: 'exp-123',
+            exportType: 'action_plan_history',
+            nonConformityId: 'nc-e2e-1',
+            actionPlanId: 'action-e2e-1',
+            filterExportId: 'exp-123',
+            filterNonConformityId: 'nc-e2e-1',
+            filterActionPlanId: 'action-e2e-1',
+            filterSortOrder: 'asc',
+            filterExportScope: 'page',
+            filterActor: 'Carlos Filtro',
+            filterFrom: '2026-06-01',
+            filterTo: '2026-06-30',
+            actorName: 'Carlos Filtro',
+            createdAt: '2026-06-09T11:00:00.000Z',
+          },
+        ],
+        total: 1,
+        hasNext: false,
+      }),
+    })
+  })
+
+  await page.route('**/compliance/exports/audit/export?*', async (route) => {
+    const params = new URL(route.request().url()).searchParams
+
+    complianceExportCalls.push({
+      exportType: params.get('exportType'),
+      sortOrder: params.get('sortOrder'),
+      exportScope: params.get('exportScope'),
+      page: params.get('page'),
+      limit: params.get('limit'),
+      exportId: params.get('exportId'),
+      nonConformityId: params.get('nonConformityId'),
+      actionPlanId: params.get('actionPlanId'),
+      actor: params.get('actor'),
+      from: params.get('from'),
+      to: params.get('to'),
+    })
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/csv',
+      body: 'exportId,exportType\nexp-123,action_plan_history\n',
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const compliancePanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: /Rastreabilidade de exportacoes|Export traceability/i }) })
+
+  const complianceHeader = compliancePanel
+    .locator('.invite-history-head')
+    .filter({ has: page.locator('h3', { hasText: /Rastreabilidade de exportacoes|Export traceability/i }) })
+
+  await complianceHeader.locator('select').selectOption('action_plan_history')
+  await compliancePanel.locator('.history-filter-grid input[type="text"]').nth(0).fill('exp-123')
+  await compliancePanel.locator('.history-filter-grid select').first().selectOption('asc')
+  await compliancePanel.locator('.history-filter-grid input[type="text"]').nth(1).fill('nc-e2e-1')
+  await compliancePanel.locator('.history-filter-grid input[type="text"]').nth(2).fill('action-e2e-1')
+  await compliancePanel.locator('.history-filter-grid input[type="text"]').nth(3).fill('Carlos Filtro')
+  await compliancePanel.locator('.history-filter-grid input[type="date"]').nth(0).fill('2026-06-01')
+  await compliancePanel.locator('.history-filter-grid input[type="date"]').nth(1).fill('2026-06-30')
+  await compliancePanel.locator('.history-filter-grid .history-filter-actions button').first().click()
+
+  await compliancePanel.locator('.history-pagination label select').nth(0).selectOption('50')
+  await compliancePanel.locator('.history-pagination label select').nth(1).selectOption('page')
+
+  const pageScopeDownloadPromise = page.waitForEvent('download')
+  await compliancePanel.locator('.history-pagination .history-filter-actions button').first().click()
+  const pageScopeDownload = await pageScopeDownloadPromise
+  expect(pageScopeDownload.suggestedFilename()).toMatch(/^compliance-export-audit-page-.*\.csv$/)
+
+  await compliancePanel.locator('.history-pagination label select').nth(1).selectOption('all')
+
+  const allScopeDownloadPromise = page.waitForEvent('download')
+  await compliancePanel.locator('.history-pagination .history-filter-actions button').first().click()
+  const allScopeDownload = await allScopeDownloadPromise
+  expect(allScopeDownload.suggestedFilename()).toMatch(/^compliance-export-audit-all-.*\.csv$/)
+
+  expect(complianceExportCalls).toHaveLength(2)
+  expect(complianceExportCalls[0]).toEqual({
+    exportType: 'action_plan_history',
+    sortOrder: 'asc',
+    exportScope: 'page',
+    page: '1',
+    limit: '50',
+    exportId: 'exp-123',
+    nonConformityId: 'nc-e2e-1',
+    actionPlanId: 'action-e2e-1',
+    actor: 'Carlos Filtro',
+    from: '2026-06-01',
+    to: '2026-06-30',
+  })
+  expect(complianceExportCalls[1]).toEqual({
+    exportType: 'action_plan_history',
+    sortOrder: 'asc',
+    exportScope: 'all',
+    page: '1',
+    limit: '50',
+    exportId: 'exp-123',
+    nonConformityId: 'nc-e2e-1',
+    actionPlanId: 'action-e2e-1',
+    actor: 'Carlos Filtro',
+    from: '2026-06-01',
+    to: '2026-06-30',
+  })
+})
