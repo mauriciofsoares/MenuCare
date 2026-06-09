@@ -479,3 +479,121 @@ test('encerra sessao local mesmo quando logout retorna 500', async ({ page }) =>
   const persistedSession = await page.evaluate(() => window.localStorage.getItem('menucare.auth'))
   expect(persistedSession).toBeNull()
 })
+
+test('persiste idioma escolhido no login para escopo global e da empresa', async ({ page }) => {
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 12,
+          rulesApprovedCount: 8,
+          rulesPendingCount: 3,
+          nonConformitiesOpenCount: 2,
+          actionPlansInProgressCount: 1,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ contracts: [] }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rules: [] }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.route('**/preferences/locale', async (route) => {
+    const request = route.request()
+
+    if (request.method() === 'GET') {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ locale: 'en-US' }),
+      })
+      return
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok' }),
+    })
+  })
+
+  await page.route('**/auth/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  const loginLocaleSelect = page.locator('.auth-card .locale-control select').first()
+  await loginLocaleSelect.selectOption('en-US')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  await expect(page.locator('.topbar-actions .locale-control select')).toHaveValue('en-US')
+
+  const savedLocalesAfterLogin = await page.evaluate(() => ({
+    global: window.localStorage.getItem('menucare.locale'),
+    company: window.localStorage.getItem('menucare.locale.company.empresa-teste'),
+  }))
+
+  expect(savedLocalesAfterLogin.global).toBe('en-US')
+  expect(savedLocalesAfterLogin.company).toBe('en-US')
+
+  await page.reload()
+
+  await expect(page.locator('.topbar-actions .locale-control select')).toHaveValue('en-US')
+})
