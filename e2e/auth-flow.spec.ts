@@ -222,3 +222,86 @@ test('encerra sessao no logout e retorna para a tela de login', async ({ page })
   await expect(page.locator('form.auth-form input[type="email"]')).toBeVisible()
   await expect(page.locator('.session-chip')).toHaveCount(0)
 })
+
+test('mantem sessao apos reload usando auth/me e localStorage', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      'menucare.auth',
+      JSON.stringify({
+        token: 'persisted-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Persistida',
+          accessProfile: 'Administrador',
+        },
+      }),
+    )
+  })
+
+  await page.route('**/auth/me', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Persistida',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 5,
+          rulesApprovedCount: 4,
+          rulesPendingCount: 1,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ contracts: [] }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rules: [] }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.goto('/')
+
+  await expect(page.locator('.session-chip')).toContainText('Empresa Persistida')
+
+  await page.reload()
+
+  await expect(page.locator('.session-chip')).toContainText('Empresa Persistida')
+  await expect(page.locator('form.auth-form input[type="email"]')).toHaveCount(0)
+})
