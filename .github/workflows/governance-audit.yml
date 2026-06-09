@@ -13,6 +13,8 @@ on:
 jobs:
   governance-check:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
     steps:
       - name: Checkout
@@ -37,4 +39,5 @@ jobs:
           fi
 
       - name: Run strict governance audit check
-        run: npm run governance:audit:check:strict -- -Month "${{ steps.resolve-month.outputs.month }}"
+        shell: pwsh
+        run: ./scripts/governance/check-monthly-audit.ps1 -Strict -Month "${{ steps.resolve-month.outputs.month }}"
