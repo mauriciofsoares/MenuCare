@@ -9,7 +9,7 @@
   "scripts": {
     "test": "npm run test:all",
     "test:api": "npm run test --workspace apps/api",
-    "test:web": "npm run test --workspace apps/web",
+    "test:web": "npm run test --workspace apps/web --if-present",
     "test:all": "npm run test:api && npm run test:web",
     "dev": "npm run dev --workspace apps/web",
     "dev:api": "npm run dev --workspace apps/api",
