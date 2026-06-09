@@ -20,7 +20,7 @@
     "build:api": "npm run build --workspace apps/api",
     "build:web": "npm run build --workspace apps/web",
     "build:all": "npm run build:api && npm run build:web",
-    "ci:validate": "npm run prisma:generate && npm run test:all && npm run build:all",
+    "ci:validate": "npm run test:all && npm run build:all",
     "branch-protection:apply": "powershell -ExecutionPolicy Bypass -File ./scripts/github/apply-branch-protection.ps1",
     "governance:audit:dispatch": "powershell -ExecutionPolicy Bypass -File ./scripts/github/dispatch-governance-audit.ps1",
     "governance:audit:new": "powershell -ExecutionPolicy Bypass -File ./scripts/governance/new-monthly-audit.ps1 -SkipIfExists",
