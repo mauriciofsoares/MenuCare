@@ -5794,3 +5794,286 @@ test('sustenta volume moderado com importacoes e reclassificacoes sequenciais', 
   expect(recipeImportPostCount).toBe(6)
   expect(recipeReclassificationPatchCount).toBe(3)
 })
+
+test('mantem estabilidade em stress controlado com ciclos prolongados de receitas', async ({ page }) => {
+  test.setTimeout(120_000)
+
+  const importedRecipes: Array<{
+    id: string
+    sourceFileName: string
+    sourceReference: string | null
+    name: string
+    normalizedName: string
+    category: string
+    subcategory: string
+    foodGroup: string
+    tags: string[]
+    confidence: number
+    manualReviewed: boolean
+    createdAt: string
+    updatedAt: string
+  }> = []
+  let recipeImportPostCount = 0
+  let recipeReclassificationPatchCount = 0
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contracts: [] }) })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rules: [] }) })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ nonConformities: [] }) })
+  })
+
+  await page.route('**/recipes?limit=20', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 80))
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recipes: importedRecipes.map((item) => ({
+          id: item.id,
+          sourceFileName: item.sourceFileName,
+          sourceReference: item.sourceReference,
+          name: item.name,
+          normalizedName: item.normalizedName,
+          category: item.category,
+          subcategory: item.subcategory,
+          foodGroup: item.foodGroup,
+          costPerCapita: 2.9,
+          servingYield: 95,
+          preparationMethod: 'Preparo padrao stress.',
+          nutritionalInfo: { calories: 250 },
+          compatibleDiets: ['geral'],
+          allergens: [],
+          aiClassification: {
+            category: item.category,
+            subcategory: item.subcategory,
+            foodGroup: item.foodGroup,
+            confidence: item.confidence,
+            tags: item.tags,
+          },
+          aiProvider: item.manualReviewed ? 'manual-reviewed' : 'heuristic-ready',
+          isActive: true,
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+        })),
+      }),
+    })
+  })
+
+  await page.route('**/recipes/coverage', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 60))
+    const manualReviewedRecipes = importedRecipes.filter((item) => item.manualReviewed).length
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        coverage: {
+          totalRecipes: importedRecipes.length,
+          activeRecipes: importedRecipes.length,
+          classifiedRecipes: importedRecipes.length,
+          manualReviewedRecipes,
+          heuristicRecipes: importedRecipes.length - manualReviewedRecipes,
+          coveragePercent: importedRecipes.length ? 100 : 0,
+          categoryDistribution: importedRecipes.length
+            ? [
+                {
+                  category: 'Proteina',
+                  total: importedRecipes.length,
+                },
+              ]
+            : [],
+        },
+      }),
+    })
+  })
+
+  await page.route('**/recipes/imports', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 70))
+
+    const payload = (await route.request().postDataJSON()) as {
+      fileName: string
+      sourceReference?: string
+      recipes: Array<{ name: string }>
+    }
+
+    recipeImportPostCount += 1
+
+    const importedName = payload.recipes[0]?.name ?? `Receita ${recipeImportPostCount}`
+    importedRecipes.push({
+      id: `recipe-lib-soak-e2e-${recipeImportPostCount}`,
+      sourceFileName: payload.fileName,
+      sourceReference: payload.sourceReference ?? null,
+      name: importedName,
+      normalizedName: importedName.toLowerCase(),
+      category: 'Proteina',
+      subcategory: 'Aves',
+      foodGroup: 'Proteina animal',
+      tags: ['protein', 'poultry'],
+      confidence: 0.84,
+      manualReviewed: false,
+      createdAt: `2026-06-09T23:${String(10 + recipeImportPostCount).padStart(2, '0')}:00.000Z`,
+      updatedAt: `2026-06-09T23:${String(20 + recipeImportPostCount).padStart(2, '0')}:00.000Z`,
+    })
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recipeImport: {
+          id: `recipe-import-soak-e2e-${recipeImportPostCount}`,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/recipes/*/classification', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 90))
+
+    const url = new URL(route.request().url())
+    const segments = url.pathname.split('/').filter(Boolean)
+    const recipeId = segments[segments.length - 2]
+    const payload = (await route.request().postDataJSON()) as {
+      category?: string
+      subcategory?: string
+      foodGroup?: string
+      confidence?: number
+      tags?: string[]
+    }
+
+    const target = importedRecipes.find((item) => item.id === recipeId)
+    if (target) {
+      target.category = payload.category ?? target.category
+      target.subcategory = payload.subcategory ?? target.subcategory
+      target.foodGroup = payload.foodGroup ?? target.foodGroup
+      target.confidence = payload.confidence ?? target.confidence
+      target.tags = payload.tags ?? target.tags
+      target.manualReviewed = true
+      target.updatedAt = new Date().toISOString()
+    }
+
+    recipeReclassificationPatchCount += 1
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recipe: { id: recipeId },
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+
+  const recipeImportHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Base estruturada de receitas' }) })
+  const recipeImportForm = recipeImportHeader.locator('xpath=following-sibling::form[1]')
+
+  const importRecipe = async (index: number) => {
+    const name = `Frango Soak ${index}`
+    await recipeImportForm.locator('input[type="text"]').nth(0).fill(`FICHA-SOAK-${index}.pdf`)
+    await recipeImportForm.locator('input[type="text"]').nth(1).fill('Genial')
+    await recipeImportForm.locator('input[type="text"]').nth(2).fill(name)
+    await recipeImportForm.locator('textarea').nth(0).fill(`Ingrediente ${name}`)
+    await recipeImportForm.locator('textarea').nth(1).fill(`Preparo ${name}`)
+    await recipeImportForm.locator('button.auth-button').click()
+    await expect(menuImportPanel).toContainText(name)
+  }
+
+  for (let index = 1; index <= 8; index += 1) {
+    await importRecipe(index)
+  }
+
+  const recipeList = recipeImportHeader.locator('xpath=following-sibling::ul[1]/li')
+  await expect(recipeList).toHaveCount(8)
+  await expect(menuImportPanel).toContainText('8 classificadas de 8 receitas')
+  await expect(menuImportPanel).toContainText('Revisadas manualmente: 0 · Heuristica: 8')
+
+  const reclassificationHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Reclassificacao manual auditada' }) })
+  const reclassificationForm = reclassificationHeader.locator('xpath=following-sibling::form[1]')
+
+  const reclassifyRecipe = async (index: number) => {
+    const recipeId = `recipe-lib-soak-e2e-${index}`
+    const submitButton = reclassificationForm.locator('button.logout-button')
+    await reclassificationForm.locator('select').selectOption(recipeId)
+    await reclassificationForm.locator('input[type="text"]').nth(0).fill(`Proteina soak ${index}`)
+    await reclassificationForm.locator('input[type="text"]').nth(1).fill(`Aves soak ${index}`)
+    await reclassificationForm.locator('input[type="text"]').nth(2).fill(`Grupo soak ${index}`)
+    await reclassificationForm.locator('input[type="number"]').fill('0.94')
+    await reclassificationForm.locator('input[type="text"]').nth(3).fill('reviewed, soak')
+    await reclassificationForm.locator('textarea').fill(`Revisao prolongada ${recipeId}.`)
+    await submitButton.click()
+    await expect(submitButton).toContainText('Salvar reclassificacao')
+  }
+
+  for (let index = 1; index <= 5; index += 1) {
+    await reclassifyRecipe(index)
+  }
+
+  await expect(reclassificationForm).toContainText('Reclassificacao salva com sucesso e registrada na auditoria.')
+  await expect(menuImportPanel).toContainText('Revisadas manualmente: 5 · Heuristica: 3')
+  await expect(menuImportPanel).toContainText('Proteina soak 1 · Aves soak 1 · Grupo soak 1')
+  await expect(menuImportPanel).toContainText('Proteina soak 5 · Aves soak 5 · Grupo soak 5')
+  expect(recipeImportPostCount).toBe(8)
+  expect(recipeReclassificationPatchCount).toBe(5)
+})
