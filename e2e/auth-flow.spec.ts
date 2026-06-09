@@ -370,3 +370,29 @@ test('ativa primeiro acesso com sucesso e retorna para login', async ({ page }) 
     'novo.usuario@menucare.local',
   )
 })
+
+test('exibe erro quando primeiro acesso retorna convite invalido', async ({ page }) => {
+  await page.route('**/auth/first-access/activate', async (route) => {
+    await route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'error',
+        message: 'Convite invalido ou expirado.',
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  const authTabs = page.locator('.auth-tabs .auth-tab')
+  await authTabs.nth(1).click()
+
+  await page.locator('form.auth-form input[type="text"]').fill('INVITE-INVALIDO')
+  await page.locator('form.auth-form input[type="password"]').fill('Senha@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  await expect(page.locator('form.auth-form .auth-error')).toHaveText('Convite invalido ou expirado.')
+  await expect(page.locator('form.auth-form input[type="text"]')).toBeVisible()
+  await expect(page.locator('form.auth-form input[type="email"]')).toHaveCount(0)
+})
