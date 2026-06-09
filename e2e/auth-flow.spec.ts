@@ -2259,3 +2259,215 @@ test('gera sugestoes de ajuste para cardapio importado e exibe impactos', async 
 
   expect(suggestionsPostCount).toBe(1)
 })
+
+test('gera versao ajustada de cardapio importado com horizonte e impacto financeiro', async ({ page }) => {
+  let adjustedVersionGenerated = false
+  let adjustedVersionPostCount = 0
+  let adjustedVersionMonthsAheadPayload: number | null = null
+
+  const adjustedVersions = [
+    {
+      id: 'menu-adjusted-version-e2e-1',
+      importId: 'menu-import-adjusted-e2e-1',
+      versionLabel: 'Versao ajustada Junho/2026 +2M',
+      adjustedMealCost: 13.4,
+      totalFinancialImpact: -1.6,
+      nutritionalImpactSummary: 'Maior equilibrio proteico e reforco de frutas citricas no ciclo.',
+      appliedSuggestions: ['Troca de peixe por frango', 'Inclusao de fruta citrica'],
+      planningMonthsAhead: 2,
+      targetMonth: '2026-08',
+      commemorativeContext: {
+        prioritizeNobleDishes: true,
+      },
+      createdAt: '2026-06-09T14:00:00.000Z',
+    },
+  ]
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ contracts: [] }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rules: [] }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.route('**/menus/imports?limit=10', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        imports: [
+          {
+            id: 'menu-import-adjusted-e2e-1',
+            fileName: 'CARDAPIO-AJUSTADO-E2E.pdf',
+            unitName: 'Hospital MenuCare',
+            serviceName: 'Almoco executivo',
+            referenceDate: '2026-06-24',
+            mealType: 'Almoco',
+            financialGoal: 15,
+            mealCost: 14.9,
+            exceededValue: 0,
+            exceededPercent: 0,
+            validationStatus: 'within_goal',
+            recipes: ['Peixe assado', 'Arroz integral', 'Laranja em gomos'],
+            createdAt: '2026-06-09T13:30:00.000Z',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-adjusted-e2e-1/audit', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', results: [] }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-adjusted-e2e-1/suggestions', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', suggestions: [] }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-adjusted-e2e-1/adjusted-versions', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        versions: adjustedVersionGenerated ? adjustedVersions : [],
+      }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-adjusted-e2e-1/adjusted-version', async (route) => {
+    const request = route.request()
+    const body = request.postDataJSON() as { monthsAhead?: number }
+    adjustedVersionMonthsAheadPayload = body.monthsAhead ?? null
+    adjustedVersionGenerated = true
+    adjustedVersionPostCount += 1
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        adjustedVersion: adjustedVersions[0],
+      }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-adjusted-e2e-1', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', recommendations: [] }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-adjusted-e2e-1/next-menu', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', proposal: null }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-adjusted-e2e-1/next-menu/decisions**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', decisions: [] }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+  const menuAuditHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Auditoria contratual do cardapio' }) })
+  await menuAuditHeader.locator('select').selectOption('menu-import-adjusted-e2e-1')
+
+  const adjustedVersionPanelHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Versoes ajustadas' }) })
+
+  const adjustedVersionForm = adjustedVersionPanelHeader.locator('xpath=following-sibling::form[1]')
+  await adjustedVersionForm.locator('select').selectOption('2')
+
+  await menuImportPanel
+    .locator('button.logout-button', { hasText: 'Gerar nova versao ajustada' })
+    .click()
+
+  await expect(menuImportPanel).toContainText('Versao ajustada Junho/2026 +2M')
+  await expect(menuImportPanel).toContainText('2 sugestoes aplicadas')
+  await expect(menuImportPanel).toContainText('Mes alvo: 2026-08 | Horizonte: 2 mes(es)')
+  await expect(menuImportPanel).toContainText('Custo ajustado: R$ 13.40 | Impacto financeiro total: R$ -1.60')
+  await expect(menuImportPanel).toContainText('Maior equilibrio proteico e reforco de frutas citricas no ciclo.')
+  await expect(menuImportPanel).toContainText('Datas comemorativas: priorizando pratos nobres')
+
+  expect(adjustedVersionPostCount).toBe(1)
+  expect(adjustedVersionMonthsAheadPayload).toBe(2)
+})
