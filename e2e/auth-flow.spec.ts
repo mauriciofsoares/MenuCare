@@ -2052,3 +2052,210 @@ test('executa auditoria contratual de cardapio importado e exibe resultados', as
   expect(menuImportAuditPostCount).toBe(1)
   expect(menuImportListFetchCount).toBeGreaterThanOrEqual(2)
 })
+
+test('gera sugestoes de ajuste para cardapio importado e exibe impactos', async ({ page }) => {
+  let suggestionsGenerated = false
+  let suggestionsPostCount = 0
+
+  const menuSuggestions = [
+    {
+      id: 'menu-suggestion-e2e-1',
+      suggestionText:
+        'Substituir Peixe assado por Frango grelhado para atender a regra: Nao repetir peixe em menos de 7 dias.',
+      estimatedFinancialImpact: -1.75,
+      estimatedNutritionalImpact:
+        'Impacto positivo no grupo proteina com substituicao para melhor distribuicao semanal.',
+      priorityLevel: 'high',
+    },
+    {
+      id: 'menu-suggestion-e2e-2',
+      suggestionText:
+        'Reforcar insercao de fruta citrica no almoco de quinta-feira para cobertura contratual.',
+      estimatedFinancialImpact: 0.9,
+      estimatedNutritionalImpact: 'Melhora equilibrio de vitaminas sem alterar o grupo principal.',
+      priorityLevel: 'medium',
+    },
+  ]
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ contracts: [] }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rules: [] }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.route('**/menus/imports?limit=10', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        imports: [
+          {
+            id: 'menu-import-suggestions-e2e-1',
+            fileName: 'CARDAPIO-SUGESTOES-E2E.pdf',
+            unitName: 'Hospital MenuCare',
+            serviceName: 'Almoco executivo',
+            referenceDate: '2026-06-23',
+            mealType: 'Almoco',
+            financialGoal: 15.5,
+            mealCost: 15,
+            exceededValue: 0,
+            exceededPercent: 0,
+            validationStatus: 'within_goal',
+            recipes: ['Peixe assado', 'Arroz integral', 'Laranja em gomos'],
+            createdAt: '2026-06-09T13:00:00.000Z',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-suggestions-e2e-1/audit', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', results: [] }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-suggestions-e2e-1/suggestions', async (route) => {
+    const request = route.request()
+
+    if (request.method() === 'POST') {
+      suggestionsGenerated = true
+      suggestionsPostCount += 1
+
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok', suggestions: menuSuggestions }),
+      })
+      return
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        suggestions: suggestionsGenerated ? menuSuggestions : [],
+      }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-suggestions-e2e-1/adjusted-versions', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', versions: [] }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-suggestions-e2e-1', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', recommendations: [] }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-suggestions-e2e-1/next-menu', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', proposal: null }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-suggestions-e2e-1/next-menu/decisions**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', decisions: [] }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+
+  const menuAuditHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Auditoria contratual do cardapio' }) })
+  await menuAuditHeader.locator('select').selectOption('menu-import-suggestions-e2e-1')
+
+  await menuImportPanel
+    .locator('button.logout-button', { hasText: 'Gerar sugestoes de ajuste' })
+    .click()
+
+  await expect(menuImportPanel).toContainText('Troca sugerida com base estruturada')
+  await expect(menuImportPanel).toContainText('Alta prioridade')
+  await expect(menuImportPanel).toContainText('Media prioridade')
+  await expect(menuImportPanel).toContainText('Substituir: Peixe assado')
+  await expect(menuImportPanel).toContainText('Receita sugerida: Frango grelhado')
+  await expect(menuImportPanel).toContainText('Regra alvo: Nao repetir peixe em menos de 7 dias')
+  await expect(menuImportPanel).toContainText('Grupo: proteina')
+  await expect(menuImportPanel).toContainText('Impacto financeiro estimado: R$ -1.75')
+  await expect(menuImportPanel).toContainText('Impacto financeiro estimado: R$ 0.90')
+  await expect(menuImportPanel).toContainText('Reforcar insercao de fruta citrica')
+
+  expect(suggestionsPostCount).toBe(1)
+})
