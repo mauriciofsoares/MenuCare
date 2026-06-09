@@ -597,3 +597,106 @@ test('persiste idioma escolhido no login para escopo global e da empresa', async
 
   await expect(page.locator('.topbar-actions .locale-control select')).toHaveValue('en-US')
 })
+
+test('cria contrato e exibe item na lista de contratos', async ({ page }) => {
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 0,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ contracts: [] }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rules: [] }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.route('**/contracts', async (route) => {
+    const request = route.request()
+
+    if (request.method() !== 'POST') {
+      await route.continue()
+      return
+    }
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        contract: {
+          id: 'contract-e2e-1',
+          title: 'Contrato E2E Principal',
+          sourceType: 'regulation',
+          status: 'active',
+        },
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const contractPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Novo contrato' }) })
+  await contractPanel.locator('input[type="text"]').fill('Contrato E2E Principal')
+  await contractPanel.locator('select').nth(0).selectOption('regulation')
+  await contractPanel.locator('select').nth(1).selectOption('active')
+  await contractPanel.locator('button.auth-button').click()
+
+  const contractsListPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Contratos' }) })
+  await expect(contractsListPanel).toContainText('Contrato E2E Principal')
+  await expect(contractsListPanel).toContainText(/Ativo|Active/)
+})
