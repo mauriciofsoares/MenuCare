@@ -3659,3 +3659,470 @@ test('exibe erro quando registro de decisao do proximo cardapio falha', async ({
   await expect(page.getByText('Falha simulada ao registrar decisao.')).toBeVisible()
   expect(decisionAttempted).toBe(true)
 })
+
+test('registra decisao de reprovacao da proposta no historico do proximo cardapio', async ({ page }) => {
+  let decisionPostCount = 0
+  let rejectedDecisionPayload: { decision?: string; justification?: string } | null = null
+  let decisionHistory = [] as Array<{
+    id: string
+    importId: string
+    status: 'approved' | 'rejected'
+    justification: string
+    governanceBlocksApproval: boolean
+    historicalNonBlocking: boolean
+    actorId: string
+    actorName: string
+    createdAt: string
+    nextMenuProposal: {
+      importId: string
+      unitName: string
+      serviceName: string
+      proposalType: 'historical_recommended' | 'current_baseline'
+      recipes: string[]
+      estimatedCost: number
+      financialGoal: number
+      historicalLayer: {
+        nonBlocking: boolean
+        sourceCombinationId: string | null
+        sourceAverageRating: number | null
+        sourceEvaluationsCount: number
+        note: string
+      }
+      governance: {
+        blocksApproval: boolean
+        mandatoryFindings: Array<{
+          criterion: string
+          status: 'ok' | 'violation'
+        }>
+      }
+    }
+  }>
+
+  const nextMenuProposal = {
+    importId: 'menu-import-next-reject-e2e-1',
+    unitName: 'Hospital MenuCare',
+    serviceName: 'Almoco executivo',
+    proposalType: 'historical_recommended' as const,
+    recipes: ['Peixe assado', 'Arroz integral', 'Laranja em gomos'],
+    estimatedCost: 14.9,
+    financialGoal: 15,
+    historicalLayer: {
+      nonBlocking: true,
+      sourceCombinationId: 'comb-2',
+      sourceAverageRating: 7.2,
+      sourceEvaluationsCount: 58,
+      note: 'Historico com avaliacao mediana para esta combinacao.',
+    },
+    governance: {
+      blocksApproval: false,
+      mandatoryFindings: [{ criterion: 'Meta financeira', status: 'ok' as const }],
+    },
+  }
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contracts: [] }) })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rules: [] }) })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ nonConformities: [] }) })
+  })
+
+  await page.route('**/menus/imports?limit=10', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        imports: [
+          {
+            id: 'menu-import-next-reject-e2e-1',
+            fileName: 'CARDAPIO-NEXT-REJECT-E2E.pdf',
+            unitName: 'Hospital MenuCare',
+            serviceName: 'Almoco executivo',
+            referenceDate: '2026-06-29',
+            mealType: 'Almoco',
+            financialGoal: 15,
+            mealCost: 14.9,
+            exceededValue: 0,
+            exceededPercent: 0,
+            validationStatus: 'within_goal',
+            recipes: ['Peixe assado', 'Arroz integral', 'Laranja em gomos'],
+            createdAt: '2026-06-09T17:40:00.000Z',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-next-reject-e2e-1/audit', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', results: [] }) })
+  })
+
+  await page.route('**/menus/imports/menu-import-next-reject-e2e-1/suggestions', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', suggestions: [] }) })
+  })
+
+  await page.route('**/menus/imports/menu-import-next-reject-e2e-1/adjusted-versions', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', versions: [] }) })
+  })
+
+  await page.route('**/menus/commemorative-dates?year=*&limit=400', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', commemorativeDates: [] }) })
+  })
+
+  await page.route('**/evaluations/imports?limit=10', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', evaluations: [] }) })
+  })
+
+  await page.route('**/evaluations/intelligence?limit=10', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', combinations: [] }) })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-next-reject-e2e-1', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recommendation: {
+          policy: {
+            priorityOrder: ['financial_goal', 'nutritional_restrictions', 'operational_rules', 'historical_ratings'],
+            levels: [{ key: 'mandatory', blocksApproval: true }],
+            blockingCriteria: ['financial_goal'],
+          },
+          importContext: {
+            importId: 'menu-import-next-reject-e2e-1',
+            unitName: 'Hospital MenuCare',
+            serviceName: 'Almoco executivo',
+            financialGoal: 15,
+            mealCost: 14.9,
+            currentRecipes: ['Peixe assado', 'Arroz integral', 'Laranja em gomos'],
+          },
+          decision: {
+            blocksApproval: false,
+            mandatoryFindings: [{ criterion: 'Meta financeira', status: 'ok', detail: 'Dentro da meta.' }],
+          },
+          historicalLayer: {
+            nonBlocking: true,
+            note: 'Historico com tendencia estavel.',
+            recommendedCombinations: [],
+          },
+        },
+      }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-next-reject-e2e-1/next-menu/decisions?limit=10', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', decisions: decisionHistory }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-next-reject-e2e-1/next-menu', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', nextMenuProposal }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-next-reject-e2e-1/next-menu/decision', async (route) => {
+    decisionPostCount += 1
+    rejectedDecisionPayload = route.request().postDataJSON() as { decision?: string; justification?: string }
+
+    const createdDecision = {
+      id: 'next-decision-rejected-e2e-1',
+      importId: 'menu-import-next-reject-e2e-1',
+      status: 'rejected' as const,
+      justification: rejectedDecisionPayload.justification ?? '',
+      governanceBlocksApproval: false,
+      historicalNonBlocking: true,
+      actorId: 'user-1',
+      actorName: 'Admin MenuCare',
+      createdAt: '2026-06-09T17:50:00.000Z',
+      nextMenuProposal,
+    }
+
+    decisionHistory = [createdDecision, ...decisionHistory]
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', decision: createdDecision }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+  const menuAuditHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Auditoria contratual do cardapio' }) })
+  await menuAuditHeader.locator('select').selectOption('menu-import-next-reject-e2e-1')
+
+  await menuImportPanel
+    .locator('button.logout-button', { hasText: 'Gerar proposta do proximo cardapio' })
+    .click()
+
+  const decisionForm = menuImportPanel.locator('form.crud-form').filter({ has: page.getByText('Justificativa da decisao') }).first()
+  await decisionForm.locator('textarea').fill('Reprovado por baixa aderencia historica da combinacao sugerida.')
+  await decisionForm.locator('button.logout-button', { hasText: 'Reprovar proposta' }).click()
+
+  await expect(menuImportPanel).toContainText('Historico de decisoes do proximo cardapio')
+  await expect(menuImportPanel).toContainText('Reprovado')
+  await expect(menuImportPanel).toContainText('Reprovado por baixa aderencia historica da combinacao sugerida.')
+
+  expect(decisionPostCount).toBe(1)
+  expect(rejectedDecisionPayload).toEqual({
+    decision: 'rejected',
+    justification: 'Reprovado por baixa aderencia historica da combinacao sugerida.',
+  })
+})
+
+test('impede registro de decisao quando justificativa e menor que 5 caracteres', async ({ page }) => {
+  let decisionEndpointCalled = false
+
+  const nextMenuProposal = {
+    importId: 'menu-import-next-short-justification-e2e-1',
+    unitName: 'Hospital MenuCare',
+    serviceName: 'Almoco executivo',
+    proposalType: 'historical_recommended',
+    recipes: ['Frango grelhado', 'Arroz integral', 'Laranja em gomos'],
+    estimatedCost: 14.1,
+    financialGoal: 15,
+    historicalLayer: {
+      nonBlocking: true,
+      sourceCombinationId: 'comb-1',
+      sourceAverageRating: 8.6,
+      sourceEvaluationsCount: 124,
+      note: 'Proposta baseada em historico.',
+    },
+    governance: {
+      blocksApproval: false,
+      mandatoryFindings: [{ criterion: 'Meta financeira', status: 'ok' }],
+    },
+  }
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contracts: [] }) })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rules: [] }) })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ nonConformities: [] }) })
+  })
+
+  await page.route('**/menus/imports?limit=10', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        imports: [
+          {
+            id: 'menu-import-next-short-justification-e2e-1',
+            fileName: 'CARDAPIO-NEXT-SHORT-JUST-E2E.pdf',
+            unitName: 'Hospital MenuCare',
+            serviceName: 'Almoco executivo',
+            referenceDate: '2026-06-30',
+            mealType: 'Almoco',
+            financialGoal: 15,
+            mealCost: 14.1,
+            exceededValue: 0,
+            exceededPercent: 0,
+            validationStatus: 'within_goal',
+            recipes: ['Frango grelhado', 'Arroz integral', 'Laranja em gomos'],
+            createdAt: '2026-06-09T18:10:00.000Z',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-next-short-justification-e2e-1/audit', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', results: [] }) })
+  })
+
+  await page.route('**/menus/imports/menu-import-next-short-justification-e2e-1/suggestions', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', suggestions: [] }) })
+  })
+
+  await page.route('**/menus/imports/menu-import-next-short-justification-e2e-1/adjusted-versions', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', versions: [] }) })
+  })
+
+  await page.route('**/menus/commemorative-dates?year=*&limit=400', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', commemorativeDates: [] }) })
+  })
+
+  await page.route('**/evaluations/imports?limit=10', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', evaluations: [] }) })
+  })
+
+  await page.route('**/evaluations/intelligence?limit=10', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', combinations: [] }) })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-next-short-justification-e2e-1', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recommendation: {
+          policy: {
+            priorityOrder: ['financial_goal', 'nutritional_restrictions', 'operational_rules', 'historical_ratings'],
+            levels: [{ key: 'mandatory', blocksApproval: true }],
+            blockingCriteria: ['financial_goal'],
+          },
+          importContext: {
+            importId: 'menu-import-next-short-justification-e2e-1',
+            unitName: 'Hospital MenuCare',
+            serviceName: 'Almoco executivo',
+            financialGoal: 15,
+            mealCost: 14.1,
+            currentRecipes: ['Frango grelhado', 'Arroz integral', 'Laranja em gomos'],
+          },
+          decision: {
+            blocksApproval: false,
+            mandatoryFindings: [{ criterion: 'Meta financeira', status: 'ok', detail: 'Dentro da meta.' }],
+          },
+          historicalLayer: {
+            nonBlocking: true,
+            note: 'Historico favoravel.',
+            recommendedCombinations: [],
+          },
+        },
+      }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-next-short-justification-e2e-1/next-menu/decisions?limit=10', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', decisions: [] }) })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-next-short-justification-e2e-1/next-menu', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', nextMenuProposal }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-next-short-justification-e2e-1/next-menu/decision', async (route) => {
+    decisionEndpointCalled = true
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok' }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+  const menuAuditHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Auditoria contratual do cardapio' }) })
+  await menuAuditHeader.locator('select').selectOption('menu-import-next-short-justification-e2e-1')
+
+  await menuImportPanel
+    .locator('button.logout-button', { hasText: 'Gerar proposta do proximo cardapio' })
+    .click()
+
+  const decisionForm = menuImportPanel.locator('form.crud-form').filter({ has: page.getByText('Justificativa da decisao') }).first()
+  await decisionForm.locator('textarea').fill('ok')
+  await decisionForm.locator('button.logout-button', { hasText: 'Reprovar proposta' }).click()
+
+  await expect(page.getByText('Informe uma justificativa com pelo menos 5 caracteres para registrar a decisao.')).toBeVisible()
+  expect(decisionEndpointCalled).toBe(false)
+})
