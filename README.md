@@ -35,7 +35,7 @@ Monorepo inicial do MenuCare com:
 - Testes E2E (Playwright): `npm run test:e2e`
 - Listar testes E2E: `npm run test:e2e:list`
 - Instalar browser do Playwright: `npm run test:e2e:install`
-   - Cobertura inicial: `e2e/smoke.spec.ts` e `e2e/auth-flow.spec.ts` (abas de acesso + primeiro acesso sucesso/erro + login sucesso/erro + pos-login + logout com sucesso/falha + persistencia/expiracao de sessao + idioma global/empresa + contratos/regras/nao conformidades com criacao/listagem + validacoes/transicoes com auditoria + exportacao CSV de historicos e compliance export audit com filtros avancados e escopo page/all, tudo com API mockada)
+   - Cobertura inicial: `e2e/smoke.spec.ts` e `e2e/auth-flow.spec.ts` (abas de acesso + primeiro acesso sucesso/erro + login sucesso/erro + pos-login + logout com sucesso/falha + persistencia/expiracao de sessao + idioma global/empresa + contratos/regras/nao conformidades/importacao PDF com criacao/listagem + validacoes/transicoes com auditoria + exportacao CSV de historicos e compliance export audit com filtros avancados e escopo page/all, tudo com API mockada)
 - Build (API + Web): `npm run build`
 - Validacao de CI local (Prisma + testes + build): `npm run ci:validate`
 - Pull Request com checklist de qualidade: `.github/pull_request_template.md`
