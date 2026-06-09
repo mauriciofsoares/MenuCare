@@ -1,0 +1,40 @@
+name: Governance Audit
+
+on:
+  schedule:
+    - cron: '0 12 1 * *'
+  workflow_dispatch:
+    inputs:
+      month:
+        description: 'Mes da auditoria no formato AAAA-MM (opcional)'
+        required: false
+        type: string
+
+jobs:
+  governance-check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Resolve month
+        id: resolve-month
+        run: |
+          if [ -n "${{ github.event.inputs.month }}" ]; then
+            echo "month=${{ github.event.inputs.month }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "month=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run strict governance audit check
+        run: npm run governance:audit:check:strict -- -Month "${{ steps.resolve-month.outputs.month }}"

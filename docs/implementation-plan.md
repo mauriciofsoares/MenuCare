@@ -36,6 +36,11 @@ Importante:
 - O MenuCare nao substitui a Genial.
 - O MenuCare atua como camada de governanca, conformidade e otimizacao sobre o cardapio operacional da Genial.
 
+### Principio de arquitetura
+- A IA deve atuar apenas em interpretacao documental, classificacao semantica, geracao de sugestoes e recomendacoes futuras.
+- Conformidade, metas financeiras, frequencia de receitas, auditoria e bloqueios devem ser tratados por regras estruturadas e deterministicas.
+- A base estruturada de contratos + receitas + avaliacoes e o ativo central; a IA alimenta e explora essa base, mas nao substitui as validacoes.
+
 ---
 
 ## 3. Arquitetura alvo recomendada
@@ -196,6 +201,33 @@ Importante:
   - dieta compativel
   - alergenos
 
+### Status atual
+- R1 concluida:
+  - persistencia da biblioteca de receitas
+  - importacao estruturada
+  - listagem operacional no backend e frontend
+- R2 concluida:
+  - classificador automatico inicial
+  - reclassificacao manual auditada
+  - feedback operacional na interface
+- R3 concluida:
+  - auditoria contratual usando classificacao estruturada como fonte primaria
+  - fallback textual somente quando necessario
+  - metricas de cobertura por tenant
+  - explicabilidade de auditoria e sugestoes na interface
+- R4 concluida no escopo atual:
+  - sugestoes mais especificas por grupo alimentar com substituicoes equivalentes mais precisas
+  - auditoria estruturada para frequencia semanal e recorrencia minima
+  - badges e explicabilidade dedicados no frontend para frequencia e recorrencia estruturadas
+  - contrato da API de sugestoes com `evidenceSubtype` explicito (`frequency`, `recurrence`, `classification` ou `null`)
+  - componente dedicado de badges de evidencia no frontend para reduzir acoplamento do App principal
+  - teste de integracao de componente para badges (render + classe CSS) cobrindo auditoria e sugestoes
+  - setup global de testes no Vitest com jsdom + cleanup automatico entre casos, evitando dependencia de limpeza local por arquivo
+
+### Proximo incremento prioritario
+- ampliar a cobertura da biblioteca para reduzir casos que ainda dependem de fallback textual
+- enriquecer substituicoes equivalentes com contexto nutricional e historico operacional, mantendo bloqueios sempre deterministas
+
 ### Criterio de pronto
 - Receita importada passa a ter identidade estruturada unica no tenant.
 - Cardapio importado referencia receitas conhecidas sem depender apenas de texto livre.
@@ -343,7 +375,7 @@ Indices obrigatorios:
 17. Geracao operacional da proposta de proximo cardapio com governanca explicita.
 18. Aprovacao/reprovacao da proposta e persistencia da decisao com auditoria.
 19. Hardening final de seguranca (refresh rotativo, cookies httpOnly, recuperacao de senha real).
-20. E2E completo do ciclo estrategico e pipeline CI.
+20. E2E completo do ciclo estrategico.
 
 ---
 
@@ -363,11 +395,11 @@ Indices obrigatorios:
 
 ## 10. Proxima acao sugerida (imediata)
 
-Iniciar a Fase 5.1 (Base Estruturada de Receitas):
-- Endpoints de importacao/listagem/classificacao de receitas.
-- Persistencia de receitas + ingredientes + relacionamento receita-ingrediente.
-- Normalizacao de categorias/subcategorias com dicionario inicial (citricas, peixes, etc.).
-- Integracao da auditoria para consumir classificacao estruturada antes de texto livre.
+Evoluir a Base Estruturada de Receitas apos a conclusao da Fase 5.1 no escopo prioritario:
+- ampliar cobertura da biblioteca para reduzir os ultimos casos dependentes de fallback textual
+- enriquecer equivalencias de substituicao por contexto nutricional e historico operacional
+- manter contrato explicito entre backend e frontend para evidencias estruturadas de auditoria e sugestoes
+- preparar proximos incrementos de governanca para proposta e decisao operacional do cardapio
 
 ---
 
@@ -394,8 +426,9 @@ Resumo objetivo por fase:
 - Fase 5 (suporte e operacao inicial): PARCIAL.
   - Evidencias: operacao e governanca evoluidas; modulo de chamados dedicado ainda pendente.
 
-- Fase 5.1 (Base Estruturada de Receitas): PENDENTE PRIORITARIA.
-  - Escopo pendente: importacao de fichas tecnicas da Genial, classificacao automatica e catalogo nutricional unico.
+- Fase 5.1 (Base Estruturada de Receitas): CONCLUIDA NO ESCOPO PRIORITARIO ATUAL.
+  - Evidencias: importacao estruturada, catalogo reutilizavel, reclassificacao auditada, coverage por tenant, auditoria estruturada e sugestoes com explicabilidade no frontend e na API.
+  - Observacao: a expansao da cobertura da biblioteca e o refinamento continuo de equivalencias seguem como evolucao, nao como bloqueio da fase.
 
 - Fase 6 (integracao com relatorio da Genial): CONCLUIDA PARA O ESCOPO MVP ESTRUTURADO.
   - Evidencias: importacao de cardapios com validacao financeira e rastreabilidade por unidade/servico.
@@ -424,6 +457,24 @@ Qualidade e testes (secao 3 e backlog item 10): EM EVOLUCAO.
   - Testes de integracao de API com Supertest para saude, login e protecao de rota.
   - Script de teste no workspace apps/api e ajuste de boot para testabilidade.
   - Hardening de login com rate limit por email (bloqueio temporario por excesso de tentativas).
+  - Pipeline CI no GitHub Actions (`.github/workflows/ci.yml`) com validacoes de API e Web (prisma generate, testes e build) em push/pull request.
+  - Padronizacao de scripts agregados na raiz (`npm test`, `npm run build`, `npm run ci:validate`) para alinhamento entre execucao local e esteira.
+  - Template de Pull Request com checklist de qualidade e governanca (`.github/pull_request_template.md`).
+  - Definicao de responsaveis por area com CODEOWNERS (`.github/CODEOWNERS`).
+  - Guia de contribuicao do repositorio (`CONTRIBUTING.md`) com fluxo padrao de validacao e PR.
+  - Templates de issue para bug e feature (`.github/ISSUE_TEMPLATE/`) para padronizacao de entrada de demandas.
+  - Configuracao de issue forms (`.github/ISSUE_TEMPLATE/config.yml`) com bloqueio de issue em branco e links de orientacao.
+  - Automacao de branch protection sem `gh` via script (`scripts/github/apply-branch-protection.ps1`) e comando raiz (`npm run branch-protection:apply`).
+  - Branch protection da `main` ativada com status check obrigatorio da CI antes de merge.
+  - Exigencia de revisao por CODEOWNERS ativada na regra de branch protection da `main`.
+  - Checklist mensal de auditoria de governanca criado (`docs/governance-monthly-checklist.md`) para recorrencia operacional de controles.
+  - Template de historico mensal de auditoria criado (`docs/governance-audits/_template.md`).
+  - Primeira rodada registrada (`docs/governance-audits/2026-06.md`).
+  - Rodada de julho registrada e validada em modo estrito (`docs/governance-audits/2026-07.md` + `npm run governance:audit:check:strict -- -Month 2026-07`).
+  - Comando automatizado para gerar novas rodadas mensais (`npm run governance:audit:new` -> `scripts/governance/new-monthly-audit.ps1`).
+  - Comando automatizado para validar rodadas mensais (`npm run governance:audit:check` -> `scripts/governance/check-monthly-audit.ps1`).
+  - Workflow mensal de governanca no GitHub Actions (`.github/workflows/governance-audit.yml`) com validacao estrita da rodada.
+  - Comando para disparo manual do workflow mensal sem `gh` (`npm run governance:audit:dispatch` -> `scripts/github/dispatch-governance-audit.ps1`).
 
 - Pendente para fechamento completo do plano:
   - Suite de testes unitarios mais ampla.
