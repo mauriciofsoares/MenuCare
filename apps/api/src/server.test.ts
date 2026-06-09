@@ -537,6 +537,61 @@ describe('API integration', () => {
     assert.equal(Array.isArray(proposalResponse.body.nextMenuProposal?.recipes), true)
   })
 
+  it('next menu decision should persist approval workflow with governance enforcement', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const menuImportResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Jantar',
+        referenceDate: '2026-06-10',
+        mealType: 'Jantar',
+        financialGoal: 14,
+        mealCost: 13.5,
+        recipes: ['Sopa de legumes', 'File de peixe', 'Pure de batata'],
+      })
+
+    if (menuImportResponse.status === 503) {
+      assert.equal(menuImportResponse.body.status, 'error')
+      return
+    }
+
+    const importId = menuImportResponse.body.import?.id as string
+
+    const decisionResponse = await request(app.server)
+      .post(`/governance/recommendations/${importId}/next-menu/decision`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        decision: 'approved',
+        justification: 'Cardapio aprovado para o proximo ciclo por aderencia contratual e financeira.',
+      })
+
+    assert.equal(decisionResponse.status, 201)
+    assert.equal(decisionResponse.body.status, 'ok')
+    assert.equal(decisionResponse.body.decision?.status, 'approved')
+    assert.equal(decisionResponse.body.decision?.nextMenuProposal?.historicalLayer?.nonBlocking, true)
+
+    const listResponse = await request(app.server)
+      .get(`/governance/recommendations/${importId}/next-menu/decisions?limit=5`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(listResponse.status, 200)
+    assert.equal(listResponse.body.status, 'ok')
+    assert.equal(Array.isArray(listResponse.body.decisions), true)
+    assert.ok((listResponse.body.decisions as Array<{ id: string }>).length >= 1)
+  })
+
   it('login should return 429 after too many failed attempts', async () => {
     const targetEmail = 'blocked@menucare.local'
 

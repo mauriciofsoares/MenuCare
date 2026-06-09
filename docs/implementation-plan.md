@@ -3,16 +3,22 @@
 ## 1. Diagnostico do cenario atual
 
 ### Estado atual do projeto
-- Frontend estatico em arquivos locais:
-  - index.html (pagina de vendas)
-  - portal.html, portal.css, portal.js (portal/dashboards)
-  - styles.css, script.js
-- Nao ha backend, banco de dados, autenticacao ou API.
-- Nao ha controle de sessao, perfis de usuario, trilha de auditoria ou multitenancy.
+- Monorepo ativo com aplicacoes em producao de desenvolvimento:
+  - apps/web (React + TypeScript + Vite)
+  - apps/api (Node.js + TypeScript + Fastify + Zod)
+- Banco PostgreSQL integrado via Prisma (com suporte de runtime fallback em parte do dominio).
+- Fluxos principais ja implementados no MVP atual:
+  - autenticacao e autorizacao basicas
+  - contratos, regras e trilhas de auditoria
+  - importacao e auditoria de cardapios
+  - sugestoes de ajuste e versoes ajustadas
+  - importacao de avaliacoes e inteligencia de combinacoes
+  - geracao de proposta de proximo cardapio recomendado
+- Ainda existem artefatos estaticos legados (index.html, portal.html, portal.css, portal.js, styles.css, script.js), nao sendo mais a base principal do produto.
 
 ### Impacto
-- Bom para prototipo visual.
-- Nao sustentavel para produto SaaS com login, dados persistentes e operacao multi-cliente.
+- A base SaaS ja sustenta operacao funcional de MVP com governanca, rastreabilidade e conformidade.
+- O foco atual migrou de bootstrap para consolidacao operacional, hardening de seguranca e qualidade fim a fim.
 
 ---
 
@@ -205,6 +211,36 @@ Importante:
 
 ---
 
+## Fase 9 - Operacionalizacao do aprendizado de combinacoes (3-5 dias)
+### Escopo
+- Transformar pre-visualizacao de recomendacao em proposta operacional de proximo cardapio.
+- Gerar proposta com explicabilidade:
+  - origem da recomendacao (historico ou baseline)
+  - custo estimado versus meta financeira
+  - evidencias de governanca obrigatoria
+- Garantir regra de negocio central:
+  - avaliacoes historicas recomendam, mas nunca bloqueiam geracao/aprovacao.
+
+### Criterio de pronto
+- Usuario consegue gerar proposta de proximo cardapio com governanca explicita.
+- Somente criterios obrigatorios podem sinalizar bloqueio (contrato, custo, restricao obrigatoria, regra operacional critica).
+
+---
+
+## Fase 10 - Decisao operacional e fechamento do ciclo (4-7 dias)
+### Escopo
+- Aprovar/reprovar proposta de proximo cardapio com justificativa.
+- Persistir versao aprovada como referencia operacional do ciclo seguinte.
+- Registrar auditoria completa da decisao (quem, quando, o que, por que).
+- Disponibilizar historico de decisoes para rastreabilidade e analise.
+
+### Criterio de pronto
+- Fluxo estrategico fica completo ponta a ponta:
+  - Contrato -> Regras aprovadas -> Cardapio atual -> Auditoria -> Sugestoes -> Novo cardapio -> Avaliacoes -> Aprendizado -> Proximo cardapio melhor.
+- Historico permanece camada de recomendacao nao bloqueante em toda a jornada.
+
+---
+
 ## 5. Modelo de dados inicial (MVP)
 
 ## Autenticacao e conta
@@ -274,6 +310,10 @@ Indices obrigatorios:
 12. Auditoria contratual/financeira do cardapio importado.
 13. Motor de sugestoes de ajuste e geracao de versao ajustada.
 14. Importacao de avaliacoes e inteligencia de combinacoes.
+15. Geracao operacional da proposta de proximo cardapio com governanca explicita.
+16. Aprovacao/reprovacao da proposta e persistencia da decisao com auditoria.
+17. Hardening final de seguranca (refresh rotativo, cookies httpOnly, recuperacao de senha real).
+18. E2E completo do ciclo estrategico e pipeline CI.
 
 ---
 
@@ -285,19 +325,19 @@ Indices obrigatorios:
 - Regras contratuais podem ser validadas com rastreabilidade.
 - Cardapio importado da Genial pode ser auditado por conformidade e custo.
 - Recomendacoes de ajuste consideram historico de aceitacao sem transformar avaliacao em criterio de bloqueio.
+- Proposta de proximo cardapio explicita recomendacoes historicas como apoio, nunca como bloqueio.
+- Decisao operacional do proximo cardapio fica registrada com auditoria e rastreabilidade.
 - UI permanece com padrao SaaS premium aprovado.
 
 ---
 
 ## 10. Proxima acao sugerida (imediata)
 
-Criar a Fase 0 agora com os comandos e estrutura inicial:
-- Monorepo com apps/web e apps/api
-- Docker Compose com Postgres
-- Prisma configurado
-- Login minimo ponta a ponta (Fase 1 reduzida)
-
-Se aprovado, o proximo passo e executar esse bootstrap no repositorio atual.
+Fechar a Fase 10 com decisao operacional do proximo cardapio:
+- Endpoint para aprovar/reprovar proposta gerada.
+- Persistencia da decisao e versao selecionada para ciclo seguinte.
+- Auditoria detalhada da decisao com justificativa.
+- Ajustes de UI para governanca operacional completa.
 
 ---
 
@@ -323,6 +363,21 @@ Resumo objetivo por fase:
 
 - Fase 5 (suporte e operacao inicial): PARCIAL.
   - Evidencias: operacao e governanca evoluidas; modulo de chamados dedicado ainda pendente.
+
+- Fase 6 (integracao com relatorio da Genial): CONCLUIDA PARA O ESCOPO MVP ESTRUTURADO.
+  - Evidencias: importacao de cardapios com validacao financeira e rastreabilidade por unidade/servico.
+
+- Fase 7 (auditoria contratual + sugestoes): CONCLUIDA.
+  - Evidencias: auditoria por regras aprovadas, geracao de sugestoes e versoes ajustadas com impactos.
+
+- Fase 8 (avaliacoes e inteligencia): CONCLUIDA.
+  - Evidencias: importacao de avaliacoes, rebuild de inteligencia e consulta de combinacoes historicas.
+
+- Fase 9 (proposta operacional do proximo cardapio): CONCLUIDA.
+  - Evidencias: endpoint dedicado, teste de integracao e acao de UI para gerar proposta com camada historica nao bloqueante.
+
+- Fase 10 (decisao operacional final): PENDENTE.
+  - Escopo pendente: aprovar/reprovar proposta, persistir decisao e trilha de auditoria dessa aprovacao.
 
 Qualidade e testes (secao 3 e backlog item 10): EM EVOLUCAO.
 

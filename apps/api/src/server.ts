@@ -68,6 +68,15 @@ const menuImportParamsSchema = z.object({
   importId: z.string().min(1),
 });
 
+const nextMenuDecisionSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  justification: z.string().trim().min(3).max(500),
+});
+
+const nextMenuDecisionListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
 const evaluationImportSchema = z.object({
   fileName: z.string().min(5).max(240).regex(/\.pdf$/i),
   unitName: z.string().min(2).max(120),
@@ -543,6 +552,22 @@ const ensureDomainTables = async () => {
   `;
 
   await prisma.$executeRaw`
+    CREATE TABLE IF NOT EXISTS menu_next_menu_decisions (
+      id TEXT PRIMARY KEY,
+      company_name TEXT NOT NULL,
+      menu_import_id TEXT NOT NULL,
+      decision_status TEXT NOT NULL,
+      justification TEXT NOT NULL,
+      proposal_json TEXT NOT NULL,
+      governance_blocks_approval BOOLEAN NOT NULL,
+      historical_non_blocking BOOLEAN NOT NULL,
+      actor_id TEXT NOT NULL,
+      actor_name TEXT NOT NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+
+  await prisma.$executeRaw`
     ALTER TABLE compliance_export_events
     ADD COLUMN IF NOT EXISTS filter_export_id TEXT
   `;
@@ -640,6 +665,11 @@ const ensureDomainTables = async () => {
   await prisma.$executeRaw`
     CREATE INDEX IF NOT EXISTS idx_menu_combination_intelligence_company_created_at
     ON menu_combination_intelligence (company_name, created_at DESC)
+  `;
+
+  await prisma.$executeRaw`
+    CREATE INDEX IF NOT EXISTS idx_menu_next_menu_decisions_import_created_at
+    ON menu_next_menu_decisions (menu_import_id, created_at DESC)
   `;
 
   domainTablesReady = true;
@@ -789,6 +819,139 @@ const getUserFromJwt = (request: FastifyRequest) => {
   return {
     id: payload.sub ?? demoUser.id,
     name: payload.name ?? demoUser.name,
+  };
+};
+
+type NextMenuProposalData = {
+  importId: string;
+  unitName: string;
+  serviceName: string;
+  proposalType: 'historical_recommended' | 'current_baseline';
+  recipes: string[];
+  estimatedCost: number;
+  financialGoal: number;
+  historicalLayer: {
+    nonBlocking: true;
+    sourceCombinationId: string | null;
+    sourceAverageRating: number | null;
+    sourceEvaluationsCount: number;
+    note: string;
+  };
+  governance: {
+    blocksApproval: boolean;
+    mandatoryFindings: Array<{
+      criterion: 'contract_rule_violation' | 'financial_goal_exceeded';
+      status: 'ok' | 'violation';
+    }>;
+  };
+};
+
+const buildNextMenuProposal = async (payload: {
+  companyName: string;
+  importId: string;
+}): Promise<NextMenuProposalData | null> => {
+  if (!prisma) {
+    return null;
+  }
+
+  await ensureDomainTables();
+
+  const importRows = await prisma.$queryRaw<Array<{
+    id: string;
+    unit_name: string;
+    service_name: string;
+    financial_goal: number | string;
+    meal_cost: number | string;
+    recipes_json: string;
+  }>>`
+    SELECT id, unit_name, service_name, financial_goal, meal_cost, recipes_json
+    FROM menu_pdf_imports
+    WHERE id = ${payload.importId}
+      AND company_name = ${payload.companyName}
+    LIMIT 1
+  `;
+
+  const imported = importRows[0];
+
+  if (!imported) {
+    return null;
+  }
+
+  const parseNumber = (value: number | string) => {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number(parsed.toFixed(2));
+  };
+
+  const mealCost = parseNumber(imported.meal_cost);
+  const financialGoal = parseNumber(imported.financial_goal);
+
+  const ruleAuditRows = await prisma.$queryRaw<Array<{ result_status: 'compliant' | 'non_compliant' }>>`
+    SELECT result_status
+    FROM menu_import_rule_audits
+    WHERE menu_import_id = ${payload.importId}
+      AND company_name = ${payload.companyName}
+  `;
+
+  const hasMandatoryRuleViolation = ruleAuditRows.some((item) => item.result_status === 'non_compliant');
+  const hasFinancialViolation = mealCost > financialGoal;
+  const mandatoryBlocksApproval = hasMandatoryRuleViolation || hasFinancialViolation;
+
+  const combinationRows = await prisma.$queryRaw<Array<{
+    id: string;
+    recipes_json: string;
+    average_rating: number | string;
+    evaluations_count: number;
+  }>>`
+    SELECT id, recipes_json, average_rating, evaluations_count
+    FROM menu_combination_intelligence
+    WHERE company_name = ${payload.companyName}
+      AND unit_name = ${imported.unit_name}
+      AND service_name = ${imported.service_name}
+    ORDER BY average_rating DESC, evaluations_count DESC
+    LIMIT 1
+  `;
+
+  const currentRecipes = JSON.parse(imported.recipes_json) as string[];
+  const topHistorical = combinationRows[0];
+  const recommendedRecipes = topHistorical
+    ? (JSON.parse(topHistorical.recipes_json) as string[])
+    : currentRecipes;
+
+  const estimatedCost = Number(
+    Math.max(
+      hasFinancialViolation ? financialGoal : mealCost,
+      financialGoal * 0.85,
+    ).toFixed(2),
+  );
+
+  return {
+    importId: payload.importId,
+    unitName: imported.unit_name,
+    serviceName: imported.service_name,
+    proposalType: topHistorical ? 'historical_recommended' : 'current_baseline',
+    recipes: recommendedRecipes,
+    estimatedCost,
+    financialGoal,
+    historicalLayer: {
+      nonBlocking: true,
+      sourceCombinationId: topHistorical?.id ?? null,
+      sourceAverageRating: topHistorical ? parseNumber(topHistorical.average_rating) : null,
+      sourceEvaluationsCount: topHistorical?.evaluations_count ?? 0,
+      note: 'Historico de avaliacoes recomenda combinacoes, mas nunca bloqueia aprovacao.',
+    },
+    governance: {
+      blocksApproval: mandatoryBlocksApproval,
+      mandatoryFindings: [
+        {
+          criterion: 'contract_rule_violation',
+          status: hasMandatoryRuleViolation ? 'violation' : 'ok',
+        },
+        {
+          criterion: 'financial_goal_exceeded',
+          status: hasFinancialViolation ? 'violation' : 'ok',
+        },
+      ],
+    },
   };
 };
 
@@ -1163,111 +1326,211 @@ app.post('/governance/recommendations/:importId/next-menu', { preHandler: authen
   const companyName = getCompanyFromJwt(request);
   const importId = parsedParams.data.importId;
 
-  await ensureDomainTables();
+  const nextMenuProposal = await buildNextMenuProposal({ companyName, importId });
 
-  const importRows = await prisma.$queryRaw<Array<{
-    id: string;
-    unit_name: string;
-    service_name: string;
-    financial_goal: number | string;
-    meal_cost: number | string;
-    recipes_json: string;
-  }>>`
-    SELECT id, unit_name, service_name, financial_goal, meal_cost, recipes_json
-    FROM menu_pdf_imports
-    WHERE id = ${importId}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  const imported = importRows[0];
-
-  if (!imported) {
+  if (!nextMenuProposal) {
     return reply.code(404).send({
       status: 'error',
       message: 'Importacao de cardapio nao encontrada para esta empresa.',
     });
   }
 
-  const parseNumber = (value: number | string) => {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number(parsed.toFixed(2));
+  return {
+    status: 'ok',
+    nextMenuProposal,
   };
+});
 
-  const mealCost = parseNumber(imported.meal_cost);
-  const financialGoal = parseNumber(imported.financial_goal);
+app.post('/governance/recommendations/:importId/next-menu/decision', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = menuImportParamsSchema.safeParse(request.params);
+  const parsedBody = nextMenuDecisionSchema.safeParse(request.body);
 
-  const ruleAuditRows = await prisma.$queryRaw<Array<{ result_status: 'compliant' | 'non_compliant' }>>`
-    SELECT result_status
-    FROM menu_import_rule_audits
-    WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Identificador de importacao invalido.',
+    });
+  }
+
+  if (!parsedBody.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Payload de decisao invalido. Informe decisao e justificativa.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const actor = getUserFromJwt(request);
+  const importId = parsedParams.data.importId;
+
+  const nextMenuProposal = await buildNextMenuProposal({ companyName, importId });
+
+  if (!nextMenuProposal) {
+    return reply.code(404).send({
+      status: 'error',
+      message: 'Importacao de cardapio nao encontrada para esta empresa.',
+    });
+  }
+
+  if (parsedBody.data.decision === 'approved' && nextMenuProposal.governance.blocksApproval) {
+    return reply.code(409).send({
+      status: 'error',
+      message: 'Aprovacao bloqueada por criterios obrigatorios de governanca.',
+    });
+  }
+
+  const decisionId = randomUUID();
+
+  await prisma.$executeRaw`
+    INSERT INTO menu_next_menu_decisions (
+      id,
+      company_name,
+      menu_import_id,
+      decision_status,
+      justification,
+      proposal_json,
+      governance_blocks_approval,
+      historical_non_blocking,
+      actor_id,
+      actor_name
+    )
+    VALUES (
+      ${decisionId},
+      ${companyName},
+      ${importId},
+      ${parsedBody.data.decision},
+      ${parsedBody.data.justification},
+      ${JSON.stringify(nextMenuProposal)},
+      ${nextMenuProposal.governance.blocksApproval},
+      ${nextMenuProposal.historicalLayer.nonBlocking},
+      ${actor.id},
+      ${actor.name}
+    )
   `;
 
-  const hasMandatoryRuleViolation = ruleAuditRows.some((item) => item.result_status === 'non_compliant');
-  const hasFinancialViolation = mealCost > financialGoal;
-  const mandatoryBlocksApproval = hasMandatoryRuleViolation || hasFinancialViolation;
-
-  const combinationRows = await prisma.$queryRaw<Array<{
+  const decisionRows = await prisma.$queryRaw<Array<{
     id: string;
-    recipes_json: string;
-    average_rating: number | string;
-    evaluations_count: number;
-    trend: 'positive' | 'stable' | 'negative';
+    decision_status: 'approved' | 'rejected';
+    justification: string;
+    governance_blocks_approval: boolean;
+    historical_non_blocking: boolean;
+    actor_id: string;
+    actor_name: string;
+    created_at: Date | string;
   }>>`
-    SELECT id, recipes_json, average_rating, evaluations_count, trend
-    FROM menu_combination_intelligence
-    WHERE company_name = ${companyName}
-      AND unit_name = ${imported.unit_name}
-      AND service_name = ${imported.service_name}
-    ORDER BY average_rating DESC, evaluations_count DESC
+    SELECT
+      id,
+      decision_status,
+      justification,
+      governance_blocks_approval,
+      historical_non_blocking,
+      actor_id,
+      actor_name,
+      created_at
+    FROM menu_next_menu_decisions
+    WHERE id = ${decisionId}
     LIMIT 1
   `;
 
-  const currentRecipes = JSON.parse(imported.recipes_json) as string[];
-  const topHistorical = combinationRows[0];
-  const recommendedRecipes = topHistorical
-    ? (JSON.parse(topHistorical.recipes_json) as string[])
-    : currentRecipes;
+  const created = decisionRows[0];
 
-  const estimatedCost = Number(
-    Math.max(
-      hasFinancialViolation ? financialGoal : mealCost,
-      financialGoal * 0.85,
-    ).toFixed(2),
-  );
+  return reply.code(201).send({
+    status: 'ok',
+    decision: {
+      id: created.id,
+      importId,
+      status: created.decision_status,
+      justification: created.justification,
+      governanceBlocksApproval: created.governance_blocks_approval,
+      historicalNonBlocking: created.historical_non_blocking,
+      actorId: created.actor_id,
+      actorName: created.actor_name,
+      createdAt: created.created_at,
+      nextMenuProposal,
+    },
+  });
+});
+
+app.get('/governance/recommendations/:importId/next-menu/decisions', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = menuImportParamsSchema.safeParse(request.params);
+  const parsedQuery = nextMenuDecisionListQuerySchema.safeParse(request.query);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Identificador de importacao invalido.',
+    });
+  }
+
+  if (!parsedQuery.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: 'Parametros de consulta invalidos.',
+    });
+  }
+
+  if (!prisma) {
+    return reply.code(503).send({
+      status: 'error',
+      message: apiMessage.health.dbUnavailable,
+    });
+  }
+
+  const companyName = getCompanyFromJwt(request);
+  const importId = parsedParams.data.importId;
+  const { limit } = parsedQuery.data;
+
+  await ensureDomainTables();
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    decision_status: 'approved' | 'rejected';
+    justification: string;
+    proposal_json: string;
+    governance_blocks_approval: boolean;
+    historical_non_blocking: boolean;
+    actor_id: string;
+    actor_name: string;
+    created_at: Date | string;
+  }>>`
+    SELECT
+      id,
+      decision_status,
+      justification,
+      proposal_json,
+      governance_blocks_approval,
+      historical_non_blocking,
+      actor_id,
+      actor_name,
+      created_at
+    FROM menu_next_menu_decisions
+    WHERE menu_import_id = ${importId}
+      AND company_name = ${companyName}
+    ORDER BY created_at DESC
+    LIMIT ${limit}
+  `;
 
   return {
     status: 'ok',
-    nextMenuProposal: {
+    decisions: rows.map((row) => ({
+      id: row.id,
       importId,
-      unitName: imported.unit_name,
-      serviceName: imported.service_name,
-      proposalType: topHistorical ? 'historical_recommended' : 'current_baseline',
-      recipes: recommendedRecipes,
-      estimatedCost,
-      financialGoal,
-      historicalLayer: {
-        nonBlocking: true,
-        sourceCombinationId: topHistorical?.id ?? null,
-        sourceAverageRating: topHistorical ? parseNumber(topHistorical.average_rating) : null,
-        sourceEvaluationsCount: topHistorical?.evaluations_count ?? 0,
-        note: 'Historico de avaliacoes recomenda combinacoes, mas nunca bloqueia aprovacao.',
-      },
-      governance: {
-        blocksApproval: mandatoryBlocksApproval,
-        mandatoryFindings: [
-          {
-            criterion: 'contract_rule_violation',
-            status: hasMandatoryRuleViolation ? 'violation' : 'ok',
-          },
-          {
-            criterion: 'financial_goal_exceeded',
-            status: hasFinancialViolation ? 'violation' : 'ok',
-          },
-        ],
-      },
-    },
+      status: row.decision_status,
+      justification: row.justification,
+      governanceBlocksApproval: row.governance_blocks_approval,
+      historicalNonBlocking: row.historical_non_blocking,
+      actorId: row.actor_id,
+      actorName: row.actor_name,
+      createdAt: row.created_at,
+      nextMenuProposal: JSON.parse(row.proposal_json) as NextMenuProposalData,
+    })),
   };
 });
 

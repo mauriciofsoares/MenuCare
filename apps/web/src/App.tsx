@@ -361,6 +361,19 @@ type NextMenuProposal = {
   }
 }
 
+type NextMenuDecisionItem = {
+  id: string
+  importId: string
+  status: 'approved' | 'rejected'
+  justification: string
+  governanceBlocksApproval: boolean
+  historicalNonBlocking: boolean
+  actorId: string
+  actorName: string
+  createdAt: string
+  nextMenuProposal: NextMenuProposal
+}
+
 const flowSteps: FlowStep[] = [
   {
     title: 'Cadastro de contrato',
@@ -530,6 +543,10 @@ function App() {
   const [isLoadingMenuRecommendationPreview, setIsLoadingMenuRecommendationPreview] = useState(false)
   const [nextMenuProposal, setNextMenuProposal] = useState<NextMenuProposal | null>(null)
   const [isGeneratingNextMenuProposal, setIsGeneratingNextMenuProposal] = useState(false)
+  const [nextMenuDecisionHistory, setNextMenuDecisionHistory] = useState<NextMenuDecisionItem[]>([])
+  const [isLoadingNextMenuDecisionHistory, setIsLoadingNextMenuDecisionHistory] = useState(false)
+  const [isSubmittingNextMenuDecision, setIsSubmittingNextMenuDecision] = useState(false)
+  const [nextMenuDecisionJustification, setNextMenuDecisionJustification] = useState('')
   const [complianceExportAuditExportScope, setComplianceExportAuditExportScope] =
     useState<'page' | 'all'>('page')
   const [isExportingNonConformityHistory, setIsExportingNonConformityHistory] = useState(false)
@@ -947,6 +964,22 @@ function App() {
     return 'status-badge is-positive'
   }
 
+  const getNextMenuDecisionStatusLabel = (status: NextMenuDecisionItem['status']) => {
+    if (status === 'approved') {
+      return 'Aprovado'
+    }
+
+    return 'Reprovado'
+  }
+
+  const getNextMenuDecisionStatusBadgeClass = (status: NextMenuDecisionItem['status']) => {
+    if (status === 'approved') {
+      return 'status-badge is-positive'
+    }
+
+    return 'status-badge is-negative'
+  }
+
   const fetchRecommendationPolicy = async (token: string) => {
     setIsLoadingRecommendationPolicy(true)
 
@@ -1158,6 +1191,38 @@ function App() {
       setMenuRecommendationPreview(null)
     } finally {
       setIsLoadingMenuRecommendationPreview(false)
+    }
+  }
+
+  const fetchNextMenuDecisionHistory = async (token: string, importId: string) => {
+    if (!importId) {
+      setNextMenuDecisionHistory([])
+      return
+    }
+
+    setIsLoadingNextMenuDecisionHistory(true)
+
+    try {
+      const response = await fetch(
+        `${API_URL}/governance/recommendations/${importId}/next-menu/decisions?limit=10`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      )
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; decisions: NextMenuDecisionItem[] }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error()
+      }
+
+      setNextMenuDecisionHistory(payload.decisions ?? [])
+    } catch {
+      setNextMenuDecisionHistory([])
+    } finally {
+      setIsLoadingNextMenuDecisionHistory(false)
     }
   }
 
@@ -1673,6 +1738,7 @@ function App() {
       setMenuCombinationIntelligence([])
       setMenuRecommendationPreview(null)
       setNextMenuProposal(null)
+      setNextMenuDecisionHistory([])
       return
     }
 
@@ -1695,6 +1761,7 @@ function App() {
       setMenuAdjustedVersions([])
       setMenuRecommendationPreview(null)
       setNextMenuProposal(null)
+      setNextMenuDecisionHistory([])
       return
     }
 
@@ -1702,6 +1769,7 @@ function App() {
     void fetchMenuImportSuggestions(authState.token, selectedMenuImportId)
     void fetchMenuAdjustedVersions(authState.token, selectedMenuImportId)
     void fetchMenuRecommendationPreview(authState.token, selectedMenuImportId)
+    void fetchNextMenuDecisionHistory(authState.token, selectedMenuImportId)
   }, [authState?.token, selectedMenuImportId])
 
   const handleGenerateNextMenuProposal = async () => {
@@ -1738,6 +1806,51 @@ function App() {
       )
     } finally {
       setIsGeneratingNextMenuProposal(false)
+    }
+  }
+
+  const handleSubmitNextMenuDecision = async (decision: 'approved' | 'rejected') => {
+    if (!authState || !selectedMenuImportId || !nextMenuProposal) {
+      return
+    }
+
+    const justification = nextMenuDecisionJustification.trim()
+
+    if (justification.length < 5) {
+      setDomainError('Informe uma justificativa com pelo menos 5 caracteres para registrar a decisao.')
+      return
+    }
+
+    setDomainError(null)
+    setIsSubmittingNextMenuDecision(true)
+
+    try {
+      const response = await fetch(
+        `${API_URL}/governance/recommendations/${selectedMenuImportId}/next-menu/decision`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${authState.token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ decision, justification }),
+        },
+      )
+
+      const payload = (await response.json()) as
+        | { status: 'ok'; decision: NextMenuDecisionItem }
+        | { status: 'error'; message: string }
+
+      if (!response.ok || payload.status !== 'ok') {
+        throw new Error('message' in payload ? payload.message : 'Falha ao registrar decisao.')
+      }
+
+      setNextMenuDecisionJustification('')
+      setNextMenuDecisionHistory((current) => [payload.decision, ...current].slice(0, 10))
+    } catch (error) {
+      setDomainError(error instanceof Error ? error.message : 'Falha ao registrar decisao.')
+    } finally {
+      setIsSubmittingNextMenuDecision(false)
     }
   }
 
@@ -4200,31 +4313,103 @@ function App() {
           </div>
 
           {nextMenuProposal ? (
-            <ul className="validation-history-list">
-              <li>
-                <div className="validation-history-row">
-                  <strong>
-                    {nextMenuProposal.proposalType === 'historical_recommended'
-                      ? 'Proposta baseada em historico de combinacoes'
-                      : 'Proposta baseada no cardapio atual'}
-                  </strong>
-                  <span className="status-badge is-progress">Nao bloqueante por historico</span>
-                </div>
-                <small>Receitas propostas: {nextMenuProposal.recipes.join(' | ')}</small>
-                <small>
-                  Custo estimado R$ {nextMenuProposal.estimatedCost.toFixed(2)} | Meta R${' '}
-                  {nextMenuProposal.financialGoal.toFixed(2)}
-                </small>
-                {nextMenuProposal.historicalLayer.sourceAverageRating !== null ? (
+            <>
+              <ul className="validation-history-list">
+                <li>
+                  <div className="validation-history-row">
+                    <strong>
+                      {nextMenuProposal.proposalType === 'historical_recommended'
+                        ? 'Proposta baseada em historico de combinacoes'
+                        : 'Proposta baseada no cardapio atual'}
+                    </strong>
+                    <span className="status-badge is-progress">Nao bloqueante por historico</span>
+                  </div>
+                  <small>Receitas propostas: {nextMenuProposal.recipes.join(' | ')}</small>
                   <small>
-                    Base historica: nota {nextMenuProposal.historicalLayer.sourceAverageRating.toFixed(2)}
-                    {' '}· {nextMenuProposal.historicalLayer.sourceEvaluationsCount} avaliacoes
+                    Custo estimado R$ {nextMenuProposal.estimatedCost.toFixed(2)} | Meta R${' '}
+                    {nextMenuProposal.financialGoal.toFixed(2)}
                   </small>
-                ) : (
-                  <small>Sem base historica para esta combinacao; proposta mantida por contexto atual.</small>
-                )}
-              </li>
-            </ul>
+                  {nextMenuProposal.historicalLayer.sourceAverageRating !== null ? (
+                    <small>
+                      Base historica: nota {nextMenuProposal.historicalLayer.sourceAverageRating.toFixed(2)}
+                      {' '}· {nextMenuProposal.historicalLayer.sourceEvaluationsCount} avaliacoes
+                    </small>
+                  ) : (
+                    <small>Sem base historica para esta combinacao; proposta mantida por contexto atual.</small>
+                  )}
+                  <small>
+                    Governanca obrigatoria:{' '}
+                    {nextMenuProposal.governance.blocksApproval
+                      ? 'ha bloqueio por criterio obrigatorio.'
+                      : 'sem bloqueio por criterio obrigatorio.'}
+                  </small>
+                </li>
+              </ul>
+
+              <form
+                className="crud-form"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  void handleSubmitNextMenuDecision('approved')
+                }}
+              >
+                <label>
+                  <span>Justificativa da decisao</span>
+                  <textarea
+                    value={nextMenuDecisionJustification}
+                    onChange={(event) => setNextMenuDecisionJustification(event.target.value)}
+                    minLength={5}
+                    required
+                    placeholder="Descreva a razao da aprovacao ou reprovacao da proposta."
+                  />
+                </label>
+
+                <div className="history-filter-actions">
+                  <button
+                    type="submit"
+                    className="logout-button"
+                    disabled={isSubmittingNextMenuDecision}
+                  >
+                    {isSubmittingNextMenuDecision ? 'Registrando...' : 'Aprovar proposta'}
+                  </button>
+                  <button
+                    type="button"
+                    className="logout-button"
+                    disabled={isSubmittingNextMenuDecision}
+                    onClick={() => void handleSubmitNextMenuDecision('rejected')}
+                  >
+                    {isSubmittingNextMenuDecision ? 'Registrando...' : 'Reprovar proposta'}
+                  </button>
+                </div>
+              </form>
+
+              <div className="invite-history-head">
+                <h3>Historico de decisoes do proximo cardapio</h3>
+              </div>
+
+              {isLoadingNextMenuDecisionHistory ? (
+                <p className="empty-note">Carregando historico de decisoes...</p>
+              ) : nextMenuDecisionHistory.length ? (
+                <ul className="validation-history-list">
+                  {nextMenuDecisionHistory.map((item) => (
+                    <li key={item.id}>
+                      <div className="validation-history-row">
+                        <strong>{getNextMenuDecisionStatusLabel(item.status)}</strong>
+                        <span className={getNextMenuDecisionStatusBadgeClass(item.status)}>
+                          {getNextMenuDecisionStatusLabel(item.status)}
+                        </span>
+                      </div>
+                      <small>
+                        {item.actorName} · {new Date(item.createdAt).toLocaleString(locale)}
+                      </small>
+                      <small>{item.justification}</small>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="empty-note">Sem decisoes registradas para esta proposta.</p>
+              )}
+            </>
           ) : null}
         </article>
 
