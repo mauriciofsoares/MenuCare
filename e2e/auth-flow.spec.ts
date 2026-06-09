@@ -6077,3 +6077,268 @@ test('mantem estabilidade em stress controlado com ciclos prolongados de receita
   expect(recipeImportPostCount).toBe(8)
   expect(recipeReclassificationPatchCount).toBe(5)
 })
+
+test('suporta chaos com falhas intermitentes e latencia extrema em ciclos longos', async ({ page }) => {
+  test.setTimeout(140_000)
+
+  const importedRecipes: Array<{
+    id: string
+    sourceFileName: string
+    sourceReference: string | null
+    name: string
+    normalizedName: string
+    category: string
+    subcategory: string
+    foodGroup: string
+    tags: string[]
+    confidence: number
+    manualReviewed: boolean
+    createdAt: string
+    updatedAt: string
+  }> = Array.from({ length: 6 }, (_, offset) => {
+    const index = offset + 1
+
+    return {
+      id: `recipe-lib-chaos-e2e-${index}`,
+      sourceFileName: `FICHA-CHAOS-${index}.pdf`,
+      sourceReference: 'Genial',
+      name: `Frango Chaos ${index}`,
+      normalizedName: `frango chaos ${index}`,
+      category: 'Proteina',
+      subcategory: 'Aves',
+      foodGroup: 'Proteina animal',
+      tags: ['protein', 'poultry'],
+      confidence: 0.86,
+      manualReviewed: false,
+      createdAt: `2026-06-09T23:${String(30 + index).padStart(2, '0')}:00.000Z`,
+      updatedAt: `2026-06-09T23:${String(40 + index).padStart(2, '0')}:00.000Z`,
+    }
+  })
+  const reclassificationAttempts = new Map<number, number>()
+  const reclassificationFailureIndexes = new Set([2, 4])
+  let recipeReclassificationPatchCount = 0
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contracts: [] }) })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rules: [] }) })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ nonConformities: [] }) })
+  })
+
+  await page.route('**/recipes?limit=20', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 120))
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recipes: importedRecipes.map((item) => ({
+          id: item.id,
+          sourceFileName: item.sourceFileName,
+          sourceReference: item.sourceReference,
+          name: item.name,
+          normalizedName: item.normalizedName,
+          category: item.category,
+          subcategory: item.subcategory,
+          foodGroup: item.foodGroup,
+          costPerCapita: 3.1,
+          servingYield: 100,
+          preparationMethod: 'Preparo chaos.',
+          nutritionalInfo: { calories: 260 },
+          compatibleDiets: ['geral'],
+          allergens: [],
+          aiClassification: {
+            category: item.category,
+            subcategory: item.subcategory,
+            foodGroup: item.foodGroup,
+            confidence: item.confidence,
+            tags: item.tags,
+          },
+          aiProvider: item.manualReviewed ? 'manual-reviewed' : 'heuristic-ready',
+          isActive: true,
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+        })),
+      }),
+    })
+  })
+
+  await page.route('**/recipes/coverage', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 180))
+    const manualReviewedRecipes = importedRecipes.filter((item) => item.manualReviewed).length
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        coverage: {
+          totalRecipes: importedRecipes.length,
+          activeRecipes: importedRecipes.length,
+          classifiedRecipes: importedRecipes.length,
+          manualReviewedRecipes,
+          heuristicRecipes: importedRecipes.length - manualReviewedRecipes,
+          coveragePercent: importedRecipes.length ? 100 : 0,
+          categoryDistribution: importedRecipes.length
+            ? [
+                {
+                  category: 'Proteina',
+                  total: importedRecipes.length,
+                },
+              ]
+            : [],
+        },
+      }),
+    })
+  })
+
+  await page.route('**/recipes/*/classification', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 1400))
+
+    const url = new URL(route.request().url())
+    const segments = url.pathname.split('/').filter(Boolean)
+    const recipeId = segments[segments.length - 2]
+    const recipeIndexMatch = recipeId.match(/recipe-lib-chaos-e2e-(\d+)/)
+    const recipeIndex = recipeIndexMatch ? Number(recipeIndexMatch[1]) : 0
+    const payload = (await route.request().postDataJSON()) as {
+      category?: string
+      subcategory?: string
+      foodGroup?: string
+      confidence?: number
+      tags?: string[]
+    }
+
+    const currentAttempts = (reclassificationAttempts.get(recipeIndex) ?? 0) + 1
+    reclassificationAttempts.set(recipeIndex, currentAttempts)
+    recipeReclassificationPatchCount += 1
+
+    if (reclassificationFailureIndexes.has(recipeIndex) && currentAttempts === 1) {
+      await route.fulfill({
+        status: 500,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'error',
+          message: `Falha intermitente ao reclassificar receita chaos ${recipeIndex}.`,
+        }),
+      })
+      return
+    }
+
+    const target = importedRecipes.find((item) => item.id === recipeId)
+    if (target) {
+      target.category = payload.category ?? target.category
+      target.subcategory = payload.subcategory ?? target.subcategory
+      target.foodGroup = payload.foodGroup ?? target.foodGroup
+      target.confidence = payload.confidence ?? target.confidence
+      target.tags = payload.tags ?? target.tags
+      target.manualReviewed = true
+      target.updatedAt = new Date().toISOString()
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recipe: { id: recipeId },
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+
+  const recipeImportHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Base estruturada de receitas' }) })
+  const recipeList = recipeImportHeader.locator('xpath=following-sibling::ul[1]/li')
+  await expect(recipeList).toHaveCount(6)
+  await expect(menuImportPanel).toContainText('6 classificadas de 6 receitas')
+  await expect(menuImportPanel).toContainText('Revisadas manualmente: 0 · Heuristica: 6')
+
+  const reclassificationHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Reclassificacao manual auditada' }) })
+  const reclassificationForm = reclassificationHeader.locator('xpath=following-sibling::form[1]')
+
+  const reclassifyWithChaos = async (index: number) => {
+    const recipeId = `recipe-lib-chaos-e2e-${index}`
+    const submitButton = reclassificationForm.locator('button.logout-button')
+
+    const fillAndSubmit = async () => {
+      await reclassificationForm.locator('select').selectOption(recipeId)
+      await reclassificationForm.locator('input[type="text"]').nth(0).fill(`Proteina chaos ${index}`)
+      await reclassificationForm.locator('input[type="text"]').nth(1).fill(`Aves chaos ${index}`)
+      await reclassificationForm.locator('input[type="text"]').nth(2).fill(`Grupo chaos ${index}`)
+      await reclassificationForm.locator('input[type="number"]').fill('0.95')
+      await reclassificationForm.locator('input[type="text"]').nth(3).fill('reviewed, chaos')
+      await reclassificationForm.locator('textarea').fill(`Revisao chaos ${recipeId}.`)
+      await submitButton.click()
+    }
+
+    await fillAndSubmit()
+
+    if (reclassificationFailureIndexes.has(index)) {
+      await expect(submitButton).toContainText('Salvar reclassificacao')
+      await fillAndSubmit()
+    }
+
+    await expect(submitButton).toContainText('Salvar reclassificacao')
+  }
+
+  for (let index = 1; index <= 6; index += 1) {
+    await reclassifyWithChaos(index)
+  }
+
+  await expect(menuImportPanel).toContainText('Revisadas manualmente: 6 · Heuristica: 0')
+  await expect(menuImportPanel).toContainText('Proteina chaos 1 · Aves chaos 1 · Grupo chaos 1')
+  await expect(menuImportPanel).toContainText('Proteina chaos 6 · Aves chaos 6 · Grupo chaos 6')
+  expect(recipeReclassificationPatchCount).toBe(8)
+})
