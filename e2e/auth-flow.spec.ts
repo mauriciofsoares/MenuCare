@@ -816,3 +816,145 @@ test('cria regra contratual vinculada e exibe item na lista de regras', async ({
   await expect(rulesListPanel).toContainText('Regra E2E de Temperatura')
   await expect(rulesListPanel).toContainText(/Aprovada|Approved/)
 })
+
+test('valida regra e exibe evento na auditoria de regras', async ({ page }) => {
+  let currentRuleStatus = 'under_review'
+  let validationRecorded = false
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: currentRuleStatus === 'approved' ? 1 : 0,
+          rulesPendingCount: currentRuleStatus === 'approved' ? 0 : 1,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        contracts: [
+          {
+            id: 'contract-base-1',
+            title: 'Contrato Base E2E',
+            sourceType: 'contract',
+            status: 'active',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        rules: [
+          {
+            id: 'rule-base-1',
+            contractId: 'contract-base-1',
+            title: 'Regra Base para Validacao',
+            description: 'Descricao base para auditoria.',
+            category: 'Seguranca alimentar',
+            status: currentRuleStatus,
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.route('**/rules/rule-base-1/history', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        events: validationRecorded
+          ? [
+              {
+                id: 'rule-history-1',
+                previousStatus: 'under_review',
+                nextStatus: 'approved',
+                note: 'Validado pelo fluxo E2E',
+                actorName: 'Admin MenuCare',
+                createdAt: '2026-06-09T10:00:00.000Z',
+              },
+            ]
+          : [],
+      }),
+    })
+  })
+
+  await page.route('**/rules/rule-base-1/status', async (route) => {
+    currentRuleStatus = 'approved'
+    validationRecorded = true
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        message: 'Regra validada com sucesso.',
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const auditPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Auditoria de regras' }) })
+  await auditPanel.locator('select').first().selectOption('rule-base-1')
+  await auditPanel.locator('select').nth(1).selectOption('approved')
+  await auditPanel.locator('textarea').fill('Validado pelo fluxo E2E')
+  await auditPanel.locator('button.auth-button').click()
+
+  await expect(auditPanel).toContainText('Validado pelo fluxo E2E')
+  await expect(auditPanel).toContainText(/Aprovada|Approved/)
+
+  const rulesListPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Regras contratuais' }) })
+  await expect(rulesListPanel).toContainText('Regra Base para Validacao')
+  await expect(rulesListPanel).toContainText(/Aprovada|Approved/)
+})
