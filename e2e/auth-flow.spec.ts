@@ -5327,3 +5327,196 @@ test('garante resiliencia em receitas com concorrencia, retry e timeout de aviso
   await expect(reclassificationForm.locator('.auth-success')).toHaveCount(0, { timeout: 7000 })
   expect(recipeReclassificationPatchCount).toBe(1)
 })
+
+test('mantem estabilidade em carga leve com importacoes sequenciais de receitas', async ({ page }) => {
+  const importedRecipes: Array<{
+    id: string
+    sourceFileName: string
+    sourceReference: string | null
+    name: string
+    normalizedName: string
+    createdAt: string
+    updatedAt: string
+  }> = []
+  let recipeImportPostCount = 0
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contracts: [] }) })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rules: [] }) })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ nonConformities: [] }) })
+  })
+
+  await page.route('**/recipes?limit=20', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recipes: importedRecipes.map((item) => ({
+          id: item.id,
+          sourceFileName: item.sourceFileName,
+          sourceReference: item.sourceReference,
+          name: item.name,
+          normalizedName: item.normalizedName,
+          category: 'Proteina',
+          subcategory: 'Aves',
+          foodGroup: 'Proteina animal',
+          costPerCapita: 2.5,
+          servingYield: 80,
+          preparationMethod: 'Preparo padrao.',
+          nutritionalInfo: { calories: 210 },
+          compatibleDiets: ['geral'],
+          allergens: [],
+          aiClassification: {
+            category: 'Proteina',
+            subcategory: 'Aves',
+            foodGroup: 'Proteina animal',
+            confidence: 0.81,
+            tags: ['protein', 'poultry'],
+          },
+          aiProvider: 'heuristic-ready',
+          isActive: true,
+          createdAt: item.createdAt,
+          updatedAt: item.updatedAt,
+        })),
+      }),
+    })
+  })
+
+  await page.route('**/recipes/coverage', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        coverage: {
+          totalRecipes: importedRecipes.length,
+          activeRecipes: importedRecipes.length,
+          classifiedRecipes: importedRecipes.length,
+          manualReviewedRecipes: 0,
+          heuristicRecipes: importedRecipes.length,
+          coveragePercent: importedRecipes.length ? 100 : 0,
+          categoryDistribution: importedRecipes.length
+            ? [
+                {
+                  category: 'Proteina',
+                  total: importedRecipes.length,
+                },
+              ]
+            : [],
+        },
+      }),
+    })
+  })
+
+  await page.route('**/recipes/imports', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+
+    const payload = (await route.request().postDataJSON()) as {
+      fileName: string
+      sourceReference?: string
+      recipes: Array<{ name: string }>
+    }
+
+    recipeImportPostCount += 1
+
+    const importedName = payload.recipes[0]?.name ?? `Receita ${recipeImportPostCount}`
+    importedRecipes.push({
+      id: `recipe-lib-load-e2e-${recipeImportPostCount}`,
+      sourceFileName: payload.fileName,
+      sourceReference: payload.sourceReference ?? null,
+      name: importedName,
+      normalizedName: importedName.toLowerCase(),
+      createdAt: `2026-06-09T22:0${recipeImportPostCount}:00.000Z`,
+      updatedAt: `2026-06-09T22:1${recipeImportPostCount}:00.000Z`,
+    })
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recipeImport: {
+          id: `recipe-import-load-e2e-${recipeImportPostCount}`,
+        },
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+
+  const recipeImportHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Base estruturada de receitas' }) })
+  const recipeImportForm = recipeImportHeader.locator('xpath=following-sibling::form[1]')
+
+  const importRecipe = async (name: string, fileName: string) => {
+    await recipeImportForm.locator('input[type="text"]').nth(0).fill(fileName)
+    await recipeImportForm.locator('input[type="text"]').nth(1).fill('Genial')
+    await recipeImportForm.locator('input[type="text"]').nth(2).fill(name)
+    await recipeImportForm.locator('textarea').nth(0).fill(`Ingrediente ${name}`)
+    await recipeImportForm.locator('textarea').nth(1).fill(`Preparo ${name}`)
+    await recipeImportForm.locator('button.auth-button').click()
+    await expect(menuImportPanel).toContainText(name)
+  }
+
+  await importRecipe('Frango Assado Lote 1', 'FICHA-LOTE-1.pdf')
+  await importRecipe('Frango Assado Lote 2', 'FICHA-LOTE-2.pdf')
+  await importRecipe('Frango Assado Lote 3', 'FICHA-LOTE-3.pdf')
+
+  const recipeList = recipeImportHeader.locator('xpath=following-sibling::ul[1]/li')
+  await expect(recipeList).toHaveCount(3)
+  await expect(menuImportPanel).toContainText('3 classificadas de 3 receitas')
+  expect(recipeImportPostCount).toBe(3)
+})
