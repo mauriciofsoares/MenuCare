@@ -4903,3 +4903,203 @@ test('exibe erro quando regeneracao e revogacao de convite falham', async ({ pag
   expect(regenerateAttempted).toBe(true)
   expect(revokeAttempted).toBe(true)
 })
+
+test('importa receita estruturada e salva reclassificacao manual auditada', async ({ page }) => {
+  let recipeImported = false
+  let recipeReclassified = false
+  let recipeImportPostCount = 0
+  let recipeReclassificationPatchCount = 0
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contracts: [] }) })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rules: [] }) })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ nonConformities: [] }) })
+  })
+
+  await page.route('**/recipes?limit=20', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recipes: recipeImported
+          ? [
+              {
+                id: 'recipe-lib-e2e-1',
+                sourceFileName: 'FICHAS-TECNICAS-E2E.pdf',
+                sourceReference: 'Genial',
+                name: 'Frango Grelhado',
+                normalizedName: 'frango grelhado',
+                category: recipeReclassified ? 'Proteina revisada' : 'Proteina',
+                subcategory: recipeReclassified ? 'Aves premium' : 'Aves',
+                foodGroup: recipeReclassified ? 'Proteina animal revisada' : 'Proteina animal',
+                costPerCapita: 2.3,
+                servingYield: 100,
+                preparationMethod: 'Grelhar e servir.',
+                nutritionalInfo: { calories: 220 },
+                compatibleDiets: ['geral'],
+                allergens: [],
+                aiClassification: {
+                  category: recipeReclassified ? 'Proteina revisada' : 'Proteina',
+                  subcategory: recipeReclassified ? 'Aves premium' : 'Aves',
+                  foodGroup: recipeReclassified ? 'Proteina animal revisada' : 'Proteina animal',
+                  confidence: recipeReclassified ? 0.95 : 0.78,
+                  tags: recipeReclassified ? ['reviewed', 'poultry'] : ['protein', 'poultry'],
+                },
+                aiProvider: recipeReclassified ? 'manual-reviewed' : 'heuristic-ready',
+                isActive: true,
+                createdAt: '2026-06-09T21:00:00.000Z',
+                updatedAt: '2026-06-09T21:10:00.000Z',
+              },
+            ]
+          : [],
+      }),
+    })
+  })
+
+  await page.route('**/recipes/coverage', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        coverage: {
+          totalRecipes: recipeImported ? 1 : 0,
+          activeRecipes: recipeImported ? 1 : 0,
+          classifiedRecipes: recipeImported ? 1 : 0,
+          manualReviewedRecipes: recipeReclassified ? 1 : 0,
+          heuristicRecipes: recipeImported && !recipeReclassified ? 1 : 0,
+          coveragePercent: recipeImported ? 100 : 0,
+          categoryDistribution: recipeImported
+            ? [
+                {
+                  category: recipeReclassified ? 'Proteina revisada' : 'Proteina',
+                  total: 1,
+                },
+              ]
+            : [],
+        },
+      }),
+    })
+  })
+
+  await page.route('**/recipes/imports', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.continue()
+      return
+    }
+
+    recipeImportPostCount += 1
+    recipeImported = true
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recipeImport: {
+          id: 'recipe-import-e2e-1',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/recipes/recipe-lib-e2e-1/classification', async (route) => {
+    recipeReclassificationPatchCount += 1
+    recipeReclassified = true
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recipe: { id: 'recipe-lib-e2e-1' },
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+
+  const recipeImportHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Base estruturada de receitas' }) })
+  const recipeImportForm = recipeImportHeader.locator('xpath=following-sibling::form[1]')
+
+  await recipeImportForm.locator('input[type="text"]').nth(0).fill('FICHAS-TECNICAS-E2E.pdf')
+  await recipeImportForm.locator('input[type="text"]').nth(1).fill('Genial')
+  await recipeImportForm.locator('input[type="text"]').nth(2).fill('Frango Grelhado')
+  await recipeImportForm.locator('textarea').nth(0).fill('Frango\nSal\nAlho')
+  await recipeImportForm.locator('textarea').nth(1).fill('Grelhar e servir.')
+  await recipeImportForm.locator('button.auth-button').click()
+
+  await expect(menuImportPanel).toContainText('Frango Grelhado')
+  await expect(menuImportPanel).toContainText('Proteina · Aves · Proteina animal')
+
+  const reclassificationHeader = menuImportPanel
+    .locator('.invite-history-head')
+    .filter({ has: page.getByRole('heading', { name: 'Reclassificacao manual auditada' }) })
+  const reclassificationForm = reclassificationHeader.locator('xpath=following-sibling::form[1]')
+
+  await reclassificationForm.locator('select').selectOption('recipe-lib-e2e-1')
+  await reclassificationForm.locator('input[type="text"]').nth(0).fill('Proteina revisada')
+  await reclassificationForm.locator('input[type="text"]').nth(1).fill('Aves premium')
+  await reclassificationForm.locator('input[type="text"]').nth(2).fill('Proteina animal revisada')
+  await reclassificationForm.locator('input[type="number"]').fill('0.95')
+  await reclassificationForm.locator('input[type="text"]').nth(3).fill('reviewed, poultry')
+  await reclassificationForm.locator('textarea').fill('Ajuste manual de classificacao para padrao interno.')
+  await reclassificationForm.locator('button.logout-button').click()
+
+  await expect(reclassificationForm).toContainText('Reclassificacao salva com sucesso e registrada na auditoria.')
+  await expect(menuImportPanel).toContainText('Proteina revisada · Aves premium · Proteina animal revisada')
+  await expect(menuImportPanel).toContainText('Reclassificada manualmente agora')
+  expect(recipeImportPostCount).toBe(1)
+  expect(recipeReclassificationPatchCount).toBe(1)
+})
