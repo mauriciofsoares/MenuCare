@@ -49,3 +49,25 @@ test('realiza login com sucesso usando mock da API e mostra sessao ativa', async
 
   await expect(page.locator('.session-chip')).toContainText('Empresa Teste')
 })
+
+test('exibe erro quando login retorna 401', async ({ page }) => {
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 401,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'error',
+        message: 'Credenciais invalidas',
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('SenhaErrada')
+  await page.locator('form.auth-form .auth-button').click()
+
+  await expect(page.locator('form.auth-form .auth-error')).toHaveText('Credenciais invalidas')
+  await expect(page.locator('.session-chip')).toHaveCount(0)
+})
