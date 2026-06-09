@@ -1,5 +1,7 @@
 # MenuCare
 
+[![CI](https://github.com/mauriciofsoares/MenuCare/actions/workflows/ci.yml/badge.svg)](https://github.com/mauriciofsoares/MenuCare/actions/workflows/ci.yml)
+
 Monorepo inicial do MenuCare com:
 - `apps/web`: frontend React + Vite
 - `apps/api`: backend Fastify + Prisma
@@ -27,6 +29,51 @@ Monorepo inicial do MenuCare com:
 - Web: `npm run dev:web`
 - API: `npm run dev:api`
 - Docker: `npm run docker:up`
+
+## Qualidade
+- Testes (API + Web): `npm test`
+- Build (API + Web): `npm run build`
+- Validacao de CI local (Prisma + testes + build): `npm run ci:validate`
+- Pull Request com checklist de qualidade: `.github/pull_request_template.md`
+- Responsaveis por revisao por area: `.github/CODEOWNERS`
+- Guia de contribuicao: `CONTRIBUTING.md`
+- Templates de issue: `.github/ISSUE_TEMPLATE/`
+- Configuracao de triagem no GitHub (sem issue em branco): `.github/ISSUE_TEMPLATE/config.yml`
+- Checklist mensal de governanca: `docs/governance-monthly-checklist.md`
+- Historico mensal de auditorias: `docs/governance-audits/`
+- Criar arquivo mensal de auditoria automaticamente: `npm run governance:audit:new`
+   - Com mes explicito: `npm run governance:audit:new -- -Month 2026-07`
+- Verificar auditoria do mes atual: `npm run governance:audit:check`
+   - Modo estrito (falha se houver placeholders): `npm run governance:audit:check:strict`
+- Workflow mensal de auditoria (GitHub Actions): `.github/workflows/governance-audit.yml`
+   - Disparo manual por API (sem gh): `npm run governance:audit:dispatch`
+   - Disparo manual com mes explicito: `npm run governance:audit:dispatch -- -Month 2026-07`
+
+## Protecao de Branch (GitHub)
+Para reforcar governanca de entrega, configure protecao da branch `main` exigindo aprovacao e CI verde antes de merge.
+
+Pre-requisito de plano:
+- Em repositorio privado, branch protection pode exigir GitHub Pro (conta pessoal) ou plano de organizacao compativel.
+- Sem esse recurso liberado, mantenha governanca operacional com CI, template de PR e CODEOWNERS.
+
+Opcao automatizada (sem GitHub CLI):
+1. Defina um token com permissao de administracao do repositorio:
+   - PowerShell: `$env:GITHUB_TOKEN="<seu_token>"`
+2. Execute:
+   - `npm run branch-protection:apply`
+
+Passos no GitHub:
+1. Abra `Settings` do repositorio.
+2. Entre em `Branches` -> `Add branch protection rule`.
+3. Em `Branch name pattern`, use `main`.
+4. Ative `Require a pull request before merging`.
+5. Ative `Require status checks to pass before merging` e selecione o check de CI (`CI / validate`).
+6. Salve a regra.
+
+Opcional recomendado:
+- Ativar `Require branches to be up to date before merging`.
+- Ativar `Require conversation resolution before merging`.
+- Ativar `Do not allow bypassing the above settings` (quando aplicavel ao time).
 
 ## Healthcheck
 - API: `http://localhost:3001/health`
