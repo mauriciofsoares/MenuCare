@@ -958,3 +958,276 @@ test('valida regra e exibe evento na auditoria de regras', async ({ page }) => {
   await expect(rulesListPanel).toContainText('Regra Base para Validacao')
   await expect(rulesListPanel).toContainText(/Aprovada|Approved/)
 })
+
+test('cria nao conformidade, adiciona plano de acao e atualiza status', async ({ page }) => {
+  let currentNonConformityStatus = 'open'
+  let currentActionPlanStatus = 'pending'
+  let nonConformityHistoryRecorded = false
+  let actionPlanHistoryRecorded = false
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 1,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: currentNonConformityStatus === 'open' ? 1 : 0,
+          actionPlansInProgressCount: currentActionPlanStatus === 'in_progress' ? 1 : 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        contracts: [
+          {
+            id: 'contract-base-1',
+            title: 'Contrato Base E2E',
+            sourceType: 'contract',
+            status: 'active',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        rules: [
+          {
+            id: 'rule-base-1',
+            contractId: 'contract-base-1',
+            title: 'Regra Base para Fluxo NC',
+            description: 'Regra de contexto para teste de conformidade.',
+            category: 'Conformidade',
+            status: 'approved',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        nonConformities: [
+          {
+            id: 'nc-e2e-1',
+            title: 'NC E2E Temperatura fora da faixa',
+            description: 'Temperatura registrada acima do limite operacional.',
+            origin: 'Inspecao interna',
+            impact: 'Risco de seguranca alimentar',
+            owner: 'Equipe Qualidade',
+            dueDate: '2026-06-30',
+            status: currentNonConformityStatus,
+            createdAt: '2026-06-09T10:00:00.000Z',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/non-conformities', async (route) => {
+    const request = route.request()
+
+    if (request.method() !== 'POST') {
+      await route.continue()
+      return
+    }
+
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        nonConformity: {
+          id: 'nc-e2e-1',
+          title: 'NC E2E Temperatura fora da faixa',
+          description: 'Temperatura registrada acima do limite operacional.',
+          origin: 'Inspecao interna',
+          impact: 'Risco de seguranca alimentar',
+          owner: 'Equipe Qualidade',
+          dueDate: '2026-06-30',
+          status: 'open',
+          createdAt: '2026-06-09T10:00:00.000Z',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/non-conformities/nc-e2e-1/status', async (route) => {
+    currentNonConformityStatus = 'in_progress'
+    nonConformityHistoryRecorded = true
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok' }),
+    })
+  })
+
+  await page.route('**/non-conformities/nc-e2e-1/history*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        events: nonConformityHistoryRecorded
+          ? [
+              {
+                id: 'nc-history-1',
+                previousStatus: 'open',
+                nextStatus: 'in_progress',
+                actorName: 'Admin MenuCare',
+                createdAt: '2026-06-09T10:20:00.000Z',
+              },
+            ]
+          : [],
+        total: nonConformityHistoryRecorded ? 1 : 0,
+        hasNext: false,
+      }),
+    })
+  })
+
+  await page.route('**/non-conformities/nc-e2e-1/actions', async (route) => {
+    const request = route.request()
+
+    if (request.method() === 'POST') {
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'ok',
+          action: {
+            id: 'action-e2e-1',
+            nonConformityId: 'nc-e2e-1',
+            description: 'Executar recalibracao dos sensores termicos',
+            owner: 'Equipe Operacional',
+            dueDate: '2026-06-28',
+            status: 'pending',
+            createdAt: '2026-06-09T10:30:00.000Z',
+          },
+        }),
+      })
+      return
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        actions: [
+          {
+            id: 'action-e2e-1',
+            nonConformityId: 'nc-e2e-1',
+            description: 'Executar recalibracao dos sensores termicos',
+            owner: 'Equipe Operacional',
+            dueDate: '2026-06-28',
+            status: currentActionPlanStatus,
+            createdAt: '2026-06-09T10:30:00.000Z',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/non-conformities/nc-e2e-1/actions/action-e2e-1/status', async (route) => {
+    currentActionPlanStatus = 'in_progress'
+    actionPlanHistoryRecorded = true
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok' }),
+    })
+  })
+
+  await page.route('**/non-conformities/nc-e2e-1/actions/action-e2e-1/history*', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        events: actionPlanHistoryRecorded
+          ? [
+              {
+                id: 'action-history-1',
+                previousStatus: 'pending',
+                nextStatus: 'in_progress',
+                actorName: 'Admin MenuCare',
+                createdAt: '2026-06-09T10:35:00.000Z',
+              },
+            ]
+          : [],
+        total: actionPlanHistoryRecorded ? 1 : 0,
+        hasNext: false,
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const nonConformityPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: /Nao conformidades|Non-conformities/i }) })
+  await nonConformityPanel.locator('input[type="text"]').first().fill('NC E2E Temperatura fora da faixa')
+  await nonConformityPanel.locator('textarea').first().fill('Temperatura registrada acima do limite operacional.')
+  await nonConformityPanel.locator('input[type="text"]').nth(1).fill('Inspecao interna')
+  await nonConformityPanel.locator('input[type="text"]').nth(2).fill('Risco de seguranca alimentar')
+  await nonConformityPanel.locator('input[type="text"]').nth(3).fill('Equipe Qualidade')
+  await nonConformityPanel.locator('input[type="date"]').first().fill('2026-06-30')
+  await nonConformityPanel.locator('button.auth-button').click()
+
+  await expect(nonConformityPanel).toContainText('NC E2E Temperatura fora da faixa')
+  await expect(nonConformityPanel).toContainText(/Aberta|Open/)
+  await nonConformityPanel.locator('.records-list li').first().locator('button.logout-button').first().click()
+  await expect(nonConformityPanel).toContainText(/Em andamento|In progress/)
+  await expect(nonConformityPanel).toContainText('Admin MenuCare')
+
+  const actionPlanPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: /Plano de acao|Action plan/i }) })
+  await actionPlanPanel.locator('select').first().selectOption('nc-e2e-1')
+  await actionPlanPanel.locator('textarea').first().fill('Executar recalibracao dos sensores termicos')
+  await actionPlanPanel.locator('input[type="text"]').first().fill('Equipe Operacional')
+  await actionPlanPanel.locator('input[type="date"]').first().fill('2026-06-28')
+  await actionPlanPanel.locator('button.auth-button').click()
+
+  await expect(actionPlanPanel).toContainText('Executar recalibracao dos sensores termicos')
+  await expect(actionPlanPanel).toContainText(/Pendente|Pending/)
+  await actionPlanPanel.locator('.records-list li').first().locator('button.logout-button').first().click()
+  await expect(actionPlanPanel).toContainText(/Em andamento|In progress/)
+  await expect(actionPlanPanel).toContainText('Admin MenuCare')
+})
