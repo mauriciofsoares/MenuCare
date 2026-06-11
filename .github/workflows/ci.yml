@@ -16,18 +16,65 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Classify changed files
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_SHA="${{ github.event.pull_request.base.sha }}"
+            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE_SHA="${{ github.event.before }}"
+            HEAD_SHA="${{ github.sha }}"
+          fi
+
+          git diff --name-only "$BASE_SHA" "$HEAD_SHA" | sed '/^$/d' > changed-files.txt
+
+          docs_only=true
+          if [ ! -s changed-files.txt ]; then
+            docs_only=false
+          else
+            while IFS= read -r file; do
+              case "$file" in
+                docs/*|*.md|README|README.*)
+                  ;;
+                *)
+                  docs_only=false
+                  ;;
+              esac
+            done < changed-files.txt
+          fi
+
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "Changed files:"
+          cat changed-files.txt
+
+      - name: Lightweight docs validation
+        if: steps.changes.outputs.docs_only == 'true'
+        run: |
+          echo "Documentation-only change detected."
+          echo "Skipping tests and build that require application/runtime dependencies."
 
       - name: Setup Node.js
+        if: steps.changes.outputs.docs_only != 'true'
         uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
 
       - name: Install dependencies
+        if: steps.changes.outputs.docs_only != 'true'
         run: npm ci
 
       - name: Run tests (API + Web)
+        if: steps.changes.outputs.docs_only != 'true'
         run: npm run test:all
 
       - name: Build (API + Web)
+        if: steps.changes.outputs.docs_only != 'true'
         run: npm run build:all
