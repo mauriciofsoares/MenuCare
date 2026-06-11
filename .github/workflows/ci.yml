@@ -8,12 +8,10 @@ on:
   pull_request:
 
 jobs:
-  validate:
+  classify-changes:
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-      DATABASE_URL: postgresql://menucare:menucare@localhost:5432/menucare_test
-
+    outputs:
+      docs_only: ${{ steps.changes.outputs.docs_only }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -55,61 +53,64 @@ jobs:
           echo "Changed files:"
           cat changed-files.txt
 
+  docs-validation:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    steps:
       - name: Lightweight docs validation
-        if: steps.changes.outputs.docs_only == 'true'
         run: |
           echo "Documentation-only change detected."
-          echo "Skipping tests and build that require application/runtime dependencies."
+          echo "Skipping dependency install, tests, build, and PostgreSQL."
+
+  validate:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      DATABASE_URL: postgresql://menucare:menucare@localhost:5432/menucare_test
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: menucare
+          POSTGRES_PASSWORD: menucare
+          POSTGRES_DB: menucare_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U menucare -d menucare_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
 
       - name: Setup Node.js
-        if: steps.changes.outputs.docs_only != 'true'
         uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
 
-      - name: Start PostgreSQL
-        if: steps.changes.outputs.docs_only != 'true'
-        run: |
-          docker run \
-            --detach \
-            --name menucare-postgres \
-            --env POSTGRES_USER=menucare \
-            --env POSTGRES_PASSWORD=menucare \
-            --env POSTGRES_DB=menucare_test \
-            --publish 5432:5432 \
-            postgres:16
-
-          for attempt in {1..30}; do
-            if docker exec menucare-postgres pg_isready -U menucare -d menucare_test; then
-              exit 0
-            fi
-            sleep 2
-          done
-
-          docker logs menucare-postgres
-          exit 1
-
       - name: Install dependencies
-        if: steps.changes.outputs.docs_only != 'true'
         run: npm ci
 
       - name: Prepare test database
-        if: steps.changes.outputs.docs_only != 'true'
         run: |
-          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/baseline/migration.sql
-          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/20260611_sprint_p_contracts_status/migration.sql
-          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/20260611_sprint_p_source_excerpt/migration.sql
-          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/20260611_sprint_p_evidence_metadata/migration.sql
-          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/20260611_sprint_p_compliance_controls/migration.sql
-          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/20260611_sprint_q_control_state_machine_and_finding_events/migration.sql
-          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/20260611_sprint_q_operational_governance/migration.sql
-          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/seed-demo.sql
+          npm exec --workspace apps/api -- prisma db execute --schema prisma/schema.prisma --file prisma/migrations/baseline/migration.sql
+          npm exec --workspace apps/api -- prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260611_sprint_p_contracts_status/migration.sql
+          npm exec --workspace apps/api -- prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260611_sprint_p_source_excerpt/migration.sql
+          npm exec --workspace apps/api -- prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260611_sprint_p_evidence_metadata/migration.sql
+          npm exec --workspace apps/api -- prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260611_sprint_p_compliance_controls/migration.sql
+          npm exec --workspace apps/api -- prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260611_sprint_q_control_state_machine_and_finding_events/migration.sql
+          npm exec --workspace apps/api -- prisma db execute --schema prisma/schema.prisma --file prisma/migrations/20260611_sprint_q_operational_governance/migration.sql
+          npm exec --workspace apps/api -- prisma db execute --schema prisma/schema.prisma --file seed-demo.sql
 
       - name: Run tests (API + Web)
-        if: steps.changes.outputs.docs_only != 'true'
         run: npm run test:all
 
       - name: Build (API + Web)
-        if: steps.changes.outputs.docs_only != 'true'
         run: npm run build:all
