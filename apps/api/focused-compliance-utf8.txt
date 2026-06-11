@@ -1,0 +1,136 @@
+﻿{"level":30,"time":1781197006291,"pid":28176,"hostname":"HUCN001086914","msg":"Server listening at http://127.0.0.1:3001"}
+{"level":30,"time":1781197006293,"pid":28176,"hostname":"HUCN001086914","msg":"Server listening at http://172.30.0.138:3001"}
+{"level":30,"time":1781197006293,"pid":28176,"hostname":"HUCN001086914","msg":"Server listening at http://172.27.160.1:3001"}
+{"level":30,"time":1781197006293,"pid":28176,"hostname":"HUCN001086914","msg":"Server listening at http://172.21.112.1:3001"}
+{"level":30,"time":1781197006293,"pid":28176,"hostname":"HUCN001086914","msg":"Server listening at http://192.168.15.2:3001"}
+{"level":30,"time":1781197006360,"pid":28176,"hostname":"HUCN001086914","reqId":"req-1","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55713},"msg":"incoming request"}
+{"level":30,"time":1781197006885,"pid":28176,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"93132d25-f87c-4e10-b1aa-280702a4d4d8","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781197006901,"pid":28176,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781197006984,"pid":28176,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"aca04104-3106-41cc-ab4c-0ef0dcf19f94","userId":"demo-admin","authFlowId":"93132d25-f87c-4e10-b1aa-280702a4d4d8","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T16:56:46.941Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781197006986,"pid":28176,"hostname":"HUCN001086914","reqId":"req-1","res":{"statusCode":200},"responseTime":624.2892999947071,"msg":"request completed"}
+{"level":30,"time":1781197006991,"pid":28176,"hostname":"HUCN001086914","reqId":"req-2","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55715},"msg":"incoming request"}
+{"level":30,"time":1781197007016,"pid":28176,"hostname":"HUCN001086914","reqId":"req-2","res":{"statusCode":201},"responseTime":24.186500012874603,"msg":"request completed"}
+{"level":30,"time":1781197007018,"pid":28176,"hostname":"HUCN001086914","reqId":"req-3","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55716},"msg":"incoming request"}
+{"level":30,"time":1781197007060,"pid":28176,"hostname":"HUCN001086914","reqId":"req-3","res":{"statusCode":201},"responseTime":42.516500011086464,"msg":"request completed"}
+{"level":30,"time":1781197007063,"pid":28176,"hostname":"HUCN001086914","reqId":"req-4","req":{"method":"POST","url":"/rules/7e73904c-c435-4628-a9c5-0f32009d129f/promote-control","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55717},"msg":"incoming request"}
+{"level":30,"time":1781197007106,"pid":28176,"hostname":"HUCN001086914","reqId":"req-4","res":{"statusCode":201},"responseTime":43.26690000295639,"msg":"request completed"}
+{"level":30,"time":1781197007108,"pid":28176,"hostname":"HUCN001086914","reqId":"req-5","req":{"method":"GET","url":"/compliance-controls?limit=10","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55718},"msg":"incoming request"}
+{"level":30,"time":1781197007134,"pid":28176,"hostname":"HUCN001086914","reqId":"req-5","res":{"statusCode":200},"responseTime":25.509999990463257,"msg":"request completed"}
+{"level":30,"time":1781197007138,"pid":28176,"hostname":"HUCN001086914","reqId":"req-6","req":{"method":"POST","url":"/compliance-controls/c900c94e-24b2-48a5-8378-e9fd31ddfd4c/executions","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55719},"msg":"incoming request"}
+{"level":50,"time":1781197007169,"pid":28176,"hostname":"HUCN001086914","reqId":"req-6","req":{"method":"POST","url":"/compliance-controls/c900c94e-24b2-48a5-8378-e9fd31ddfd4c/executions","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55719},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"execution_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"execution_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\compliance\\service.ts:906:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"execution_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"execution_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781197007172,"pid":28176,"hostname":"HUCN001086914","reqId":"req-6","res":{"statusCode":500},"responseTime":34.275600001215935,"msg":"request completed"}
+ÔûÂ API integration
+  Ô£û approved rule should be promoted to compliance control and preserve full traceability (873.5034ms)
+{"level":30,"time":1781197007185,"pid":28176,"hostname":"HUCN001086914","reqId":"req-7","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55720},"msg":"incoming request"}
+{"level":30,"time":1781197007186,"pid":28176,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"fed42e68-d8a2-4045-89cf-7f0b72a94f1c","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781197007188,"pid":28176,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781197007241,"pid":28176,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"459a914e-3688-4ad3-8162-d3acedc05ed2","userId":"demo-admin","authFlowId":"fed42e68-d8a2-4045-89cf-7f0b72a94f1c","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T16:56:47.239Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781197007241,"pid":28176,"hostname":"HUCN001086914","reqId":"req-7","res":{"statusCode":200},"responseTime":56.017700001597404,"msg":"request completed"}
+{"level":30,"time":1781197007243,"pid":28176,"hostname":"HUCN001086914","reqId":"req-8","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55721},"msg":"incoming request"}
+{"level":30,"time":1781197007246,"pid":28176,"hostname":"HUCN001086914","reqId":"req-8","res":{"statusCode":201},"responseTime":2.826999992132187,"msg":"request completed"}
+{"level":30,"time":1781197007247,"pid":28176,"hostname":"HUCN001086914","reqId":"req-9","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55722},"msg":"incoming request"}
+{"level":30,"time":1781197007253,"pid":28176,"hostname":"HUCN001086914","reqId":"req-9","res":{"statusCode":201},"responseTime":5.188899993896484,"msg":"request completed"}
+{"level":30,"time":1781197007255,"pid":28176,"hostname":"HUCN001086914","reqId":"req-a","req":{"method":"POST","url":"/rules/947b79b8-8d24-4c05-a4fe-aaa21d262942/promote-control","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55723},"msg":"incoming request"}
+{"level":30,"time":1781197007260,"pid":28176,"hostname":"HUCN001086914","reqId":"req-a","res":{"statusCode":201},"responseTime":5.036100000143051,"msg":"request completed"}
+{"level":30,"time":1781197007262,"pid":28176,"hostname":"HUCN001086914","reqId":"req-b","req":{"method":"GET","url":"/compliance-controls/d71bb91b-130a-4244-9323-fe33f1f3ab4a","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55724},"msg":"incoming request"}
+{"level":30,"time":1781197007289,"pid":28176,"hostname":"HUCN001086914","reqId":"req-b","res":{"statusCode":200},"responseTime":27.10140000283718,"msg":"request completed"}
+{"level":30,"time":1781197007292,"pid":28176,"hostname":"HUCN001086914","reqId":"req-c","req":{"method":"PATCH","url":"/compliance-controls/d71bb91b-130a-4244-9323-fe33f1f3ab4a/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55725},"msg":"incoming request"}
+{"level":30,"time":1781197007294,"pid":28176,"hostname":"HUCN001086914","reqId":"req-c","res":{"statusCode":409},"responseTime":2.259900003671646,"msg":"request completed"}
+{"level":30,"time":1781197007295,"pid":28176,"hostname":"HUCN001086914","reqId":"req-d","req":{"method":"GET","url":"/compliance-controls/d71bb91b-130a-4244-9323-fe33f1f3ab4a","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55726},"msg":"incoming request"}
+{"level":30,"time":1781197007300,"pid":28176,"hostname":"HUCN001086914","reqId":"req-d","res":{"statusCode":200},"responseTime":4.364700004458427,"msg":"request completed"}
+{"level":30,"time":1781197007301,"pid":28176,"hostname":"HUCN001086914","reqId":"req-e","req":{"method":"PATCH","url":"/compliance-controls/d71bb91b-130a-4244-9323-fe33f1f3ab4a/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55727},"msg":"incoming request"}
+{"level":30,"time":1781197007304,"pid":28176,"hostname":"HUCN001086914","reqId":"req-e","res":{"statusCode":200},"responseTime":2.9487999975681305,"msg":"request completed"}
+{"level":30,"time":1781197007306,"pid":28176,"hostname":"HUCN001086914","reqId":"req-f","req":{"method":"GET","url":"/compliance-controls/d71bb91b-130a-4244-9323-fe33f1f3ab4a","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55728},"msg":"incoming request"}
+{"level":30,"time":1781197007333,"pid":28176,"hostname":"HUCN001086914","reqId":"req-f","res":{"statusCode":200},"responseTime":27.204699993133545,"msg":"request completed"}
+{"level":30,"time":1781197007335,"pid":28176,"hostname":"HUCN001086914","reqId":"req-g","req":{"method":"PATCH","url":"/compliance-controls/d71bb91b-130a-4244-9323-fe33f1f3ab4a/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55729},"msg":"incoming request"}
+{"level":30,"time":1781197007340,"pid":28176,"hostname":"HUCN001086914","reqId":"req-g","res":{"statusCode":200},"responseTime":4.106700003147125,"msg":"request completed"}
+{"level":30,"time":1781197007341,"pid":28176,"hostname":"HUCN001086914","reqId":"req-h","req":{"method":"GET","url":"/compliance-controls/d71bb91b-130a-4244-9323-fe33f1f3ab4a","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55730},"msg":"incoming request"}
+{"level":30,"time":1781197007345,"pid":28176,"hostname":"HUCN001086914","reqId":"req-h","res":{"statusCode":200},"responseTime":3.460899993777275,"msg":"request completed"}
+{"level":30,"time":1781197007347,"pid":28176,"hostname":"HUCN001086914","reqId":"req-i","req":{"method":"PATCH","url":"/compliance-controls/d71bb91b-130a-4244-9323-fe33f1f3ab4a/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55731},"msg":"incoming request"}
+{"level":30,"time":1781197007350,"pid":28176,"hostname":"HUCN001086914","reqId":"req-i","res":{"statusCode":200},"responseTime":2.920300006866455,"msg":"request completed"}
+  Ô£û control state machine should accept valid transitions and reject invalid ones without events (172.9069ms)
+{"level":30,"time":1781197007352,"pid":28176,"hostname":"HUCN001086914","reqId":"req-j","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55732},"msg":"incoming request"}
+{"level":30,"time":1781197007354,"pid":28176,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"f82d4f42-b985-4dc4-b1b6-e9c1fa3ce05b","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781197007355,"pid":28176,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781197007389,"pid":28176,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"e0408a1f-b837-4edf-806d-3eb5fadc3ac1","userId":"demo-admin","authFlowId":"f82d4f42-b985-4dc4-b1b6-e9c1fa3ce05b","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T16:56:47.387Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781197007390,"pid":28176,"hostname":"HUCN001086914","reqId":"req-j","res":{"statusCode":200},"responseTime":37.05689999461174,"msg":"request completed"}
+{"level":30,"time":1781197007392,"pid":28176,"hostname":"HUCN001086914","reqId":"req-k","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55733},"msg":"incoming request"}
+{"level":30,"time":1781197007394,"pid":28176,"hostname":"HUCN001086914","reqId":"req-k","res":{"statusCode":201},"responseTime":2.1841999888420105,"msg":"request completed"}
+{"level":30,"time":1781197007396,"pid":28176,"hostname":"HUCN001086914","reqId":"req-l","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55734},"msg":"incoming request"}
+{"level":30,"time":1781197007400,"pid":28176,"hostname":"HUCN001086914","reqId":"req-l","res":{"statusCode":201},"responseTime":4.229100003838539,"msg":"request completed"}
+{"level":30,"time":1781197007402,"pid":28176,"hostname":"HUCN001086914","reqId":"req-m","req":{"method":"POST","url":"/rules/f461781a-fe28-4d23-be56-c59b7cacef4d/promote-control","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55735},"msg":"incoming request"}
+{"level":30,"time":1781197007406,"pid":28176,"hostname":"HUCN001086914","reqId":"req-m","res":{"statusCode":201},"responseTime":4.692400008440018,"msg":"request completed"}
+{"level":30,"time":1781197007408,"pid":28176,"hostname":"HUCN001086914","reqId":"req-n","req":{"method":"POST","url":"/compliance-controls/b163a621-263a-4363-9f06-6e899db4226f/findings","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55736},"msg":"incoming request"}
+{"level":30,"time":1781197007416,"pid":28176,"hostname":"HUCN001086914","reqId":"req-n","res":{"statusCode":201},"responseTime":8.34010000526905,"msg":"request completed"}
+{"level":30,"time":1781197007418,"pid":28176,"hostname":"HUCN001086914","reqId":"req-o","req":{"method":"GET","url":"/compliance-controls/b163a621-263a-4363-9f06-6e899db4226f","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55737},"msg":"incoming request"}
+{"level":30,"time":1781197007421,"pid":28176,"hostname":"HUCN001086914","reqId":"req-o","res":{"statusCode":200},"responseTime":3.415799990296364,"msg":"request completed"}
+{"level":30,"time":1781197007423,"pid":28176,"hostname":"HUCN001086914","reqId":"req-p","req":{"method":"PATCH","url":"/compliance-controls/b163a621-263a-4363-9f06-6e899db4226f/findings/e97c77b5-3cfa-4417-b4e3-c5514c891ae7/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55738},"msg":"incoming request"}
+{"level":30,"time":1781197007428,"pid":28176,"hostname":"HUCN001086914","reqId":"req-p","res":{"statusCode":200},"responseTime":5.34799998998642,"msg":"request completed"}
+{"level":30,"time":1781197007430,"pid":28176,"hostname":"HUCN001086914","reqId":"req-q","req":{"method":"GET","url":"/compliance-controls/b163a621-263a-4363-9f06-6e899db4226f","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55739},"msg":"incoming request"}
+{"level":30,"time":1781197007433,"pid":28176,"hostname":"HUCN001086914","reqId":"req-q","res":{"statusCode":200},"responseTime":2.9453000128269196,"msg":"request completed"}
+{"level":30,"time":1781197007434,"pid":28176,"hostname":"HUCN001086914","reqId":"req-r","req":{"method":"PATCH","url":"/compliance-controls/b163a621-263a-4363-9f06-6e899db4226f/findings/e97c77b5-3cfa-4417-b4e3-c5514c891ae7/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55740},"msg":"incoming request"}
+{"level":30,"time":1781197007437,"pid":28176,"hostname":"HUCN001086914","reqId":"req-r","res":{"statusCode":200},"responseTime":2.9368999898433685,"msg":"request completed"}
+{"level":30,"time":1781197007438,"pid":28176,"hostname":"HUCN001086914","reqId":"req-s","req":{"method":"GET","url":"/compliance-controls/b163a621-263a-4363-9f06-6e899db4226f","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55741},"msg":"incoming request"}
+{"level":30,"time":1781197007441,"pid":28176,"hostname":"HUCN001086914","reqId":"req-s","res":{"statusCode":200},"responseTime":2.9554000049829483,"msg":"request completed"}
+{"level":30,"time":1781197007443,"pid":28176,"hostname":"HUCN001086914","reqId":"req-t","req":{"method":"PATCH","url":"/compliance-controls/b163a621-263a-4363-9f06-6e899db4226f/findings/e97c77b5-3cfa-4417-b4e3-c5514c891ae7/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55742},"msg":"incoming request"}
+{"level":30,"time":1781197007445,"pid":28176,"hostname":"HUCN001086914","reqId":"req-t","res":{"statusCode":409},"responseTime":1.7758000046014786,"msg":"request completed"}
+{"level":30,"time":1781197007448,"pid":28176,"hostname":"HUCN001086914","reqId":"req-u","req":{"method":"GET","url":"/compliance-controls/b163a621-263a-4363-9f06-6e899db4226f","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55743},"msg":"incoming request"}
+{"level":30,"time":1781197007452,"pid":28176,"hostname":"HUCN001086914","reqId":"req-u","res":{"statusCode":200},"responseTime":3.6715999990701675,"msg":"request completed"}
+{"level":30,"time":1781197007454,"pid":28176,"hostname":"HUCN001086914","reqId":"req-v","req":{"method":"POST","url":"/compliance-controls/b163a621-263a-4363-9f06-6e899db4226f/findings","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55744},"msg":"incoming request"}
+{"level":30,"time":1781197007457,"pid":28176,"hostname":"HUCN001086914","reqId":"req-v","res":{"statusCode":201},"responseTime":3.181999996304512,"msg":"request completed"}
+{"level":30,"time":1781197007458,"pid":28176,"hostname":"HUCN001086914","reqId":"req-w","req":{"method":"PATCH","url":"/compliance-controls/b163a621-263a-4363-9f06-6e899db4226f/findings/80f580d1-5ad0-4409-9b0e-c2b1a91699ab/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55746},"msg":"incoming request"}
+{"level":30,"time":1781197007461,"pid":28176,"hostname":"HUCN001086914","reqId":"req-w","res":{"statusCode":200},"responseTime":2.6851000040769577,"msg":"request completed"}
+{"level":30,"time":1781197007463,"pid":28176,"hostname":"HUCN001086914","reqId":"req-x","req":{"method":"PATCH","url":"/compliance-controls/b163a621-263a-4363-9f06-6e899db4226f/findings/80f580d1-5ad0-4409-9b0e-c2b1a91699ab/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55747},"msg":"incoming request"}
+{"level":30,"time":1781197007464,"pid":28176,"hostname":"HUCN001086914","reqId":"req-x","res":{"statusCode":409},"responseTime":1.4437000006437302,"msg":"request completed"}
+{"level":30,"time":1781197007465,"pid":28176,"hostname":"HUCN001086914","reqId":"req-y","req":{"method":"GET","url":"/compliance-controls/b163a621-263a-4363-9f06-6e899db4226f","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":55748},"msg":"incoming request"}
+{"level":30,"time":1781197007469,"pid":28176,"hostname":"HUCN001086914","reqId":"req-y","res":{"statusCode":200},"responseTime":3.4018000066280365,"msg":"request completed"}
+  Ô£ö finding lifecycle should create events and block invalid regressions (119.0996ms)
+Ô£û API integration (1169.3419ms)
+Ôä╣ tests 3
+Ôä╣ suites 1
+Ôä╣ pass 1
+Ôä╣ fail 2
+Ôä╣ cancelled 0
+Ôä╣ skipped 0
+Ôä╣ todo 0
+Ôä╣ duration_ms 10116.9824
+
+Ô£û failing tests:
+
+test at src\server.test.ts:1:74398
+Ô£û approved rule should be promoted to compliance control and preserve full traceability (873.5034ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2682:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Promise.all (index 42)
+      at async Suite.run (node:internal/test_runner/test:1619:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:77133
+Ô£û control state machine should accept valid transitions and reject invalid ones without events (172.9069ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 409
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2788:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 409,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

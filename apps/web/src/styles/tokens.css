@@ -1,0 +1,60 @@
+:root {
+  --mc-font: 'Inter', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  --sidebar-bg: #141d2b;
+  --sidebar-text: #94a3b8;
+  --sidebar-active-bg: #1e3a5f;
+  --sidebar-active-text: #00d4aa;
+  --content-bg: #f8fafc;
+  --card-bg: #ffffff;
+  --text-primary: #1e293b;
+  --text-secondary: #64748b;
+  --border: #e2e8f0;
+  --teal: #00d4aa;
+  --teal-light: #e6faf6;
+  --status-ok-bg: #dcfce7;
+  --status-ok-text: #16a34a;
+  --status-warn-bg: #fef9c3;
+  --status-warn-text: #ca8a04;
+  --status-err-bg: #fee2e2;
+  --status-err-text: #dc2626;
+
+  --mc-teal: var(--teal);
+  --mc-radius-card: 12px;
+  --mc-radius-input: 8px;
+  --mc-card-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+
+  --mc-bg: var(--content-bg);
+  --mc-sidebar: var(--sidebar-bg);
+  --mc-topbar: var(--card-bg);
+  --mc-surface: var(--card-bg);
+  --mc-text: var(--text-primary);
+  --mc-muted: var(--text-secondary);
+  --mc-border: var(--border);
+}
+
+body[data-theme='dark'] {
+  --sidebar-bg: #0f172a;
+  --sidebar-text: #cbd5e1;
+  --sidebar-active-bg: #1e3a5f;
+  --sidebar-active-text: #34d399;
+  --content-bg: #0b1320;
+  --card-bg: #162235;
+  --text-primary: #e2e8f0;
+  --text-secondary: #94a3b8;
+  --border: #233449;
+  --teal-light: rgba(0, 212, 170, 0.14);
+  --status-ok-bg: rgba(22, 163, 74, 0.22);
+  --status-ok-text: #86efac;
+  --status-warn-bg: rgba(202, 138, 4, 0.24);
+  --status-warn-text: #fde68a;
+  --status-err-bg: rgba(220, 38, 38, 0.22);
+  --status-err-text: #fca5a5;
+
+  --mc-bg: var(--content-bg);
+  --mc-sidebar: var(--sidebar-bg);
+  --mc-topbar: var(--card-bg);
+  --mc-surface: var(--card-bg);
+  --mc-text: var(--text-primary);
+  --mc-muted: var(--text-secondary);
+  --mc-border: var(--border);
+}

@@ -8,23 +8,940 @@ datasource db {
 }
 
 model Tenant {
-  id        String   @id @default(uuid())
-  name      String
-  cnpj      String?  @unique
-  createdAt DateTime @default(now())
-  users     User[]
+  id                          String                     @id @default(uuid())
+  name                        String
+  cnpj                        String?                    @unique
+  createdAt                   DateTime                   @default(now())
+  updatedAt                   DateTime                   @updatedAt
+  users                       User[]
+  localePreferences           LocalePreference[]
+  operationalProfiles         OperationalProfile[]
+  firstAccessInvites          FirstAccessInvite[]
+  authPasswordOverrides       AuthPasswordOverride[]
+  inviteAuditEvents           InviteAuditEvent[]
+  refreshSessions             RefreshSession[]
+  contracts                   Contract[]
+  contractRules               ContractRule[]
+  ruleValidationEvents        RuleValidationEvent[]
+  menuImports                 MenuImport[]
+  operationalCardapios        OperationalCardapio[]
+  monthlyCycleSummaries       MonthlyCycleSummary[]
+  commemorativeDates          CommemorativeDate[]
+  menuAdjustedVersions        MenuAdjustedVersion[]
+  menuRuleAudits              MenuRuleAudit[]
+  suggestions                 Suggestion[]
+  recipeLibraryItems          Recipe[]
+  recipeIngredients           RecipeIngredient[]
+  recipeItemIngredients       RecipeItemIngredient[]
+  recipeImportEvents          RecipeImportEvent[]
+  recipeClassificationEvents  RecipeClassificationEvent[]
+  evaluationImports           EvaluationImport[]
+  combinationIntelligence     CombinationIntelligence[]
+  nonConformities             NonConformity[]
+  actionPlans                 ActionPlan[]
+  nonConformityEvents         NonConformityEvent[]
+  actionPlanEvents            ActionPlanEvent[]
+  complianceControls          ComplianceControl[]
+  complianceControlExecutions ComplianceControlExecution[]
+  complianceControlEvents     ComplianceControlEvent[]
+  complianceFindings          ComplianceFinding[]
+  complianceFindingEvents     ComplianceFindingEvent[]
+  evidenceReferences          EvidenceReference[]
+  complianceExportEvents      ComplianceExportEvent[]
+  nextMenuDecisions           NextMenuDecision[]
+  recommendationPreviews      RecommendationPreview[]
+  recommendationPolicies      RecommendationPolicy[]
+  recommendationRecords       RecommendationRecord[]
+  auditRecords                AuditRecord[]
+  aiPreparationEvents         AIPreparationEvent[]
 }
 
 model User {
-  id           String   @id @default(uuid())
-  tenantId     String
-  name         String
-  email        String
-  passwordHash String
-  status       String   @default("active")
-  createdAt    DateTime @default(now())
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id             String          @id @default(uuid())
+  tenant_id      String
+  name           String
+  email          String
+  passwordHash   String          @map("password_hash")
+  status         String          @default("active")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  tenant         Tenant          @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  refreshSessions RefreshSession[] @relation("RefreshSessionUser")
 
-  @@unique([tenantId, email])
-  @@index([tenantId])
+  @@unique([tenant_id, email])
+  @@index([tenant_id])
+}
+
+// =========================
+// Auth & Identity
+// =========================
+
+model LocalePreference {
+  id         String   @id @default(uuid())
+  tenant_id  String
+  companyName String  @map("company_name")
+  locale     String
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  tenant     Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, companyName])
+  @@index([tenant_id])
+  @@map("company_locale_preferences")
+}
+
+model OperationalProfile {
+  id             String   @id @default(uuid())
+  tenant_id      String
+  companyName    String   @map("company_name")
+  source_profile String
+  contract_mode  String
+  compliance_mode String
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  tenant         Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, companyName])
+  @@index([tenant_id])
+  @@map("company_operational_profiles")
+}
+
+model FirstAccessInvite {
+  id         String   @id @default(uuid())
+  tenant_id  String
+  token      String   @unique
+  email      String
+  companyName String  @map("company_name")
+  is_active  Boolean  @default(true)
+  used_at    DateTime?
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+  tenant     Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, email])
+  @@index([tenant_id])
+  @@map("first_access_invites")
+}
+
+model AuthPasswordOverride {
+  id           String   @id @default(uuid())
+  tenant_id    String
+  email        String
+  companyName  String   @map("company_name")
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+  tenant       Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, email])
+  @@index([tenant_id])
+  @@map("auth_password_overrides")
+}
+
+model InviteAuditEvent {
+  id          String   @id @default(uuid())
+  tenant_id   String
+  companyName String   @map("company_name")
+  invite_token String
+  invite_email String
+  action      String
+  note        String?
+  actor_id    String
+  actor_name  String
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  tenant      Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, createdAt])
+  @@index([tenant_id, invite_token])
+  @@map("invite_audit_events")
+}
+
+model RefreshSession {
+  id                    String    @id @default(uuid())
+  tenant_id             String
+  user_id               String
+  email                 String
+  companyName           String    @map("company_name")
+  access_profile        String
+  role_key              String
+  user_name             String
+  token_hash            String
+  auth_flow_id          String
+  device_fingerprint    String
+  device_label          String
+  ip_address            String?
+  expires_at            DateTime
+  last_seen_at          DateTime
+  revoked_at            DateTime?
+  replaced_by_session_id String?
+  createdAt             DateTime  @default(now()) @map("created_at")
+  updatedAt             DateTime  @updatedAt @map("updated_at")
+  tenant                Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  user                  User      @relation("RefreshSessionUser", fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, user_id, createdAt])
+  @@index([tenant_id, email, createdAt])
+  @@index([tenant_id, user_id, device_fingerprint, createdAt])
+  @@map("auth_refresh_sessions")
+}
+
+// =========================
+// Contracts
+// =========================
+
+model Contract {
+  id          String               @id
+  tenant_id   String
+  companyName String               @map("company_name")
+  title       String
+  source_type String
+  status      String
+  created_by  String
+  createdAt   DateTime             @default(now()) @map("created_at")
+  updatedAt   DateTime             @updatedAt @map("updated_at")
+  tenant      Tenant               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  rules       ContractRule[]
+  complianceControls ComplianceControl[]
+
+  @@index([tenant_id, createdAt])
+  @@index([tenant_id, status])
+  @@map("contracts")
+}
+
+model ContractRule {
+  id          String                @id
+  tenant_id   String
+  companyName String                @map("company_name")
+  contract_id String
+  title       String
+  description String
+  category    String
+  sourceExcerpt String?             @map("source_excerpt")
+  sourcePage  Int?                  @map("source_page")
+  evidenceConfidence Decimal?       @map("evidence_confidence") @db.Decimal(4, 3)
+  status      String
+  createdAt   DateTime              @default(now()) @map("created_at")
+  updatedAt   DateTime              @updatedAt @map("updated_at")
+  tenant      Tenant                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  contract    Contract              @relation(fields: [contract_id], references: [id], onDelete: Cascade)
+  validationEvents RuleValidationEvent[]
+  menuRuleAudits MenuRuleAudit[]
+  complianceControls ComplianceControl[]
+  evidenceReferences EvidenceReference[]
+
+  @@index([tenant_id, status])
+  @@index([tenant_id, contract_id])
+  @@map("extracted_rules")
+}
+
+model RuleValidationEvent {
+  id             String      @id
+  tenant_id      String
+  companyName    String      @map("company_name")
+  rule_id        String
+  previous_status String
+  next_status    String
+  note           String?
+  actor_id       String
+  actor_name     String
+  createdAt      DateTime    @default(now()) @map("created_at")
+  updatedAt      DateTime    @updatedAt @map("updated_at")
+  tenant         Tenant      @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  rule           ContractRule @relation(fields: [rule_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, rule_id, createdAt])
+  @@map("rule_validation_events")
+}
+
+model ComplianceControl {
+  id                     String                       @id
+  tenant_id              String
+  companyName            String                       @map("company_name")
+  contract_id            String                       @map("contract_id")
+  contract_rule_id       String                       @map("contract_rule_id")
+  title                  String
+  operationalDescription String                       @map("operational_description")
+  frequency              String
+  responsible            String
+  expectedEvidence       String                       @map("expected_evidence")
+  status                 String
+  activatedAt            DateTime?                    @map("activated_at")
+  deactivatedAt          DateTime?                    @map("deactivated_at")
+  createdBy              String                       @map("created_by")
+  createdAt              DateTime                     @default(now()) @map("created_at")
+  updatedAt              DateTime                     @updatedAt @map("updated_at")
+  tenant                 Tenant                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  contract               Contract                     @relation(fields: [contract_id], references: [id], onDelete: Cascade)
+  contractRule           ContractRule                 @relation(fields: [contract_rule_id], references: [id], onDelete: Cascade)
+  executions             ComplianceControlExecution[]
+  events                 ComplianceControlEvent[]
+  findings               ComplianceFinding[]
+  evidenceReferences     EvidenceReference[]
+
+  @@index([tenant_id, status])
+  @@index([tenant_id, contract_id])
+  @@index([tenant_id, contract_rule_id])
+  @@map("compliance_controls")
+}
+
+model ComplianceControlExecution {
+  id                String             @id
+  tenant_id         String
+  companyName       String             @map("company_name")
+  control_id        String             @map("control_id")
+  executionDate     DateTime           @map("execution_date")
+  status            String
+  evidenceSummary   String             @map("evidence_summary")
+  evidenceReference String?            @map("evidence_reference")
+  executedBy        String             @map("executed_by")
+  executedAt        DateTime           @map("executed_at")
+  createdAt         DateTime           @default(now()) @map("created_at")
+  updatedAt         DateTime           @updatedAt @map("updated_at")
+  tenant            Tenant             @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  control           ComplianceControl  @relation(fields: [control_id], references: [id], onDelete: Cascade)
+  findings          ComplianceFinding[]
+  evidenceReferences EvidenceReference[]
+
+  @@index([tenant_id, control_id, executionDate])
+  @@map("compliance_control_executions")
+}
+
+model ComplianceControlEvent {
+  id             String             @id
+  tenant_id      String
+  companyName    String             @map("company_name")
+  control_id     String             @map("control_id")
+  previousStatus String             @map("previous_status")
+  nextStatus     String             @map("next_status")
+  description    String
+  justification  String?
+  evidenceReference String?         @map("evidence_reference")
+  actorId        String             @map("actor_id")
+  actorName      String             @map("actor_name")
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  tenant         Tenant             @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  control        ComplianceControl  @relation(fields: [control_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, control_id, createdAt])
+  @@map("compliance_control_events")
+}
+
+model ComplianceFinding {
+  id                 String                      @id
+  tenant_id          String
+  companyName        String                      @map("company_name")
+  control_id         String                      @map("control_id")
+  execution_id       String?                     @map("execution_id")
+  severity           String
+  description        String
+  status             String
+  detectedAt         DateTime                    @map("detected_at")
+  resolvedAt         DateTime?                   @map("resolved_at")
+  resolvedBy         String?                     @map("resolved_by")
+  createdBy          String                      @map("created_by")
+  createdAt          DateTime                    @default(now()) @map("created_at")
+  updatedAt          DateTime                    @updatedAt @map("updated_at")
+  tenant             Tenant                      @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  control            ComplianceControl           @relation(fields: [control_id], references: [id], onDelete: Cascade)
+  execution          ComplianceControlExecution? @relation(fields: [execution_id], references: [id], onDelete: SetNull)
+  events             ComplianceFindingEvent[]
+
+  @@index([tenant_id, control_id, detectedAt])
+  @@index([tenant_id, status, detectedAt])
+  @@map("compliance_findings")
+}
+
+model ComplianceFindingEvent {
+  id                String            @id
+  tenant_id         String
+  companyName       String            @map("company_name")
+  finding_id        String            @map("finding_id")
+  previousStatus    String            @map("previous_status")
+  nextStatus        String            @map("next_status")
+  description       String
+  evidenceReference String?           @map("evidence_reference")
+  actorId           String            @map("actor_id")
+  actorName         String            @map("actor_name")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
+  tenant            Tenant            @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  finding           ComplianceFinding @relation(fields: [finding_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, finding_id, createdAt])
+  @@map("compliance_finding_events")
+}
+
+model EvidenceReference {
+  id                  String                       @id
+  tenant_id           String
+  companyName         String                       @map("company_name")
+  entityType          String                       @map("entity_type")
+  entity_id           String                       @map("entity_id")
+  rule_id             String?                      @map("rule_id")
+  control_id          String?                      @map("control_id")
+  execution_id        String?                      @map("execution_id")
+  sourceType          String                       @map("source_type")
+  page                Int?
+  section             String?
+  excerpt             String?
+  createdBy           String?                      @map("created_by")
+  createdAt           DateTime                     @default(now()) @map("created_at")
+  updatedAt           DateTime                     @updatedAt @map("updated_at")
+  tenant              Tenant                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  rule                ContractRule?                @relation(fields: [rule_id], references: [id], onDelete: Cascade)
+  control             ComplianceControl?           @relation(fields: [control_id], references: [id], onDelete: Cascade)
+  execution           ComplianceControlExecution?  @relation(fields: [execution_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, entityType, entity_id])
+  @@index([tenant_id, sourceType, createdAt])
+  @@map("evidence_references")
+}
+
+// =========================
+// Menu Planning
+// =========================
+
+model MenuImport {
+  id               String              @id
+  tenant_id        String
+  companyName      String              @map("company_name")
+  file_name        String
+  unit_name        String
+  service_name     String
+  reference_date   DateTime
+  meal_type        String
+  financial_goal   Decimal             @db.Decimal(12, 2)
+  meal_cost        Decimal             @db.Decimal(12, 2)
+  exceeded_value   Decimal             @db.Decimal(12, 2)
+  exceeded_percent Decimal             @db.Decimal(8, 2)
+  validation_status String
+  recipes_json     String
+  imported_by      String
+  createdAt        DateTime            @default(now()) @map("created_at")
+  updatedAt        DateTime            @updatedAt @map("updated_at")
+  tenant           Tenant              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  ruleAudits       MenuRuleAudit[]
+  suggestions      Suggestion[]
+  adjustedVersions MenuAdjustedVersion[]
+  nextMenuDecisions NextMenuDecision[]
+  recommendationPreviews RecommendationPreview[]
+
+  @@index([tenant_id, createdAt])
+  @@map("menu_pdf_imports")
+}
+
+model OperationalCardapio {
+  id                String   @id
+  tenant_id         String
+  companyName       String   @map("company_name")
+  entry_label       String
+  unit_name         String
+  service_name      String
+  reference_date    DateTime
+  meal_type         String
+  financial_goal    Decimal  @db.Decimal(12, 2)
+  meal_cost         Decimal  @db.Decimal(12, 2)
+  exceeded_value    Decimal  @db.Decimal(12, 2)
+  exceeded_percent  Decimal  @db.Decimal(8, 2)
+  validation_status String
+  recipes_json      String
+  created_by        String
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  tenant            Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, createdAt])
+  @@map("menu_operational_cardapios")
+}
+
+model MonthlyCycleSummary {
+  id                                          String   @id
+  tenant_id                                   String
+  companyName                                 String   @map("company_name")
+  summary_month                               String
+  unit_name                                   String
+  service_name                                String
+  meal_type                                   String
+  source_file_name                            String
+  financial_goal                              Decimal  @db.Decimal(12, 2)
+  days_parsed                                 Int
+  imports_processed                           Int
+  above_goal_days                             Int
+  within_goal_days                            Int
+  total_meal_cost                             Decimal  @db.Decimal(12, 2)
+  total_goal                                  Decimal  @db.Decimal(12, 2)
+  total_suggestions                           Int
+  total_estimated_financial_impact            Decimal  @db.Decimal(12, 2)
+  total_contractual_estimated_financial_impact Decimal @db.Decimal(12, 2)
+  total_goal_estimated_financial_impact       Decimal  @db.Decimal(12, 2)
+  processed_imports_json                      String
+  period_start_date                           DateTime
+  period_end_date                             DateTime
+  createdAt                                   DateTime @default(now()) @map("created_at")
+  updatedAt                                   DateTime @updatedAt @map("updated_at")
+  tenant                                      Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, summary_month, unit_name, service_name])
+  @@index([tenant_id, summary_month, updatedAt])
+  @@map("menu_monthly_cycle_summaries")
+}
+
+model CommemorativeDate {
+  id             String   @id
+  tenant_id      String
+  companyName    String   @map("company_name")
+  reference_date DateTime
+  date_year      Int
+  title          String
+  noble_dish_hint String?
+  created_by     String
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+  tenant         Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, reference_date])
+  @@index([tenant_id, date_year, reference_date])
+  @@map("menu_commemorative_dates")
+}
+
+model MenuAdjustedVersion {
+  id                       String    @id
+  tenant_id                String
+  companyName              String    @map("company_name")
+  menu_import_id           String
+  version_label            String
+  target_month             String?
+  planning_months_ahead    Int?
+  adjusted_meal_cost       Decimal   @db.Decimal(12, 2)
+  total_financial_impact   Decimal   @db.Decimal(12, 2)
+  nutritional_impact_summary String
+  commemorative_context_json String?
+  applied_suggestions_json String
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  tenant                   Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  menuImport               MenuImport @relation(fields: [menu_import_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, menu_import_id, createdAt])
+  @@map("menu_adjusted_versions")
+}
+
+// =========================
+// Compliance
+// =========================
+
+model MenuRuleAudit {
+  id           String      @id
+  tenant_id    String
+  companyName  String      @map("company_name")
+  menu_import_id String
+  rule_id      String?
+  rule_title   String
+  result_status String
+  evidence     String
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
+  tenant       Tenant      @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  menuImport   MenuImport  @relation(fields: [menu_import_id], references: [id], onDelete: Cascade)
+  rule         ContractRule? @relation(fields: [rule_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, menu_import_id, createdAt])
+  @@index([tenant_id, rule_id])
+  @@map("menu_import_rule_audits")
+}
+
+model Suggestion {
+  id                        String     @id
+  tenant_id                 String
+  companyName               String     @map("company_name")
+  menu_import_id            String
+  source_type               String
+  source_reference          String?
+  suggestion_text           String
+  estimated_financial_impact Decimal   @db.Decimal(12, 2)
+  estimated_nutritional_impact String
+  priority_level            String
+  createdAt                 DateTime   @default(now()) @map("created_at")
+  updatedAt                 DateTime   @updatedAt @map("updated_at")
+  tenant                    Tenant     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  menuImport                MenuImport @relation(fields: [menu_import_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, menu_import_id, createdAt])
+  @@map("menu_import_adjustment_suggestions")
+}
+
+model NonConformity {
+  id          String              @id
+  tenant_id   String
+  companyName String              @map("company_name")
+  title       String
+  description String
+  origin      String
+  impact      String
+  owner       String
+  due_date    DateTime
+  status      String
+  created_by  String
+  createdAt   DateTime            @default(now()) @map("created_at")
+  updatedAt   DateTime            @updatedAt @map("updated_at")
+  tenant      Tenant              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  actionPlans ActionPlan[]
+  events      NonConformityEvent[]
+  actionEvents ActionPlanEvent[]
+  exportEvents ComplianceExportEvent[] @relation("ComplianceExportNonConformity")
+
+  @@index([tenant_id, status])
+  @@map("non_conformities")
+}
+
+model ActionPlan {
+  id                String               @id
+  tenant_id         String
+  companyName       String               @map("company_name")
+  non_conformity_id String
+  description       String
+  owner             String
+  due_date          DateTime
+  status            String
+  created_by        String
+  createdAt         DateTime             @default(now()) @map("created_at")
+  updatedAt         DateTime             @updatedAt @map("updated_at")
+  tenant            Tenant               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  nonConformity     NonConformity        @relation(fields: [non_conformity_id], references: [id], onDelete: Cascade)
+  events            ActionPlanEvent[]
+  exportEvents      ComplianceExportEvent[] @relation("ComplianceExportActionPlan")
+
+  @@index([tenant_id, non_conformity_id, createdAt])
+  @@map("non_conformity_action_plans")
+}
+
+model NonConformityEvent {
+  id                String        @id
+  tenant_id         String
+  companyName       String        @map("company_name")
+  non_conformity_id String
+  previous_status   String
+  next_status       String
+  actor_id          String
+  actor_name        String
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  tenant            Tenant        @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  nonConformity     NonConformity @relation(fields: [non_conformity_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, non_conformity_id, createdAt])
+  @@map("non_conformity_events")
+}
+
+model ActionPlanEvent {
+  id                String        @id
+  tenant_id         String
+  companyName       String        @map("company_name")
+  non_conformity_id String
+  action_plan_id    String
+  previous_status   String
+  next_status       String
+  actor_id          String
+  actor_name        String
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+  tenant            Tenant        @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  nonConformity     NonConformity @relation(fields: [non_conformity_id], references: [id], onDelete: Cascade)
+  actionPlan        ActionPlan    @relation(fields: [action_plan_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, action_plan_id, createdAt])
+  @@index([tenant_id, non_conformity_id, createdAt])
+  @@map("non_conformity_action_events")
+}
+
+model ComplianceExportEvent {
+  id                        String         @id
+  tenant_id                 String
+  export_id                 String         @unique
+  companyName               String         @map("company_name")
+  export_type               String
+  non_conformity_id         String?
+  action_plan_id            String?
+  filter_export_id          String?
+  filter_non_conformity_id  String?
+  filter_action_plan_id     String?
+  filter_sort_order         String?
+  filter_export_scope       String?
+  filter_actor              String?
+  filter_from               DateTime?
+  filter_to                 DateTime?
+  actor_id                  String
+  actor_name                String
+  createdAt                 DateTime       @default(now()) @map("created_at")
+  updatedAt                 DateTime       @updatedAt @map("updated_at")
+  tenant                    Tenant         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  nonConformity             NonConformity? @relation("ComplianceExportNonConformity", fields: [non_conformity_id], references: [id], onDelete: SetNull)
+  actionPlan                ActionPlan?    @relation("ComplianceExportActionPlan", fields: [action_plan_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, createdAt])
+  @@index([tenant_id, export_type, createdAt])
+  @@map("compliance_export_events")
+}
+
+// =========================
+// Recipes
+// =========================
+
+model Recipe {
+  id                   String                     @id
+  tenant_id            String
+  companyName          String                     @map("company_name")
+  source_file_name     String
+  source_reference     String?
+  name                 String
+  normalized_name      String
+  category             String
+  subcategory          String
+  food_group           String
+  cost_per_capita      Decimal?                   @db.Decimal(12, 2)
+  serving_yield        Decimal?                   @db.Decimal(12, 2)
+  preparation_method   String?
+  nutritional_info_json String?
+  compatible_diets_json String?
+  allergens_json       String?
+  ai_classification_json String
+  ai_provider          String
+  is_active            Boolean                    @default(true)
+  createdAt            DateTime                   @default(now()) @map("created_at")
+  updatedAt            DateTime                   @updatedAt @map("updated_at")
+  tenant               Tenant                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  itemIngredients      RecipeItemIngredient[]
+  classificationEvents RecipeClassificationEvent[]
+
+  @@unique([tenant_id, normalized_name])
+  @@index([tenant_id, category, subcategory])
+  @@map("recipe_library_items")
+}
+
+model RecipeIngredient {
+  id              String                 @id
+  tenant_id       String
+  companyName     String                 @map("company_name")
+  name            String
+  normalized_name String
+  ingredient_group String
+  createdAt       DateTime               @default(now()) @map("created_at")
+  updatedAt       DateTime               @updatedAt @map("updated_at")
+  tenant          Tenant                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  itemIngredients RecipeItemIngredient[]
+
+  @@unique([tenant_id, normalized_name])
+  @@index([tenant_id, ingredient_group])
+  @@map("recipe_ingredients")
+}
+
+model RecipeItemIngredient {
+  id             String          @id
+  tenant_id      String
+  companyName    String          @map("company_name")
+  recipe_id      String
+  ingredient_id  String
+  quantity       Decimal?        @db.Decimal(12, 2)
+  unit           String?
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+  tenant         Tenant          @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  recipe         Recipe          @relation(fields: [recipe_id], references: [id], onDelete: Cascade)
+  ingredient     RecipeIngredient @relation(fields: [ingredient_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, recipe_id, createdAt])
+  @@index([tenant_id, ingredient_id])
+  @@map("recipe_item_ingredients")
+}
+
+model RecipeImportEvent {
+  id              String   @id
+  tenant_id       String
+  companyName     String   @map("company_name")
+  file_name       String
+  imported_count  Int
+  classified_count Int
+  warnings_json   String
+  actor_id        String
+  actor_name      String
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+  tenant          Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, createdAt])
+  @@map("recipe_import_events")
+}
+
+model RecipeClassificationEvent {
+  id                          String   @id
+  tenant_id                   String
+  companyName                 String   @map("company_name")
+  recipe_id                   String
+  previous_classification_json String
+  next_classification_json    String
+  reason                      String?
+  actor_id                    String
+  actor_name                  String
+  createdAt                   DateTime @default(now()) @map("created_at")
+  updatedAt                   DateTime @updatedAt @map("updated_at")
+  tenant                      Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  recipe                      Recipe   @relation(fields: [recipe_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, recipe_id, createdAt])
+  @@map("recipe_classification_events")
+}
+
+// =========================
+// Evaluations
+// =========================
+
+model EvaluationImport {
+  id                String   @id
+  tenant_id         String
+  companyName       String   @map("company_name")
+  file_name         String
+  unit_name         String
+  service_name      String
+  reference_date    DateTime
+  score             Decimal  @db.Decimal(4, 2)
+  evaluations_count Int
+  comments          String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  tenant            Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, createdAt])
+  @@map("menu_evaluation_imports")
+}
+
+model CombinationIntelligence {
+  id                String   @id
+  tenant_id         String
+  companyName       String   @map("company_name")
+  combination_key   String
+  recipes_json      String
+  unit_name         String
+  service_name      String
+  average_rating    Decimal  @db.Decimal(4, 2)
+  evaluations_count Int
+  mapped_records    Int
+  last_reference_date DateTime
+  trend             String
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  tenant            Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, createdAt])
+  @@index([tenant_id, combination_key])
+  @@map("menu_combination_intelligence")
+}
+
+// =========================
+// Recommendations & Governance
+// =========================
+
+model NextMenuDecision {
+  id                        String     @id
+  tenant_id                 String
+  companyName               String     @map("company_name")
+  menu_import_id            String
+  decision_status           String
+  justification             String
+  proposal_json             String
+  governance_blocks_approval Boolean
+  historical_non_blocking   Boolean
+  actor_id                  String
+  actor_name                String
+  createdAt                 DateTime   @default(now()) @map("created_at")
+  updatedAt                 DateTime   @updatedAt @map("updated_at")
+  tenant                    Tenant     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  menuImport                MenuImport @relation(fields: [menu_import_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, menu_import_id, createdAt])
+  @@map("menu_next_menu_decisions")
+}
+
+model RecommendationPreview {
+  id              String     @id @default(uuid())
+  tenant_id       String
+  menu_import_id  String
+  proposal_json   String
+  governance_json String
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+  tenant          Tenant     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  menuImport      MenuImport @relation(fields: [menu_import_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, menu_import_id, createdAt])
+  @@map("recommendation_previews")
+}
+
+model RecommendationPolicy {
+  id                 String   @id @default(uuid())
+  tenant_id          String
+  priority_order_json String
+  levels_json        String
+  blocking_criteria_json String
+  is_active          Boolean  @default(true)
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  tenant             Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, is_active])
+  @@map("recommendation_policies")
+}
+
+model RecommendationRecord {
+  id                String   @id @default(uuid())
+  tenant_id         String
+  menu_import_id    String?
+  source_type       String
+  payload_json      String
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  tenant            Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, createdAt])
+  @@map("recommendations")
+}
+
+model AuditRecord {
+  id                String   @id @default(uuid())
+  tenant_id         String
+  entity_type       String
+  entity_id         String
+  action            String
+  previous_state_json String?
+  next_state_json   String?
+  actor_id          String?
+  actor_name        String?
+  occurred_at       DateTime
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+  tenant            Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, entity_type, entity_id, occurred_at])
+  @@map("audit_records")
+}
+
+// =========================
+// AI Preparation (support)
+// =========================
+
+model AIPreparationEvent {
+  id            String   @id
+  tenant_id     String
+  companyName   String   @map("company_name")
+  module_key    String
+  source_kind   String
+  payload_json  String
+  provider_key  String
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  tenant        Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, module_key, createdAt])
+  @@map("ai_preparation_events")
 }

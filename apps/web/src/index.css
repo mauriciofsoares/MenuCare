@@ -1,25 +1,8 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+@import './styles/tokens.css';
+
 :root {
-  --bg: #eef6f5;
-  --surface: rgba(255, 255, 255, 0.88);
-  --text: #48606b;
-  --text-strong: #0d1f2a;
-  --muted: #607480;
-  --border: rgba(13, 31, 42, 0.09);
-  --accent: #14d9c4;
-  --accent-deep: #0b8f84;
-  --shadow:
-    0 24px 60px rgba(13, 31, 42, 0.08), 0 3px 10px rgba(13, 31, 42, 0.04);
-
-  --sans: Inter, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  --heading: 'Segoe UI', Inter, Roboto, Helvetica, Arial, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
-
-  font: 16px/1.5 var(--sans);
-  color: var(--text);
-  background:
-    radial-gradient(circle at top left, rgba(20, 217, 196, 0.17), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(11, 143, 132, 0.1), transparent 26%),
-    var(--bg);
+  font: 16px/1.5 var(--mc-font);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -37,6 +20,9 @@ html {
 body {
   margin: 0;
   min-height: 100vh;
+  font-family: var(--mc-font);
+  color: var(--mc-text);
+  background: var(--mc-bg);
 }
 
 body,
@@ -61,8 +47,7 @@ p {
 h1,
 h2,
 h3 {
-  font-family: var(--heading);
-  color: var(--text-strong);
+  color: var(--mc-text);
 }
 
 a {

@@ -1,0 +1,103 @@
+﻿{"level":30,"time":1781196131292,"pid":34224,"hostname":"HUCN001086914","msg":"Server listening at http://127.0.0.1:3001"}
+{"level":30,"time":1781196131294,"pid":34224,"hostname":"HUCN001086914","msg":"Server listening at http://172.30.0.138:3001"}
+{"level":30,"time":1781196131294,"pid":34224,"hostname":"HUCN001086914","msg":"Server listening at http://172.27.160.1:3001"}
+{"level":30,"time":1781196131294,"pid":34224,"hostname":"HUCN001086914","msg":"Server listening at http://172.21.112.1:3001"}
+{"level":30,"time":1781196131294,"pid":34224,"hostname":"HUCN001086914","msg":"Server listening at http://192.168.15.2:3001"}
+{"level":30,"time":1781196131336,"pid":34224,"hostname":"HUCN001086914","reqId":"req-1","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":53210},"msg":"incoming request"}
+{"level":40,"time":1781196131723,"pid":34224,"hostname":"HUCN001086914","error":{"clientVersion":"6.19.3","name":"PrismaClientInitializationError"},"msg":"Falha ao validar credencial persistida."}
+{"level":30,"time":1781196131726,"pid":34224,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"9a53b08e-1834-424c-bed2-4b26da176a05","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196132120,"pid":34224,"hostname":"HUCN001086914","error":{"clientVersion":"6.19.3","name":"PrismaClientInitializationError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196132127,"pid":34224,"hostname":"HUCN001086914","reqId":"req-1","res":{"statusCode":200},"responseTime":789.8550000041723,"msg":"request completed"}
+{"level":30,"time":1781196132134,"pid":34224,"hostname":"HUCN001086914","reqId":"req-2","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":53213},"msg":"incoming request"}
+{"level":50,"time":1781196132539,"pid":34224,"hostname":"HUCN001086914","reqId":"req-2","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":53213},"res":{"statusCode":500},"err":{"type":"PrismaClientInitializationError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nAuthentication failed against database server, the provided database credentials for `menucare` are not valid.\n\nPlease make sure to provide valid database credentials for the database server at the configured address.","stack":"PrismaClientInitializationError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nAuthentication failed against database server, the provided database credentials for `menucare` are not valid.\n\nPlease make sure to provide valid database credentials for the database server at the configured address.\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:242:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.createContract (C:\\MenuCare\\apps\\api\\src\\modules\\contracts\\service.ts:921:5)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\contracts\\routes.ts:56:18)","clientVersion":"6.19.3","name":"PrismaClientInitializationError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nAuthentication failed against database server, the provided database credentials for `menucare` are not valid.\n\nPlease make sure to provide valid database credentials for the database server at the configured address."}
+{"level":30,"time":1781196132544,"pid":34224,"hostname":"HUCN001086914","reqId":"req-2","res":{"statusCode":500},"responseTime":409.72230000793934,"msg":"request completed"}
+ÔûÂ API integration
+  Ô£û approved rule should be promoted to compliance control and preserve full traceability (1241.2164ms)
+{"level":30,"time":1781196132556,"pid":34224,"hostname":"HUCN001086914","reqId":"req-3","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":60315},"msg":"incoming request"}
+{"level":40,"time":1781196132922,"pid":34224,"hostname":"HUCN001086914","error":{"clientVersion":"6.19.3","name":"PrismaClientInitializationError"},"msg":"Falha ao validar credencial persistida."}
+{"level":30,"time":1781196132922,"pid":34224,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"92cd0688-17e1-4f8a-83ae-eb71385916e5","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196133235,"pid":34224,"hostname":"HUCN001086914","error":{"clientVersion":"6.19.3","name":"PrismaClientInitializationError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196133235,"pid":34224,"hostname":"HUCN001086914","reqId":"req-3","res":{"statusCode":200},"responseTime":679.2108000069857,"msg":"request completed"}
+{"level":30,"time":1781196133239,"pid":34224,"hostname":"HUCN001086914","reqId":"req-4","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":60318},"msg":"incoming request"}
+{"level":50,"time":1781196133587,"pid":34224,"hostname":"HUCN001086914","reqId":"req-4","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":60318},"res":{"statusCode":500},"err":{"type":"PrismaClientInitializationError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nAuthentication failed against database server, the provided database credentials for `menucare` are not valid.\n\nPlease make sure to provide valid database credentials for the database server at the configured address.","stack":"PrismaClientInitializationError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nAuthentication failed against database server, the provided database credentials for `menucare` are not valid.\n\nPlease make sure to provide valid database credentials for the database server at the configured address.\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:242:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.createContract (C:\\MenuCare\\apps\\api\\src\\modules\\contracts\\service.ts:921:5)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\contracts\\routes.ts:56:18)","clientVersion":"6.19.3","name":"PrismaClientInitializationError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nAuthentication failed against database server, the provided database credentials for `menucare` are not valid.\n\nPlease make sure to provide valid database credentials for the database server at the configured address."}
+{"level":30,"time":1781196133588,"pid":34224,"hostname":"HUCN001086914","reqId":"req-4","res":{"statusCode":500},"responseTime":349.3137999922037,"msg":"request completed"}
+  Ô£û control state machine should accept valid transitions and reject invalid ones without events (1037.6504ms)
+{"level":30,"time":1781196133592,"pid":34224,"hostname":"HUCN001086914","reqId":"req-5","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":60320},"msg":"incoming request"}
+{"level":40,"time":1781196133999,"pid":34224,"hostname":"HUCN001086914","error":{"clientVersion":"6.19.3","name":"PrismaClientInitializationError"},"msg":"Falha ao validar credencial persistida."}
+{"level":30,"time":1781196134000,"pid":34224,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"d7aad782-91d2-4837-958b-52594b888d69","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196134336,"pid":34224,"hostname":"HUCN001086914","error":{"clientVersion":"6.19.3","name":"PrismaClientInitializationError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196134336,"pid":34224,"hostname":"HUCN001086914","reqId":"req-5","res":{"statusCode":200},"responseTime":744.3813999891281,"msg":"request completed"}
+{"level":30,"time":1781196134341,"pid":34224,"hostname":"HUCN001086914","reqId":"req-6","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":57046},"msg":"incoming request"}
+{"level":50,"time":1781196134670,"pid":34224,"hostname":"HUCN001086914","reqId":"req-6","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":57046},"res":{"statusCode":500},"err":{"type":"PrismaClientInitializationError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nAuthentication failed against database server, the provided database credentials for `menucare` are not valid.\n\nPlease make sure to provide valid database credentials for the database server at the configured address.","stack":"PrismaClientInitializationError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nAuthentication failed against database server, the provided database credentials for `menucare` are not valid.\n\nPlease make sure to provide valid database credentials for the database server at the configured address.\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:242:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.createContract (C:\\MenuCare\\apps\\api\\src\\modules\\contracts\\service.ts:921:5)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\contracts\\routes.ts:56:18)","clientVersion":"6.19.3","name":"PrismaClientInitializationError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nAuthentication failed against database server, the provided database credentials for `menucare` are not valid.\n\nPlease make sure to provide valid database credentials for the database server at the configured address."}
+{"level":30,"time":1781196134670,"pid":34224,"hostname":"HUCN001086914","reqId":"req-6","res":{"statusCode":500},"responseTime":329.6773999929428,"msg":"request completed"}
+  Ô£û finding lifecycle should create events and block invalid regressions (1082.1196ms)
+Ô£û API integration (3366.0709ms)
+Ôä╣ tests 3
+Ôä╣ suites 1
+Ôä╣ pass 0
+Ôä╣ fail 3
+Ôä╣ cancelled 0
+Ôä╣ skipped 0
+Ôä╣ todo 0
+Ôä╣ duration_ms 12269.8396
+
+Ô£û failing tests:
+
+test at src\server.test.ts:1:74398
+Ô£û approved rule should be promoted to compliance control and preserve full traceability (1241.2164ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at createOperationalControl (C:\MenuCare\apps\api\src\server.test.ts:42:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2661:65)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Promise.all (index 42)
+      at async Suite.run (node:internal/test_runner/test:1619:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:385:3) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:77133
+Ô£û control state machine should accept valid transitions and reject invalid ones without events (1037.6504ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at createOperationalControl (C:\MenuCare\apps\api\src\server.test.ts:42:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2733:27)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:80823
+Ô£û finding lifecycle should create events and block invalid regressions (1082.1196ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at createOperationalControl (C:\MenuCare\apps\api\src\server.test.ts:42:10)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2843:27)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

@@ -1,7 +1,100 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
 import { after, before, describe, it } from 'node:test'
 import request from 'supertest'
 import { app } from './server.js'
+
+const getFirstSetCookie = (header: string | string[] | undefined) => {
+  if (!header) {
+    return ''
+  }
+
+  if (Array.isArray(header)) {
+    return header[0] ?? ''
+  }
+
+  return header
+}
+
+const buildUniqueLabel = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+
+const loginToken = async () => {
+  const response = await request(app.server).post('/auth/login').send({
+    email: 'admin@menucare.local',
+    password: 'Admin@123',
+  })
+
+  assert.equal(response.status, 200)
+  assert.equal(typeof response.body.token, 'string')
+
+  return response.body.token as string
+}
+
+const createOperationalControl = async (token: string, controlStatus: 'DRAFT' | 'ACTIVE' = 'DRAFT') => {
+  const suffix = buildUniqueLabel('controle-operacional')
+
+  const contractResponse = await request(app.server)
+    .post('/contracts')
+    .set('Authorization', `Bearer ${token}`)
+    .field('title', `Contrato ${suffix}`)
+    .field('sourceType', 'contract')
+
+  assert.equal(contractResponse.status, 201)
+
+  const ruleResponse = await request(app.server)
+    .post('/rules')
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      contractId: contractResponse.body.contract?.id as string,
+      title: `Regra ${suffix}`,
+      description: 'Garantia operacional com evidência documental rastreável.',
+      category: 'operations',
+      sourceExcerpt: 'Cláusula operacional com trecho validado do contrato.',
+      sourcePage: 1,
+      evidenceConfidence: 0.952,
+      status: 'approved',
+    })
+
+  assert.equal(ruleResponse.status, 201)
+
+  const promoteResponse = await request(app.server)
+    .post(`/rules/${ruleResponse.body.rule?.id as string}/promote-control`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      title: `Controle ${suffix}`,
+      operationalDescription: 'Verificar o cumprimento operacional dentro da janela definida.',
+      frequency: 'daily',
+      responsible: 'Supervisao operacional',
+      expectedEvidence: 'Checklist assinado com referencia documental.',
+      status: controlStatus,
+    })
+
+  assert.equal(promoteResponse.status, 201)
+
+  return {
+    contractId: contractResponse.body.contract?.id as string,
+    ruleId: ruleResponse.body.rule?.id as string,
+    controlId: promoteResponse.body.control?.id as string,
+    contractTitle: contractResponse.body.contract?.title as string,
+    ruleTitle: ruleResponse.body.rule?.title as string,
+  }
+}
+
+const getControlDetail = async (token: string, controlId: string) => {
+  const response = await request(app.server)
+    .get(`/compliance-controls/${encodeURIComponent(controlId)}`)
+    .set('Authorization', `Bearer ${token}`)
+
+  assert.equal(response.status, 200)
+  return response.body as {
+    control: { id: string; status: string; origin?: { contractTitle?: string | null; ruleTitle?: string | null; page?: number | null; excerpt?: string | null } };
+    events: Array<{ id: string; previousStatus: string; nextStatus: string; description: string; justification?: string | null; evidenceReference?: string | null; actorName: string; createdAt: string }>;
+    findings: Array<{ id: string; status: string; severity: string; description: string; detectedAt: string; resolvedAt?: string | null; resolvedBy?: string | null; createdBy: string }>;
+    findingEvents: Array<{ id: string; findingId: string; previousStatus: string; nextStatus: string; description: string; evidenceReference?: string | null; actorName: string; createdAt: string }>;
+    evidenceReferences: Array<{ id: string; sourceType: string; page?: number | null; section?: string | null; excerpt?: string | null; createdAt: string }>;
+    timeline: Array<{ id: string; type: 'event' | 'execution' | 'finding'; title: string; description: string; actorName: string; createdAt: string }>;
+  }
+}
 
 describe('API integration', () => {
   before(async () => {
@@ -41,6 +134,145 @@ describe('API integration', () => {
     assert.equal(typeof response.body.token, 'string')
     assert.ok(response.body.token.length > 20)
     assert.equal(response.body.user?.email, 'admin@menucare.local')
+    assert.match(getFirstSetCookie(response.headers['set-cookie'] as string | string[] | undefined), /menucare_refresh_token=/i)
+  })
+
+  it('refresh endpoint should rotate refresh token and reject old cookie', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    const initialCookie = getFirstSetCookie(loginResponse.headers['set-cookie'] as string | string[] | undefined)
+    assert.ok(initialCookie)
+
+    const refreshResponse = await request(app.server)
+      .post('/auth/refresh')
+      .set('Cookie', initialCookie)
+
+    assert.equal(refreshResponse.status, 200)
+    assert.equal(refreshResponse.body.status, 'ok')
+    assert.equal(typeof refreshResponse.body.token, 'string')
+    assert.match(getFirstSetCookie(refreshResponse.headers['set-cookie'] as string | string[] | undefined), /menucare_refresh_token=/i)
+
+    const reusedOldCookieResponse = await request(app.server)
+      .post('/auth/refresh')
+      .set('Cookie', initialCookie)
+
+    assert.equal(reusedOldCookieResponse.status, 401)
+    assert.equal(reusedOldCookieResponse.body.status, 'error')
+  })
+
+  it('auth flow id should remain consistent across login refresh and logout', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    const flowId = loginResponse.headers['x-auth-flow-id'] as string | undefined
+    assert.equal(typeof flowId, 'string')
+    assert.ok((flowId ?? '').length >= 10)
+
+    const refreshCookie = getFirstSetCookie(loginResponse.headers['set-cookie'] as string | string[] | undefined)
+    assert.ok(refreshCookie)
+
+    const refreshResponse = await request(app.server)
+      .post('/auth/refresh')
+      .set('Cookie', refreshCookie)
+
+    assert.equal(refreshResponse.status, 200)
+    assert.equal(refreshResponse.headers['x-auth-flow-id'], flowId)
+
+    const rotatedCookie = getFirstSetCookie(refreshResponse.headers['set-cookie'] as string | string[] | undefined)
+    assert.ok(rotatedCookie)
+
+    const logoutResponse = await request(app.server)
+      .post('/auth/logout')
+      .set('Authorization', `Bearer ${refreshResponse.body.token as string}`)
+      .set('Cookie', rotatedCookie)
+
+    assert.equal(logoutResponse.status, 200)
+    assert.equal(logoutResponse.headers['x-auth-flow-id'], flowId)
+  })
+
+  it('login should revoke previous refresh session on same device', async () => {
+    const firstLoginResponse = await request(app.server)
+      .post('/auth/login')
+      .set('User-Agent', 'MenuCare-Test-Device-Same')
+      .send({
+        email: 'admin@menucare.local',
+        password: 'Admin@123',
+      })
+
+    assert.equal(firstLoginResponse.status, 200)
+    const firstCookie = getFirstSetCookie(firstLoginResponse.headers['set-cookie'] as string | string[] | undefined)
+    assert.ok(firstCookie)
+
+    const secondLoginResponse = await request(app.server)
+      .post('/auth/login')
+      .set('User-Agent', 'MenuCare-Test-Device-Same')
+      .send({
+        email: 'admin@menucare.local',
+        password: 'Admin@123',
+      })
+
+    assert.equal(secondLoginResponse.status, 200)
+    const secondCookie = getFirstSetCookie(secondLoginResponse.headers['set-cookie'] as string | string[] | undefined)
+    assert.ok(secondCookie)
+
+    const firstDeviceRefreshResponse = await request(app.server)
+      .post('/auth/refresh')
+      .set('User-Agent', 'MenuCare-Test-Device-Same')
+      .set('Cookie', firstCookie)
+
+    assert.equal(firstDeviceRefreshResponse.status, 401)
+    assert.equal(firstDeviceRefreshResponse.body.status, 'error')
+
+    const secondDeviceRefreshResponse = await request(app.server)
+      .post('/auth/refresh')
+      .set('User-Agent', 'MenuCare-Test-Device-Same')
+      .set('Cookie', secondCookie)
+
+    assert.equal(secondDeviceRefreshResponse.status, 200)
+    assert.equal(secondDeviceRefreshResponse.body.status, 'ok')
+  })
+
+  it('login should enforce maximum active refresh sessions per user', async () => {
+    const cookiesByDevice = new Map<string, string>()
+    const devices = ['MenuCare-Device-A', 'MenuCare-Device-B', 'MenuCare-Device-C', 'MenuCare-Device-D']
+
+    for (const device of devices) {
+      const loginResponse = await request(app.server)
+        .post('/auth/login')
+        .set('User-Agent', device)
+        .send({
+          email: 'admin@menucare.local',
+          password: 'Admin@123',
+        })
+
+      assert.equal(loginResponse.status, 200)
+      const cookie = getFirstSetCookie(loginResponse.headers['set-cookie'] as string | string[] | undefined)
+      assert.ok(cookie)
+      cookiesByDevice.set(device, cookie)
+    }
+
+    const oldestDeviceRefreshResponse = await request(app.server)
+      .post('/auth/refresh')
+      .set('User-Agent', 'MenuCare-Device-A')
+      .set('Cookie', cookiesByDevice.get('MenuCare-Device-A') ?? '')
+
+    assert.equal(oldestDeviceRefreshResponse.status, 401)
+    assert.equal(oldestDeviceRefreshResponse.body.status, 'error')
+
+    const newestDeviceRefreshResponse = await request(app.server)
+      .post('/auth/refresh')
+      .set('User-Agent', 'MenuCare-Device-D')
+      .set('Cookie', cookiesByDevice.get('MenuCare-Device-D') ?? '')
+
+    assert.equal(newestDeviceRefreshResponse.status, 200)
+    assert.equal(newestDeviceRefreshResponse.body.status, 'ok')
   })
 
   it('protected endpoint should require authentication', async () => {
@@ -48,6 +280,102 @@ describe('API integration', () => {
 
     assert.equal(response.status, 401)
     assert.equal(response.body.status, 'error')
+  })
+
+  it('operational onboarding profile should return default and allow update', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const defaultProfileResponse = await request(app.server)
+      .get('/onboarding/operational-profile')
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(defaultProfileResponse.status, 200)
+    assert.equal(defaultProfileResponse.body.status, 'ok')
+    assert.equal(defaultProfileResponse.body.operationalProfile?.sourceProfile, 'genial_integrated')
+    assert.equal(defaultProfileResponse.body.operationalProfile?.contractMode, 'with_contract')
+    assert.equal(defaultProfileResponse.body.operationalProfile?.complianceMode, 'contractual')
+
+    const updateProfileResponse = await request(app.server)
+      .post('/onboarding/operational-profile')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        sourceProfile: 'manual_only',
+        contractMode: 'internal_kitchen',
+        complianceMode: 'internal_policy',
+      })
+
+    assert.equal(updateProfileResponse.status, 201)
+    assert.equal(updateProfileResponse.body.status, 'ok')
+    assert.equal(updateProfileResponse.body.operationalProfile?.sourceProfile, 'manual_only')
+    assert.equal(updateProfileResponse.body.operationalProfile?.contractMode, 'internal_kitchen')
+    assert.equal(updateProfileResponse.body.operationalProfile?.complianceMode, 'internal_policy')
+
+    const persistedProfileResponse = await request(app.server)
+      .get('/onboarding/operational-profile')
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(persistedProfileResponse.status, 200)
+    assert.equal(persistedProfileResponse.body.status, 'ok')
+    assert.equal(persistedProfileResponse.body.operationalProfile?.sourceProfile, 'manual_only')
+    assert.equal(persistedProfileResponse.body.operationalProfile?.contractMode, 'internal_kitchen')
+    assert.equal(persistedProfileResponse.body.operationalProfile?.complianceMode, 'internal_policy')
+  })
+
+  it('operational cardapio endpoint should create and list manual menu entries', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const createResponse = await request(app.server)
+      .post('/menus/operational-cardapios')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        entryLabel: 'Cardapio manual do dia',
+        unitName: 'Unidade Piloto',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-10',
+        mealType: 'Almoco',
+        financialGoal: 15,
+        mealCost: 13.75,
+        recipes: ['Frango grelhado', 'Arroz integral', 'Salada de folhas'],
+      })
+
+    if (createResponse.status === 503) {
+      assert.equal(createResponse.body.status, 'error')
+      return
+    }
+
+    assert.equal(createResponse.status, 201)
+    assert.equal(createResponse.body.status, 'ok')
+    assert.equal(createResponse.body.operationalCardapio?.entryLabel, 'Cardapio manual do dia')
+    assert.equal(createResponse.body.operationalCardapio?.validationStatus, 'within_goal')
+
+    const listResponse = await request(app.server)
+      .get('/menus/operational-cardapios?limit=5')
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(listResponse.status, 200)
+    assert.equal(listResponse.body.status, 'ok')
+    assert.ok(Array.isArray(listResponse.body.operationalCardapios))
+    assert.ok(
+      (listResponse.body.operationalCardapios as Array<{ entryLabel?: string }>).some(
+        (item) => item.entryLabel === 'Cardapio manual do dia',
+      ),
+    )
   })
 
   it('recommendation policy endpoint should return contract with authentication', async () => {
@@ -117,6 +445,621 @@ describe('API integration', () => {
     assert.equal(listResponse.body.status, 'ok')
     assert.equal(Array.isArray(listResponse.body.imports), true)
     assert.ok((listResponse.body.imports as Array<{ id: string }>).length >= 1)
+  })
+
+  it('menu import endpoint should calculate meal cost from recipe items and enforce service goal', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const createResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'ONESUBSEA - SJP (567)',
+        serviceName: 'ALMOCO',
+        referenceDate: '2026-06-10',
+        mealType: 'Almoco',
+        financialGoal: 11.9,
+        recipeItems: [
+          { name: 'CUPIM ASSADO', cost: 7.35 },
+          { name: 'FRICASSE DE FRANGO', cost: 2.17 },
+          { name: 'POLENTA FRITA', cost: 0.96 },
+          { name: 'SUCO EM POLPA DE MANGA', cost: 0.32 },
+        ],
+      })
+
+    if (createResponse.status === 503) {
+      assert.equal(createResponse.body.status, 'error')
+      return
+    }
+
+    assert.equal(createResponse.status, 201)
+    assert.equal(createResponse.body.status, 'ok')
+    assert.equal(createResponse.body.import?.mealCost, 10.8)
+    assert.equal(createResponse.body.import?.financialGoal, 11.9)
+    assert.equal(createResponse.body.import?.validationStatus, 'within_goal')
+    assert.deepEqual(createResponse.body.import?.recipes, [
+      'CUPIM ASSADO',
+      'FRICASSE DE FRANGO',
+      'POLENTA FRITA',
+      'SUCO EM POLPA DE MANGA',
+    ])
+  })
+
+  it('menu import parse-report endpoint should parse raw text into daily payloads', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const rawText = [
+      'EXAL MATRIZ SEDE.',
+      'Relatorio de Cardapio com Pre-Custo - (5007)',
+      'Unidade: ONESUBSEA - SJP (567)',
+      'Servico: ALMOCO Meta: 11,90',
+      '01/06/2026 - [segunda-feira]',
+      'FILE DE FRANGO A MILANE 2,05',
+      'ALMONDEGAS COM MOLHO 1,86',
+      'SUCO EM POLPA DE LARANJA 0,36',
+      '4,27',
+      '10/06/2026 - [quarta-feira]',
+      'CUPIM ASSADO 7,35',
+      'FRICASSE DE FRANGO 2,17',
+      'POLENTA FRITA 0,96',
+      'SUCO EM POLPA DE MANGA 0,32',
+      '10,80',
+    ].join('\n')
+
+    const parseResponse = await request(app.server)
+      .post('/menus/imports/parse-report')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .send({
+        rawText,
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+      })
+
+    assert.equal(parseResponse.status, 200)
+    assert.equal(parseResponse.body.status, 'ok')
+    assert.equal(parseResponse.body.parsed?.unitName, 'ONESUBSEA - SJP (567)')
+    assert.equal(parseResponse.body.parsed?.serviceName, 'ALMOCO')
+    assert.equal(parseResponse.body.parsed?.financialGoal, 11.9)
+    assert.equal(Array.isArray(parseResponse.body.parsed?.days), true)
+    assert.equal(parseResponse.body.parsed?.days?.length, 2)
+
+    const firstDay = parseResponse.body.parsed?.days?.[0]
+    assert.equal(firstDay.referenceDate, '2026-06-01')
+    assert.equal(firstDay.computedMealCost, 4.27)
+    assert.equal(firstDay.validationStatus, 'within_goal')
+
+    const secondDay = parseResponse.body.parsed?.days?.[1]
+    assert.equal(secondDay.referenceDate, '2026-06-10')
+    assert.equal(secondDay.computedMealCost, 10.8)
+    assert.equal(secondDay.reportedMealCost, 10.8)
+    assert.equal(secondDay.validationStatus, 'within_goal')
+  })
+
+  it('menu import parse-report-file endpoint should reject non-pdf upload', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const response = await request(app.server)
+      .post('/menus/imports/parse-report-file')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .attach('file', Buffer.from('nao-pdf'), {
+        filename: 'relatorio.txt',
+        contentType: 'text/plain',
+      })
+
+    assert.equal(response.status, 400)
+    assert.equal(response.body.status, 'error')
+    assert.equal(response.body.message, 'Envie um arquivo PDF valido.')
+  })
+
+  it('menu import monthly-cycle endpoint should reject non-pdf upload', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const response = await request(app.server)
+      .post('/menus/imports/monthly-cycle')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .attach('file', Buffer.from('nao-pdf'), {
+        filename: 'cardapio.txt',
+        contentType: 'text/plain',
+      })
+
+    assert.equal(response.status, 400)
+    assert.equal(response.body.status, 'error')
+    assert.equal(response.body.message, 'Envie um arquivo PDF valido.')
+  })
+
+  it('menu import monthly-cycle endpoint should process a real monthly pdf or return db fallback', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const pdfBuffer = await readFile(new URL('../../../docs/BROKER2.GENIALNET.COM.BR.pdf', import.meta.url))
+
+    const response = await request(app.server)
+      .post('/menus/imports/monthly-cycle')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .attach('file', pdfBuffer, {
+        filename: 'BROKER2.GENIALNET.COM.BR.pdf',
+        contentType: 'application/pdf',
+      })
+
+    if (response.status === 503) {
+      assert.equal(response.body.status, 'error')
+      return
+    }
+
+    assert.equal(response.status, 200)
+    assert.equal(response.body.status, 'ok')
+    assert.equal(typeof response.body.cycle?.importsProcessed, 'number')
+    assert.ok((response.body.cycle?.importsProcessed ?? 0) > 0)
+    assert.equal(Array.isArray(response.body.imports), true)
+    assert.equal(response.body.imports.length, response.body.cycle?.importsProcessed)
+  })
+
+  it('menu import monthly-cycle endpoint should expose per-day audit and suggestion summaries', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const pdfBuffer = await readFile(new URL('../../../docs/BROKER2.GENIALNET.COM.BR.pdf', import.meta.url))
+
+    const response = await request(app.server)
+      .post('/menus/imports/monthly-cycle')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .attach('file', pdfBuffer, {
+        filename: 'BROKER2.GENIALNET.COM.BR.pdf',
+        contentType: 'application/pdf',
+      })
+
+    if (response.status === 503) {
+      assert.equal(response.body.status, 'error')
+      return
+    }
+
+    assert.equal(response.status, 200)
+    assert.equal(response.body.status, 'ok')
+    assert.equal(Array.isArray(response.body.imports), true)
+    assert.ok((response.body.imports as unknown[]).length > 0)
+
+    const first = response.body.imports?.[0] as {
+      processingStatus?: string
+      failedStage?: string | null
+      autoRemediation?: {
+        attempted?: boolean
+        retriesUsed?: number
+        recoveredByRetry?: boolean
+        lastErrorMessage?: string | null
+      }
+      import?: {
+        id?: string
+        mealCost?: number
+        financialGoal?: number
+        validationStatus?: string
+      }
+      audit?: {
+        auditedRules?: number
+        compliantCount?: number
+        nonCompliantCount?: number
+      }
+      suggestions?: {
+        generatedSuggestions?: number
+        estimatedTotalFinancialImpact?: number
+      }
+      recipeCrosscheck?: {
+        sourceRecipeNames?: string[]
+        totalRecipes?: number
+        matchedRecipes?: number
+        unmatchedRecipes?: number
+        coveragePercent?: number
+        unresolvedRecipeNames?: string[]
+        suggestedRecipeCreations?: string[]
+      }
+    }
+
+    const cycleCrosscheck = response.body.cycle?.recipeCrosscheck as {
+      totalRecipesCrosschecked?: number
+      totalRecipesMatched?: number
+      totalRecipesUnmatched?: number
+      coveragePercent?: number
+    }
+
+    assert.equal(typeof first.import?.id, 'string')
+    assert.equal(typeof first.import?.mealCost, 'number')
+    assert.equal(typeof first.import?.financialGoal, 'number')
+    assert.equal(typeof first.import?.validationStatus, 'string')
+    assert.ok(['completed', 'completed_with_warnings', 'failed'].includes(first.processingStatus ?? ''))
+    assert.ok(first.failedStage === null || ['import', 'audit', 'suggestions'].includes(first.failedStage ?? ''))
+    assert.equal(typeof first.autoRemediation?.attempted, 'boolean')
+    assert.equal(typeof first.autoRemediation?.retriesUsed, 'number')
+    assert.equal(typeof first.autoRemediation?.recoveredByRetry, 'boolean')
+
+    assert.equal(typeof first.audit?.auditedRules, 'number')
+    assert.equal(typeof first.audit?.compliantCount, 'number')
+    assert.equal(typeof first.audit?.nonCompliantCount, 'number')
+
+    assert.equal(typeof first.suggestions?.generatedSuggestions, 'number')
+    assert.equal(typeof first.suggestions?.estimatedTotalFinancialImpact, 'number')
+    assert.equal(Array.isArray(first.recipeCrosscheck?.sourceRecipeNames), true)
+    assert.equal(typeof first.recipeCrosscheck?.totalRecipes, 'number')
+    assert.equal(typeof first.recipeCrosscheck?.matchedRecipes, 'number')
+    assert.equal(typeof first.recipeCrosscheck?.unmatchedRecipes, 'number')
+    assert.equal(typeof first.recipeCrosscheck?.coveragePercent, 'number')
+    assert.equal(Array.isArray(first.recipeCrosscheck?.unresolvedRecipeNames), true)
+    assert.equal(Array.isArray(first.recipeCrosscheck?.suggestedRecipeCreations), true)
+
+    assert.equal(typeof cycleCrosscheck?.totalRecipesCrosschecked, 'number')
+    assert.equal(typeof cycleCrosscheck?.totalRecipesMatched, 'number')
+    assert.equal(typeof cycleCrosscheck?.totalRecipesUnmatched, 'number')
+    assert.equal(typeof cycleCrosscheck?.coveragePercent, 'number')
+  })
+
+  it('menu import monthly-cycle endpoint should keep aggregate totals consistent with per-day items', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const pdfBuffer = await readFile(new URL('../../../docs/BROKER2.GENIALNET.COM.BR.pdf', import.meta.url))
+
+    const response = await request(app.server)
+      .post('/menus/imports/monthly-cycle')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .attach('file', pdfBuffer, {
+        filename: 'BROKER2.GENIALNET.COM.BR.pdf',
+        contentType: 'application/pdf',
+      })
+
+    if (response.status === 503) {
+      assert.equal(response.body.status, 'error')
+      return
+    }
+
+    assert.equal(response.status, 200)
+    assert.equal(response.body.status, 'ok')
+
+    const imports = response.body.imports as Array<{
+      import: {
+        mealCost: number
+        financialGoal: number
+        validationStatus: string
+      }
+      suggestions: {
+        generatedSuggestions: number
+        estimatedTotalFinancialImpact: number
+        estimatedContractualFinancialImpact: number
+        estimatedGoalFinancialImpact: number
+      }
+    }>
+
+    const totalMealCost = Number(
+      imports.reduce((sum, item) => sum + item.import.mealCost, 0).toFixed(2),
+    )
+    const totalGoal = Number(
+      imports.reduce((sum, item) => sum + item.import.financialGoal, 0).toFixed(2),
+    )
+    const totalSuggestions = imports.reduce(
+      (sum, item) => sum + item.suggestions.generatedSuggestions,
+      0,
+    )
+    const totalEstimatedFinancialImpact = Number(
+      imports.reduce((sum, item) => sum + item.suggestions.estimatedTotalFinancialImpact, 0).toFixed(2),
+    )
+    const totalContractualEstimatedFinancialImpact = Number(
+      imports.reduce((sum, item) => sum + item.suggestions.estimatedContractualFinancialImpact, 0).toFixed(2),
+    )
+    const totalGoalEstimatedFinancialImpact = Number(
+      imports.reduce((sum, item) => sum + item.suggestions.estimatedGoalFinancialImpact, 0).toFixed(2),
+    )
+    const aboveGoalDays = imports.filter((item) => item.import.validationStatus === 'above_goal').length
+    const withinGoalDays = imports.length - aboveGoalDays
+
+    assert.equal(response.body.cycle?.importsProcessed, imports.length)
+    assert.equal(response.body.cycle?.totalMealCost, totalMealCost)
+    assert.equal(response.body.cycle?.totalGoal, totalGoal)
+    assert.equal(response.body.cycle?.totalSuggestions, totalSuggestions)
+    assert.equal(response.body.cycle?.totalEstimatedFinancialImpact, totalEstimatedFinancialImpact)
+    assert.equal(
+      response.body.cycle?.totalContractualEstimatedFinancialImpact,
+      totalContractualEstimatedFinancialImpact,
+    )
+    assert.equal(
+      response.body.cycle?.totalGoalEstimatedFinancialImpact,
+      totalGoalEstimatedFinancialImpact,
+    )
+    assert.equal(response.body.cycle?.aboveGoalDays, aboveGoalDays)
+    assert.equal(response.body.cycle?.withinGoalDays, withinGoalDays)
+  })
+
+  it('menu import monthly-cycle endpoint should identify days above goal from the real monthly pdf', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const pdfBuffer = await readFile(new URL('../../../docs/BROKER2.GENIALNET.COM.BR.pdf', import.meta.url))
+
+    const response = await request(app.server)
+      .post('/menus/imports/monthly-cycle')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .attach('file', pdfBuffer, {
+        filename: 'BROKER2.GENIALNET.COM.BR.pdf',
+        contentType: 'application/pdf',
+      })
+
+    if (response.status === 503) {
+      assert.equal(response.body.status, 'error')
+      return
+    }
+
+    assert.equal(response.status, 200)
+    assert.equal(response.body.status, 'ok')
+
+    const imports = response.body.imports as Array<{
+      import: {
+        validationStatus: string
+        exceededValue: number
+      }
+      suggestions: {
+        generatedSuggestions: number
+        estimatedTotalFinancialImpact: number
+        estimatedContractualFinancialImpact: number
+        estimatedGoalFinancialImpact: number
+      }
+    }>
+
+    const aboveGoalItems = imports.filter((item) => item.import.validationStatus === 'above_goal')
+    const withinGoalItems = imports.filter((item) => item.import.validationStatus === 'within_goal')
+
+    assert.ok(aboveGoalItems.length > 0)
+    assert.ok(withinGoalItems.length > 0)
+    assert.equal(response.body.cycle?.aboveGoalDays, aboveGoalItems.length)
+    assert.equal(response.body.cycle?.withinGoalDays, withinGoalItems.length)
+    assert.ok(aboveGoalItems.every((item) => item.import.exceededValue > 0))
+    assert.ok(aboveGoalItems.every((item) => item.suggestions.generatedSuggestions > 0))
+    assert.ok(aboveGoalItems.some((item) => item.suggestions.estimatedTotalFinancialImpact < 0))
+    assert.ok(aboveGoalItems.some((item) => item.suggestions.estimatedGoalFinancialImpact < 0))
+    assert.ok(response.body.cycle?.totalEstimatedFinancialImpact <= 0)
+    assert.ok(response.body.cycle?.totalGoalEstimatedFinancialImpact <= 0)
+  })
+
+  it('menu import monthly-cycle endpoint should persist monthly summary for later query', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const pdfBuffer = await readFile(new URL('../../../docs/BROKER2.GENIALNET.COM.BR.pdf', import.meta.url))
+
+    const cycleResponse = await request(app.server)
+      .post('/menus/imports/monthly-cycle')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .attach('file', pdfBuffer, {
+        filename: 'BROKER2.GENIALNET.COM.BR.pdf',
+        contentType: 'application/pdf',
+      })
+
+    if (cycleResponse.status === 503) {
+      assert.equal(cycleResponse.body.status, 'error')
+      return
+    }
+
+    assert.equal(cycleResponse.status, 200)
+    assert.equal(cycleResponse.body.status, 'ok')
+
+    const summaryMonth = cycleResponse.body.cycle?.summaryMonth as string
+    assert.equal(typeof summaryMonth, 'string')
+
+    const listResponse = await request(app.server)
+      .get(`/menus/imports/monthly-summaries?month=${summaryMonth}`)
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+
+    assert.equal(listResponse.status, 200)
+    assert.equal(listResponse.body.status, 'ok')
+    assert.equal(Array.isArray(listResponse.body.summaries), true)
+    assert.ok((listResponse.body.summaries as unknown[]).length > 0)
+
+    const summary = listResponse.body.summaries?.find(
+      (item: { summaryMonth?: string; serviceName?: string; unitName?: string }) =>
+        item.summaryMonth === summaryMonth &&
+        item.serviceName === cycleResponse.body.cycle?.serviceName &&
+        item.unitName === cycleResponse.body.cycle?.unitName,
+    ) as {
+      importsProcessed?: number
+      aboveGoalDays?: number
+      withinGoalDays?: number
+      totalMealCost?: number
+      totalGoal?: number
+      totalSuggestions?: number
+      totalEstimatedFinancialImpact?: number
+      totalContractualEstimatedFinancialImpact?: number
+      totalGoalEstimatedFinancialImpact?: number
+    } | undefined
+
+    assert.ok(summary)
+    assert.equal(summary?.importsProcessed, cycleResponse.body.cycle?.importsProcessed)
+    assert.equal(summary?.aboveGoalDays, cycleResponse.body.cycle?.aboveGoalDays)
+    assert.equal(summary?.withinGoalDays, cycleResponse.body.cycle?.withinGoalDays)
+    assert.equal(summary?.totalMealCost, cycleResponse.body.cycle?.totalMealCost)
+    assert.equal(summary?.totalGoal, cycleResponse.body.cycle?.totalGoal)
+    assert.equal(summary?.totalSuggestions, cycleResponse.body.cycle?.totalSuggestions)
+    assert.equal(
+      summary?.totalEstimatedFinancialImpact,
+      cycleResponse.body.cycle?.totalEstimatedFinancialImpact,
+    )
+    assert.equal(
+      summary?.totalContractualEstimatedFinancialImpact,
+      cycleResponse.body.cycle?.totalContractualEstimatedFinancialImpact,
+    )
+    assert.equal(
+      summary?.totalGoalEstimatedFinancialImpact,
+      cycleResponse.body.cycle?.totalGoalEstimatedFinancialImpact,
+    )
+  })
+
+  it('menu import monthly summary should expose persisted per-day processing messages', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const pdfBuffer = await readFile(new URL('../../../docs/BROKER2.GENIALNET.COM.BR.pdf', import.meta.url))
+
+    const cycleResponse = await request(app.server)
+      .post('/menus/imports/monthly-cycle')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .attach('file', pdfBuffer, {
+        filename: 'BROKER2.GENIALNET.COM.BR.pdf',
+        contentType: 'application/pdf',
+      })
+
+    if (cycleResponse.status === 503) {
+      assert.equal(cycleResponse.body.status, 'error')
+      return
+    }
+
+    const summaryMonth = cycleResponse.body.cycle?.summaryMonth as string
+
+    const listResponse = await request(app.server)
+      .get(`/menus/imports/monthly-summaries?month=${summaryMonth}`)
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+
+    assert.equal(listResponse.status, 200)
+    assert.equal(listResponse.body.status, 'ok')
+
+    const summary = listResponse.body.summaries?.find(
+      (item: { summaryMonth?: string; serviceName?: string; unitName?: string }) =>
+        item.summaryMonth === summaryMonth &&
+        item.serviceName === cycleResponse.body.cycle?.serviceName &&
+        item.unitName === cycleResponse.body.cycle?.unitName,
+    ) as {
+      processedImports?: Array<{
+        processingStatus?: string
+        failedStage?: string | null
+        autoRemediation?: {
+          attempted?: boolean
+          retriesUsed?: number
+          recoveredByRetry?: boolean
+          lastErrorMessage?: string | null
+        }
+        import?: { id?: string }
+        processingMessages?: Array<{ level?: string; code?: string; message?: string }>
+      }>
+    } | undefined
+
+    assert.ok(summary)
+    assert.equal(Array.isArray(summary?.processedImports), true)
+    assert.ok((summary?.processedImports?.length ?? 0) > 0)
+    assert.ok(summary?.processedImports?.every((item) => typeof item.import?.id === 'string'))
+    assert.ok(
+      summary?.processedImports?.every((item) =>
+        ['completed', 'completed_with_warnings', 'failed'].includes(item.processingStatus ?? ''),
+      ),
+    )
+    assert.ok(
+      summary?.processedImports?.every((item) =>
+        item.failedStage === null || ['import', 'audit', 'suggestions'].includes(item.failedStage ?? ''),
+      ),
+    )
+    assert.ok(
+      summary?.processedImports?.every(
+        (item) =>
+          typeof item.autoRemediation?.attempted === 'boolean' &&
+          typeof item.autoRemediation?.retriesUsed === 'number' &&
+          typeof item.autoRemediation?.recoveredByRetry === 'boolean',
+      ),
+    )
+    assert.ok(
+      summary?.processedImports?.every(
+        (item) => Array.isArray(item.processingMessages) && item.processingMessages.length > 0,
+      ),
+    )
+  })
+
+  it('menu import monthly summary should support selective reprocess for failed items', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const pdfBuffer = await readFile(new URL('../../../docs/BROKER2.GENIALNET.COM.BR.pdf', import.meta.url))
+
+    const cycleResponse = await request(app.server)
+      .post('/menus/imports/monthly-cycle')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .attach('file', pdfBuffer, {
+        filename: 'BROKER2.GENIALNET.COM.BR.pdf',
+        contentType: 'application/pdf',
+      })
+
+    if (cycleResponse.status === 503) {
+      assert.equal(cycleResponse.body.status, 'error')
+      return
+    }
+
+    assert.equal(cycleResponse.status, 200)
+    assert.equal(cycleResponse.body.status, 'ok')
+
+    const reprocessResponse = await request(app.server)
+      .post('/menus/imports/monthly-summaries/reprocess-failed')
+      .set('Authorization', `Bearer ${loginResponse.body.token as string}`)
+      .send({
+        summaryMonth: cycleResponse.body.cycle?.summaryMonth,
+        unitName: cycleResponse.body.cycle?.unitName,
+        serviceName: cycleResponse.body.cycle?.serviceName,
+      })
+
+    assert.equal(reprocessResponse.status, 200)
+    assert.equal(reprocessResponse.body.status, 'ok')
+    assert.equal(typeof reprocessResponse.body.reprocess?.failedItemsBefore, 'number')
+    assert.equal(typeof reprocessResponse.body.reprocess?.failedItemsAfter, 'number')
+    assert.equal(typeof reprocessResponse.body.reprocess?.recoveredItems, 'number')
+    assert.equal(Array.isArray(reprocessResponse.body.imports), true)
   })
 
   it('recipe import endpoint should accept structured recipes or return db fallback', async () => {
@@ -280,11 +1223,8 @@ describe('API integration', () => {
     const contractResponse = await request(app.server)
       .post('/contracts')
       .set('Authorization', `Bearer ${token}`)
-      .send({
-        title: 'Contrato Auditoria Cardapio',
-        sourceType: 'contract',
-        status: 'active',
-      })
+      .field('title', 'Contrato Auditoria Cardapio')
+      .field('sourceType', 'contract')
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -336,7 +1276,7 @@ describe('API integration', () => {
         mealType: 'Almoco',
         financialGoal: 14.5,
         mealCost: 13.9,
-        recipes: ['Arroz integral', 'Feijao carioca', 'Frango grelhado'],
+        recipes: ['Arroz integral', 'Feijao carioca', 'Frango grelhado ao molho de ervas'],
       })
 
     assert.equal(importResponse.status, 201)
@@ -355,6 +1295,10 @@ describe('API integration', () => {
     assert.match(
       auditResponse.body.results?.[0]?.evidence as string,
       /classificacao estruturada/i,
+    )
+    assert.doesNotMatch(
+      auditResponse.body.results?.[0]?.evidence as string,
+      /fallback/i,
     )
 
     const fetchAuditResponse = await request(app.server)
@@ -381,11 +1325,8 @@ describe('API integration', () => {
     const contractResponse = await request(app.server)
       .post('/contracts')
       .set('Authorization', `Bearer ${token}`)
-      .send({
-        title: 'Contrato Frequencia e Recorrencia',
-        sourceType: 'contract',
-        status: 'active',
-      })
+      .field('title', 'Contrato Frequencia e Recorrencia')
+      .field('sourceType', 'contract')
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -516,6 +1457,461 @@ describe('API integration', () => {
     assert.match(recurrenceRuleResult?.evidence as string, /abaixo do minimo de 7 dias/i)
   })
 
+  it('menu import audit should map contextual lunch synonyms to structured evidence', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const contractResponse = await request(app.server)
+      .post('/contracts')
+      .set('Authorization', `Bearer ${token}`)
+      .field('title', 'Contrato Sinonimos Controlados')
+      .field('sourceType', 'contract')
+
+    if (contractResponse.status === 503) {
+      assert.equal(contractResponse.body.status, 'error')
+      return
+    }
+
+    const contractId = contractResponse.body.contract?.id as string
+
+    const ruleResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId,
+        title: 'Peixe no almoco',
+        description: 'Cardapio deve conter peixe no almoco.',
+        category: 'proteina',
+        status: 'approved',
+      })
+
+    assert.equal(ruleResponse.status, 201)
+
+    const recipeImportResponse = await request(app.server)
+      .post('/recipes/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'FICHAS-TECNICAS-SINONIMOS.pdf',
+        sourceReference: 'Genial',
+        recipes: [
+          {
+            name: 'Peixe assado',
+            ingredients: ['Peixe', 'Ervas'],
+            preparationMethod: 'Assar e servir.',
+            group: 'Proteina',
+            cost: 3.0,
+          },
+        ],
+      })
+
+    assert.equal(recipeImportResponse.status, 201)
+
+    const importResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-09',
+        mealType: 'Almoco',
+        financialGoal: 14,
+        mealCost: 13,
+        recipes: ['Arroz', 'Feijao', 'Posta assada com ervas'],
+      })
+
+    assert.equal(importResponse.status, 201)
+
+    const auditResponse = await request(app.server)
+      .post(`/menus/imports/${importResponse.body.import?.id as string}/audit`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(auditResponse.status, 200)
+    assert.equal(auditResponse.body.status, 'ok')
+
+    const fishRuleResult = (auditResponse.body.results as Array<{
+      ruleTitle: string
+      resultStatus: string
+      evidence: string
+    }>).find((item) => item.ruleTitle === 'Peixe no almoco')
+
+    assert.ok(fishRuleResult)
+    assert.equal(fishRuleResult?.resultStatus, 'compliant')
+    assert.match(fishRuleResult?.evidence as string, /classificacao estruturada/i)
+    assert.doesNotMatch(fishRuleResult?.evidence as string, /fallback textual/i)
+  })
+
+  it('menu import audit should map fish commercial aliases to structured evidence', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const contractResponse = await request(app.server)
+      .post('/contracts')
+      .set('Authorization', `Bearer ${token}`)
+      .field('title', 'Contrato Alias Comercial Peixe')
+      .field('sourceType', 'contract')
+
+    if (contractResponse.status === 503) {
+      assert.equal(contractResponse.body.status, 'error')
+      return
+    }
+
+    const contractId = contractResponse.body.contract?.id as string
+
+    const ruleResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId,
+        title: 'Peixe no almoco com alias comercial',
+        description: 'Cardapio deve conter peixe no almoco.',
+        category: 'proteina',
+        status: 'approved',
+      })
+
+    assert.equal(ruleResponse.status, 201)
+
+    const recipeImportResponse = await request(app.server)
+      .post('/recipes/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'FICHAS-TECNICAS-ALIAS-COMERCIAL-PEIXE.pdf',
+        sourceReference: 'Genial',
+        recipes: [
+          {
+            name: 'Peixe assado',
+            ingredients: ['Peixe', 'Ervas'],
+            preparationMethod: 'Assar e servir.',
+            group: 'Proteina',
+            cost: 3.0,
+          },
+        ],
+      })
+
+    assert.equal(recipeImportResponse.status, 201)
+
+    const importResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-09',
+        mealType: 'Almoco',
+        financialGoal: 14,
+        mealCost: 13,
+        recipes: ['Arroz', 'Feijao', 'File de pescado ao forno'],
+      })
+
+    assert.equal(importResponse.status, 201)
+
+    const auditResponse = await request(app.server)
+      .post(`/menus/imports/${importResponse.body.import?.id as string}/audit`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(auditResponse.status, 200)
+    assert.equal(auditResponse.body.status, 'ok')
+
+    const fishRuleResult = (auditResponse.body.results as Array<{
+      ruleTitle: string
+      resultStatus: string
+      evidence: string
+    }>).find((item) => item.ruleTitle === 'Peixe no almoco com alias comercial')
+
+    assert.ok(fishRuleResult)
+    assert.equal(fishRuleResult?.resultStatus, 'compliant')
+    assert.match(fishRuleResult?.evidence as string, /classificacao estruturada/i)
+    assert.doesNotMatch(fishRuleResult?.evidence as string, /fallback textual/i)
+  })
+
+  it('menu import audit should map breakfast citrus aliases to structured evidence', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const contractResponse = await request(app.server)
+      .post('/contracts')
+      .set('Authorization', `Bearer ${token}`)
+      .field('title', 'Contrato Alias Contextual Cafe')
+      .field('sourceType', 'contract')
+
+    if (contractResponse.status === 503) {
+      assert.equal(contractResponse.body.status, 'error')
+      return
+    }
+
+    const contractId = contractResponse.body.contract?.id as string
+
+    const ruleResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId,
+        title: 'Fruta citrica no cafe da manha',
+        description: 'Cardapio deve contemplar fruta citrica no cafe da manha.',
+        category: 'fruta',
+        status: 'approved',
+      })
+
+    assert.equal(ruleResponse.status, 201)
+
+    const recipeImportResponse = await request(app.server)
+      .post('/recipes/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'FICHAS-TECNICAS-CAFE.pdf',
+        sourceReference: 'Genial',
+        recipes: [
+          {
+            name: 'Laranja em Gomos',
+            ingredients: ['Laranja'],
+            preparationMethod: 'Servir gelada.',
+            group: 'Fruta',
+            cost: 0.7,
+          },
+        ],
+      })
+
+    assert.equal(recipeImportResponse.status, 201)
+
+    const importResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Cafe da Manha',
+        referenceDate: '2026-06-09',
+        mealType: 'Cafe da Manha',
+        financialGoal: 8,
+        mealCost: 7,
+        recipes: ['Pao integral', 'Suco citrico natural'],
+      })
+
+    assert.equal(importResponse.status, 201)
+
+    const auditResponse = await request(app.server)
+      .post(`/menus/imports/${importResponse.body.import?.id as string}/audit`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(auditResponse.status, 200)
+    assert.equal(auditResponse.body.status, 'ok')
+
+    const citrusRuleResult = (auditResponse.body.results as Array<{
+      ruleTitle: string
+      resultStatus: string
+      evidence: string
+    }>).find((item) => item.ruleTitle === 'Fruta citrica no cafe da manha')
+
+    assert.ok(citrusRuleResult)
+    assert.equal(citrusRuleResult?.resultStatus, 'compliant')
+    assert.match(citrusRuleResult?.evidence as string, /classificacao estruturada/i)
+    assert.doesNotMatch(citrusRuleResult?.evidence as string, /fallback textual/i)
+  })
+
+  it('menu import audit should map lunch vegetable aliases to structured evidence', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const contractResponse = await request(app.server)
+      .post('/contracts')
+      .set('Authorization', `Bearer ${token}`)
+      .field('title', 'Contrato Alias Contextual Vegetais')
+      .field('sourceType', 'contract')
+
+    if (contractResponse.status === 503) {
+      assert.equal(contractResponse.body.status, 'error')
+      return
+    }
+
+    const contractId = contractResponse.body.contract?.id as string
+
+    const ruleResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId,
+        title: 'Verdura no almoco',
+        description: 'Cardapio deve conter verdura no almoco.',
+        category: 'verdura',
+        status: 'approved',
+      })
+
+    assert.equal(ruleResponse.status, 201)
+
+    const recipeImportResponse = await request(app.server)
+      .post('/recipes/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'FICHAS-TECNICAS-VEGETAIS.pdf',
+        sourceReference: 'Genial',
+        recipes: [
+          {
+            name: 'Salada de Folhas',
+            ingredients: ['Alface', 'Couve'],
+            preparationMethod: 'Higienizar e servir.',
+            group: 'Verdura',
+            cost: 0.9,
+          },
+        ],
+      })
+
+    assert.equal(recipeImportResponse.status, 201)
+
+    const importResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-09',
+        mealType: 'Almoco',
+        financialGoal: 14,
+        mealCost: 13,
+        recipes: ['Arroz', 'Feijao', 'Mix de folhas verdes'],
+      })
+
+    assert.equal(importResponse.status, 201)
+
+    const auditResponse = await request(app.server)
+      .post(`/menus/imports/${importResponse.body.import?.id as string}/audit`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(auditResponse.status, 200)
+    assert.equal(auditResponse.body.status, 'ok')
+
+    const greenRuleResult = (auditResponse.body.results as Array<{
+      ruleTitle: string
+      resultStatus: string
+      evidence: string
+    }>).find((item) => item.ruleTitle === 'Verdura no almoco')
+
+    assert.ok(greenRuleResult)
+    assert.equal(greenRuleResult?.resultStatus, 'compliant')
+    assert.match(greenRuleResult?.evidence as string, /classificacao estruturada/i)
+    assert.doesNotMatch(greenRuleResult?.evidence as string, /fallback textual/i)
+  })
+
+  it('menu import audit should map commercial vegetable aliases to structured evidence', async () => {
+    const loginResponse = await request(app.server).post('/auth/login').send({
+      email: 'admin@menucare.local',
+      password: 'Admin@123',
+    })
+
+    assert.equal(loginResponse.status, 200)
+    assert.equal(typeof loginResponse.body.token, 'string')
+
+    const token = loginResponse.body.token as string
+
+    const contractResponse = await request(app.server)
+      .post('/contracts')
+      .set('Authorization', `Bearer ${token}`)
+      .field('title', 'Contrato Alias Comercial Vegetais')
+      .field('sourceType', 'contract')
+
+    if (contractResponse.status === 503) {
+      assert.equal(contractResponse.body.status, 'error')
+      return
+    }
+
+    const contractId = contractResponse.body.contract?.id as string
+
+    const ruleResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId,
+        title: 'Verdura no almoco com alias comercial',
+        description: 'Cardapio deve conter verdura no almoco.',
+        category: 'verdura',
+        status: 'approved',
+      })
+
+    assert.equal(ruleResponse.status, 201)
+
+    const recipeImportResponse = await request(app.server)
+      .post('/recipes/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'FICHAS-TECNICAS-ALIAS-COMERCIAL-VEGETAIS.pdf',
+        sourceReference: 'Genial',
+        recipes: [
+          {
+            name: 'Salada de Folhas',
+            ingredients: ['Alface', 'Couve'],
+            preparationMethod: 'Higienizar e servir.',
+            group: 'Verdura',
+            cost: 0.9,
+          },
+        ],
+      })
+
+    assert.equal(recipeImportResponse.status, 201)
+
+    const importResponse = await request(app.server)
+      .post('/menus/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'BROKER2.GENIALNET.COM.BR.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-09',
+        mealType: 'Almoco',
+        financialGoal: 14,
+        mealCost: 13,
+        recipes: ['Arroz', 'Feijao', 'Salada de hortalicas'],
+      })
+
+    assert.equal(importResponse.status, 201)
+
+    const auditResponse = await request(app.server)
+      .post(`/menus/imports/${importResponse.body.import?.id as string}/audit`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(auditResponse.status, 200)
+    assert.equal(auditResponse.body.status, 'ok')
+
+    const greenRuleResult = (auditResponse.body.results as Array<{
+      ruleTitle: string
+      resultStatus: string
+      evidence: string
+    }>).find((item) => item.ruleTitle === 'Verdura no almoco com alias comercial')
+
+    assert.ok(greenRuleResult)
+    assert.equal(greenRuleResult?.resultStatus, 'compliant')
+    assert.match(greenRuleResult?.evidence as string, /classificacao estruturada/i)
+    assert.doesNotMatch(greenRuleResult?.evidence as string, /fallback textual/i)
+  })
+
   it('menu import suggestions should be generated from audit and financial context', async () => {
     const loginResponse = await request(app.server).post('/auth/login').send({
       email: 'admin@menucare.local',
@@ -530,11 +1926,8 @@ describe('API integration', () => {
     const contractResponse = await request(app.server)
       .post('/contracts')
       .set('Authorization', `Bearer ${token}`)
-      .send({
-        title: 'Contrato Sugestoes de Ajuste',
-        sourceType: 'contract',
-        status: 'active',
-      })
+      .field('title', 'Contrato Sugestoes de Ajuste')
+      .field('sourceType', 'contract')
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -598,6 +1991,28 @@ describe('API integration', () => {
 
     const importId = importResponse.body.import?.id as string
 
+    const evaluationImportResponse = await request(app.server)
+      .post('/evaluations/imports')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        fileName: 'AVALIACOES-GENIAL.pdf',
+        unitName: 'Hospital Sao Marcelino Champagnat',
+        serviceName: 'Almoco',
+        referenceDate: '2026-06-08',
+        score: 8.7,
+        evaluationsCount: 120,
+        comments: 'Combinacao com alta aceitacao operacional.',
+      })
+
+    assert.equal(evaluationImportResponse.status, 201)
+
+    const rebuildIntelligenceResponse = await request(app.server)
+      .post('/evaluations/intelligence/rebuild')
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(rebuildIntelligenceResponse.status, 200)
+    assert.equal(rebuildIntelligenceResponse.body.status, 'ok')
+
     const runAuditResponse = await request(app.server)
       .post(`/menus/imports/${importId}/audit`)
       .set('Authorization', `Bearer ${token}`)
@@ -614,6 +2029,10 @@ describe('API integration', () => {
     assert.equal(runSuggestionsResponse.body.suggestions?.[0]?.evidenceSource, 'structured')
     assert.equal(runSuggestionsResponse.body.suggestions?.[0]?.evidenceSubtype, 'classification')
     assert.match(
+      runSuggestionsResponse.body.suggestions?.[0]?.estimatedNutritionalImpact as string,
+      /contexto historico operacional/i,
+    )
+    assert.match(
       runSuggestionsResponse.body.suggestions?.[0]?.suggestionText as string,
       /substituir|peixe assado|classificada como peixe/i,
     )
@@ -627,6 +2046,10 @@ describe('API integration', () => {
     assert.equal(Array.isArray(listSuggestionsResponse.body.suggestions), true)
     assert.equal(listSuggestionsResponse.body.suggestions?.[0]?.evidenceSource, 'structured')
     assert.equal(listSuggestionsResponse.body.suggestions?.[0]?.evidenceSubtype, 'classification')
+    assert.match(
+      listSuggestionsResponse.body.suggestions?.[0]?.estimatedNutritionalImpact as string,
+      /contexto historico operacional/i,
+    )
     assert.match(
       listSuggestionsResponse.body.suggestions?.[0]?.suggestionText as string,
       /substituir|peixe assado|classificada como peixe/i,
@@ -647,11 +2070,8 @@ describe('API integration', () => {
     const contractResponse = await request(app.server)
       .post('/contracts')
       .set('Authorization', `Bearer ${token}`)
-      .send({
-        title: 'Contrato Sugestoes Estruturadas R4',
-        sourceType: 'contract',
-        status: 'active',
-      })
+      .field('title', 'Contrato Sugestoes Estruturadas R4')
+      .field('sourceType', 'contract')
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -832,11 +2252,8 @@ describe('API integration', () => {
     const contractResponse = await request(app.server)
       .post('/contracts')
       .set('Authorization', `Bearer ${token}`)
-      .send({
-        title: 'Contrato Versao Ajustada',
-        sourceType: 'contract',
-        status: 'active',
-      })
+      .field('title', 'Contrato Versao Ajustada')
+      .field('sourceType', 'contract')
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -1237,5 +2654,281 @@ describe('API integration', () => {
 
     assert.equal(blockedResponse.status, 429)
     assert.equal(blockedResponse.body.status, 'error')
+  })
+
+  it('approved rule should be promoted to compliance control and preserve full traceability', async () => {
+    const token = await loginToken()
+    const { contractId, controlId, contractTitle, ruleTitle } = await createOperationalControl(token, 'ACTIVE')
+
+    const controlsResponse = await request(app.server)
+      .get('/compliance-controls?limit=10')
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(controlsResponse.status, 200)
+    assert.equal(controlsResponse.body.status, 'ok')
+    assert.equal(Array.isArray(controlsResponse.body.controls), true)
+    assert.ok((controlsResponse.body.summary?.activeControls as number) >= 1)
+
+    const executionResponse = await request(app.server)
+      .post(`/compliance-controls/${controlId}/executions`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        executionDate: '2026-06-11',
+        status: 'completed',
+        evidenceSummary: 'Checklist assinado e registro fotografico do servico.',
+        evidenceReference: 'checklist-jantar-2026-06-11.pdf',
+      })
+
+    assert.equal(executionResponse.status, 201)
+    assert.equal(executionResponse.body.status, 'ok')
+    assert.equal(executionResponse.body.execution?.status, 'completed')
+
+    const findingResponse = await request(app.server)
+      .post(`/compliance-controls/${controlId}/findings`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        severity: 'HIGH',
+        description: 'Desvio operacional identificado no ciclo de execução.',
+        status: 'OPEN',
+      })
+
+    assert.equal(findingResponse.status, 201)
+    assert.equal(findingResponse.body.status, 'ok')
+
+    const findingId = findingResponse.body.finding?.id as string
+
+    const resolveFindingResponse = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/findings/${findingId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'RESOLVED',
+        description: 'Desvio tratado após rechecagem da evidência operacional.',
+        evidenceReference: 'checklist-jantar-2026-06-11.pdf',
+      })
+
+    assert.equal(resolveFindingResponse.status, 200)
+    assert.equal(resolveFindingResponse.body.status, 'ok')
+    assert.equal(resolveFindingResponse.body.finding?.status, 'RESOLVED')
+
+    const detailResponse = await getControlDetail(token, controlId)
+
+    assert.equal(detailResponse.control.origin?.contractTitle, contractTitle)
+    assert.equal(detailResponse.control.origin?.ruleTitle, ruleTitle)
+    assert.ok((detailResponse.evidenceReferences?.length ?? 0) >= 1)
+    assert.ok((detailResponse.events?.length ?? 0) >= 1)
+    assert.ok((detailResponse.timeline?.some((item) => item.type === 'execution')) ?? false)
+    assert.ok((detailResponse.findings?.some((item) => item.id === findingId && item.status === 'RESOLVED')) ?? false)
+
+    const contractControlsResponse = await request(app.server)
+      .get(`/contracts/${contractId}/controls`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(contractControlsResponse.status, 200)
+    assert.equal(contractControlsResponse.body.status, 'ok')
+    assert.equal(contractControlsResponse.body.controls?.[0]?.id, controlId)
+  })
+
+  it('control state machine should accept valid transitions and reject invalid ones without events', async () => {
+    const token = await loginToken()
+    const { controlId } = await createOperationalControl(token, 'DRAFT')
+
+    let detail = await getControlDetail(token, controlId)
+    const initialEventCount = detail.events.length
+
+    const invalidDraftToCompleted = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'COMPLETED',
+        justification: 'Tentativa inválida de encerramento direto.',
+      })
+
+    assert.equal(invalidDraftToCompleted.status, 409)
+    assert.match(invalidDraftToCompleted.body.message, /Transicao de status invalida/i)
+    detail = await getControlDetail(token, controlId)
+    assert.equal(detail.events.length, initialEventCount)
+    assert.equal(detail.control.status, 'DRAFT')
+
+    const toActive = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'ACTIVE',
+        justification: 'Controle liberado após validação humana.',
+        evidenceReference: 'checklist-validacao-ativa.pdf',
+      })
+
+    assert.equal(toActive.status, 200)
+    detail = await getControlDetail(token, controlId)
+    assert.equal(detail.control.status, 'ACTIVE')
+    assert.equal(detail.events.length, initialEventCount + 1)
+    assert.ok(detail.events.some((item) => item.previousStatus === 'DRAFT' && item.nextStatus === 'ACTIVE' && item.justification?.includes('validação humana')))
+
+    const toPaused = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'PAUSED',
+        justification: 'Pausa operacional solicitada pela gestão.',
+      })
+
+    assert.equal(toPaused.status, 200)
+    detail = await getControlDetail(token, controlId)
+    assert.equal(detail.control.status, 'PAUSED')
+    assert.equal(detail.events.length, initialEventCount + 2)
+
+    const invalidPausedToCompleted = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'COMPLETED',
+        justification: 'Tentativa inválida a partir de pausado.',
+      })
+
+    assert.equal(invalidPausedToCompleted.status, 409)
+    detail = await getControlDetail(token, controlId)
+    assert.equal(detail.events.length, initialEventCount + 2)
+    assert.equal(detail.control.status, 'PAUSED')
+
+    const backToActive = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'ACTIVE',
+        justification: 'Controle reativado após revisão.',
+      })
+
+    assert.equal(backToActive.status, 200)
+
+    const toNonCompliant = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'NON_COMPLIANT',
+        justification: 'Desvio operacional confirmado na inspeção.',
+        evidenceReference: 'relatorio-inspecao-2026-06-11.pdf',
+      })
+
+    assert.equal(toNonCompliant.status, 200)
+
+    const toCompleted = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'COMPLETED',
+        justification: 'Ciclo concluído após tratamento.',
+      })
+
+    assert.equal(toCompleted.status, 200)
+    detail = await getControlDetail(token, controlId)
+    assert.equal(detail.control.status, 'COMPLETED')
+
+    const invalidCompletedToActive = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'ACTIVE',
+        justification: 'Tentativa de reabertura inválida.',
+      })
+
+    assert.equal(invalidCompletedToActive.status, 409)
+    detail = await getControlDetail(token, controlId)
+    assert.equal(detail.control.status, 'COMPLETED')
+    assert.equal(detail.events.length, initialEventCount + 5)
+    assert.ok(detail.events.some((item) => item.previousStatus === 'NON_COMPLIANT' && item.nextStatus === 'COMPLETED'))
+  })
+
+  it('finding lifecycle should create events and block invalid regressions', async () => {
+    const token = await loginToken()
+    const { controlId } = await createOperationalControl(token, 'ACTIVE')
+
+    const openFindingResponse = await request(app.server)
+      .post(`/compliance-controls/${controlId}/findings`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        severity: 'CRITICAL',
+        description: 'Falha severa registrada na execução manual.',
+        status: 'OPEN',
+      })
+
+    assert.equal(openFindingResponse.status, 201)
+    const findingId = openFindingResponse.body.finding?.id as string
+
+    let detail = await getControlDetail(token, controlId)
+    const initialFindingEvents = detail.findingEvents.length
+
+    const inAnalysisResponse = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/findings/${findingId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'IN_ANALYSIS',
+        description: 'Finding encaminhado para análise operacional.',
+      })
+
+    assert.equal(inAnalysisResponse.status, 200)
+    detail = await getControlDetail(token, controlId)
+    assert.equal(detail.findings.find((item) => item.id === findingId)?.status, 'IN_ANALYSIS')
+    assert.equal(detail.findingEvents.length, initialFindingEvents + 1)
+
+    const resolvedResponse = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/findings/${findingId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'RESOLVED',
+        description: 'Falha corrigida após revisão da evidência.',
+        evidenceReference: 'evidencia-resolucao-2026-06-11.pdf',
+      })
+
+    assert.equal(resolvedResponse.status, 200)
+    detail = await getControlDetail(token, controlId)
+    assert.equal(detail.findings.find((item) => item.id === findingId)?.status, 'RESOLVED')
+    assert.equal(detail.findingEvents.length, initialFindingEvents + 2)
+
+    const invalidResolvedToOpen = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/findings/${findingId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'OPEN',
+        description: 'Reabertura inválida.',
+      })
+
+    assert.equal(invalidResolvedToOpen.status, 409)
+    detail = await getControlDetail(token, controlId)
+    assert.equal(detail.findings.find((item) => item.id === findingId)?.status, 'RESOLVED')
+    assert.equal(detail.findingEvents.length, initialFindingEvents + 2)
+
+    const riskFindingResponse = await request(app.server)
+      .post(`/compliance-controls/${controlId}/findings`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        severity: 'MEDIUM',
+        description: 'Risco aceito após avaliação humana.',
+        status: 'OPEN',
+      })
+
+    assert.equal(riskFindingResponse.status, 201)
+    const riskFindingId = riskFindingResponse.body.finding?.id as string
+
+    const acceptedRiskResponse = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/findings/${riskFindingId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'ACCEPTED_RISK',
+        description: 'Risco aceito formalmente pela liderança.',
+      })
+
+    assert.equal(acceptedRiskResponse.status, 200)
+
+    const invalidAcceptedRiskToOpen = await request(app.server)
+      .patch(`/compliance-controls/${controlId}/findings/${riskFindingId}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'OPEN',
+        description: 'Reabertura inválida de risco aceito.',
+      })
+
+    assert.equal(invalidAcceptedRiskToOpen.status, 409)
+    detail = await getControlDetail(token, controlId)
+    assert.equal(detail.findingEvents.filter((item) => item.findingId === riskFindingId).length, 2)
   })
 })

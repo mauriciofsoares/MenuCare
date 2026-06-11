@@ -1,0 +1,1050 @@
+﻿{"level":30,"time":1781196722512,"pid":35704,"hostname":"HUCN001086914","msg":"Server listening at http://127.0.0.1:3001"}
+{"level":30,"time":1781196722513,"pid":35704,"hostname":"HUCN001086914","msg":"Server listening at http://172.30.0.138:3001"}
+{"level":30,"time":1781196722513,"pid":35704,"hostname":"HUCN001086914","msg":"Server listening at http://172.27.160.1:3001"}
+{"level":30,"time":1781196722513,"pid":35704,"hostname":"HUCN001086914","msg":"Server listening at http://172.21.112.1:3001"}
+{"level":30,"time":1781196722513,"pid":35704,"hostname":"HUCN001086914","msg":"Server listening at http://192.168.15.2:3001"}
+{"level":30,"time":1781196722550,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1","req":{"method":"GET","url":"/health","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62842},"msg":"incoming request"}
+{"level":30,"time":1781196722555,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1","res":{"statusCode":200},"responseTime":4.178500011563301,"msg":"request completed"}
+ÔûÂ API integration
+  [32mÔ£ö health endpoint should return service ok [90m(34.4506ms)[39m[39m
+{"level":30,"time":1781196722566,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62843},"msg":"incoming request"}
+{"level":30,"time":1781196723260,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2","res":{"statusCode":401},"responseTime":694.4839999973774,"msg":"request completed"}
+  [32mÔ£ö login should reject wrong password [90m(700.6747ms)[39m[39m
+{"level":30,"time":1781196723265,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62845},"msg":"incoming request"}
+{"level":30,"time":1781196723271,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"850bead7-682f-4a9c-948f-0cd2ca1328b4","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196723393,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196723394,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3","res":{"statusCode":200},"responseTime":128.2504999935627,"msg":"request completed"}
+  [31mÔ£û login should return token with valid credentials [90m(136.4184ms)[39m[39m
+{"level":30,"time":1781196723406,"pid":35704,"hostname":"HUCN001086914","reqId":"req-4","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62846},"msg":"incoming request"}
+{"level":30,"time":1781196723410,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"7ee7715a-89f3-4f4c-96e3-532cdde51867","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196723466,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196723467,"pid":35704,"hostname":"HUCN001086914","reqId":"req-4","res":{"statusCode":200},"responseTime":60.44609999656677,"msg":"request completed"}
+  [31mÔ£û refresh endpoint should rotate refresh token and reject old cookie [90m(80.5866ms)[39m[39m
+{"level":30,"time":1781196723486,"pid":35704,"hostname":"HUCN001086914","reqId":"req-5","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62847},"msg":"incoming request"}
+{"level":30,"time":1781196723488,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"b70f8b39-a52f-482a-b2f3-2ea59fcca8b5","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196723546,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196723547,"pid":35704,"hostname":"HUCN001086914","reqId":"req-5","res":{"statusCode":200},"responseTime":60.568499997258186,"msg":"request completed"}
+  [31mÔ£û auth flow id should remain consistent across login refresh and logout [90m(69.1768ms)[39m[39m
+{"level":30,"time":1781196723553,"pid":35704,"hostname":"HUCN001086914","reqId":"req-6","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62848},"msg":"incoming request"}
+{"level":30,"time":1781196723555,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"26fbe390-0629-4ca7-8060-2938758a85bb","deviceFingerprint":"2f25aefc0f7188701473d387f6f3a282","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196723608,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196723609,"pid":35704,"hostname":"HUCN001086914","reqId":"req-6","res":{"statusCode":200},"responseTime":55.29299999773502,"msg":"request completed"}
+  [31mÔ£û login should revoke previous refresh session on same device [90m(61.1924ms)[39m[39m
+{"level":30,"time":1781196723614,"pid":35704,"hostname":"HUCN001086914","reqId":"req-7","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62849},"msg":"incoming request"}
+{"level":30,"time":1781196723616,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"0fe6d92e-ed0c-447e-8604-3120412c3007","deviceFingerprint":"75c755e490fb3799e7b5891e5913e6e4","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196723670,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196723670,"pid":35704,"hostname":"HUCN001086914","reqId":"req-7","res":{"statusCode":200},"responseTime":56.41909998655319,"msg":"request completed"}
+  [31mÔ£û login should enforce maximum active refresh sessions per user [90m(61.5936ms)[39m[39m
+{"level":30,"time":1781196723675,"pid":35704,"hostname":"HUCN001086914","reqId":"req-8","req":{"method":"GET","url":"/compliance/exports/audit","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62850},"msg":"incoming request"}
+{"level":30,"time":1781196723676,"pid":35704,"hostname":"HUCN001086914","reqId":"req-8","res":{"statusCode":401},"responseTime":0.9791000038385391,"msg":"request completed"}
+  [32mÔ£ö protected endpoint should require authentication [90m(5.0954ms)[39m[39m
+{"level":30,"time":1781196723681,"pid":35704,"hostname":"HUCN001086914","reqId":"req-9","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62851},"msg":"incoming request"}
+{"level":30,"time":1781196723684,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"be4ddecd-864c-4e75-830a-06d1fdb4b910","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196723734,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196723735,"pid":35704,"hostname":"HUCN001086914","reqId":"req-9","res":{"statusCode":200},"responseTime":53.84470000863075,"msg":"request completed"}
+{"level":30,"time":1781196723738,"pid":35704,"hostname":"HUCN001086914","reqId":"req-a","req":{"method":"GET","url":"/onboarding/operational-profile","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62852},"msg":"incoming request"}
+{"level":30,"time":1781196723751,"pid":35704,"hostname":"HUCN001086914","reqId":"req-a","res":{"statusCode":200},"responseTime":12.517999991774559,"msg":"request completed"}
+{"level":30,"time":1781196723753,"pid":35704,"hostname":"HUCN001086914","reqId":"req-b","req":{"method":"POST","url":"/onboarding/operational-profile","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62853},"msg":"incoming request"}
+{"level":50,"time":1781196723760,"pid":35704,"hostname":"HUCN001086914","reqId":"req-b","req":{"method":"POST","url":"/onboarding/operational-profile","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62853},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async saveOperationalProfileInDatabase (C:\\MenuCare\\apps\\api\\src\\server.ts:682:3)\n    at async Object.saveOperationalProfile (C:\\MenuCare\\apps\\api\\src\\server.ts:741:3)\n    at async Object.saveOnboardingOperationalProfile (C:\\MenuCare\\apps\\api\\src\\modules\\auth\\service.ts:433:5)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\auth\\routes.ts:58:20)","code":"P2010","meta":{"type":"Object","message":"ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT","stack":"","code":"42P10"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`"}
+{"level":30,"time":1781196723764,"pid":35704,"hostname":"HUCN001086914","reqId":"req-b","res":{"statusCode":500},"responseTime":10.692900002002716,"msg":"request completed"}
+  [31mÔ£û operational onboarding profile should return default and allow update [90m(89.6981ms)[39m[39m
+{"level":30,"time":1781196723770,"pid":35704,"hostname":"HUCN001086914","reqId":"req-c","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62854},"msg":"incoming request"}
+{"level":30,"time":1781196723772,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"4948e8dd-7874-4f77-9222-f4d0135622f7","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196723818,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196723818,"pid":35704,"hostname":"HUCN001086914","reqId":"req-c","res":{"statusCode":200},"responseTime":48.592599987983704,"msg":"request completed"}
+{"level":30,"time":1781196723822,"pid":35704,"hostname":"HUCN001086914","reqId":"req-d","req":{"method":"POST","url":"/menus/operational-cardapios","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62855},"msg":"incoming request"}
+{"level":50,"time":1781196723829,"pid":35704,"hostname":"HUCN001086914","reqId":"req-d","req":{"method":"POST","url":"/menus/operational-cardapios","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62855},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:352:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781196723831,"pid":35704,"hostname":"HUCN001086914","reqId":"req-d","res":{"statusCode":500},"responseTime":9.41550000011921,"msg":"request completed"}
+  [31mÔ£û operational cardapio endpoint should create and list manual menu entries [90m(65.2846ms)[39m[39m
+{"level":30,"time":1781196723835,"pid":35704,"hostname":"HUCN001086914","reqId":"req-e","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62856},"msg":"incoming request"}
+{"level":30,"time":1781196723837,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"209e032b-d534-40b9-a208-26190738e8c6","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196723888,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196723889,"pid":35704,"hostname":"HUCN001086914","reqId":"req-e","res":{"statusCode":200},"responseTime":54.33120000362396,"msg":"request completed"}
+{"level":30,"time":1781196723892,"pid":35704,"hostname":"HUCN001086914","reqId":"req-f","req":{"method":"GET","url":"/governance/recommendation-policy","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62857},"msg":"incoming request"}
+{"level":30,"time":1781196723893,"pid":35704,"hostname":"HUCN001086914","reqId":"req-f","res":{"statusCode":200},"responseTime":0.7656000107526779,"msg":"request completed"}
+  [32mÔ£ö recommendation policy endpoint should return contract with authentication [90m(63.857ms)[39m[39m
+{"level":30,"time":1781196723899,"pid":35704,"hostname":"HUCN001086914","reqId":"req-g","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62858},"msg":"incoming request"}
+{"level":30,"time":1781196723901,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"3257a8b3-9bee-4678-beda-f702a9a8ffa6","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196723951,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196723952,"pid":35704,"hostname":"HUCN001086914","reqId":"req-g","res":{"statusCode":200},"responseTime":52.68359999358654,"msg":"request completed"}
+{"level":30,"time":1781196723954,"pid":35704,"hostname":"HUCN001086914","reqId":"req-h","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62859},"msg":"incoming request"}
+{"level":50,"time":1781196723960,"pid":35704,"hostname":"HUCN001086914","reqId":"req-h","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62859},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781196723961,"pid":35704,"hostname":"HUCN001086914","reqId":"req-h","res":{"statusCode":500},"responseTime":6.620399996638298,"msg":"request completed"}
+  [31mÔ£û menu import endpoint should create and list pdf imports [90m(65.6856ms)[39m[39m
+{"level":30,"time":1781196723964,"pid":35704,"hostname":"HUCN001086914","reqId":"req-i","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62860},"msg":"incoming request"}
+{"level":30,"time":1781196723968,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"735a04a1-0e79-49f8-a953-4d4820e9fd26","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196724054,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196724054,"pid":35704,"hostname":"HUCN001086914","reqId":"req-i","res":{"statusCode":200},"responseTime":89.71540001034737,"msg":"request completed"}
+{"level":30,"time":1781196724059,"pid":35704,"hostname":"HUCN001086914","reqId":"req-j","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62861},"msg":"incoming request"}
+{"level":50,"time":1781196724066,"pid":35704,"hostname":"HUCN001086914","reqId":"req-j","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62861},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781196724067,"pid":35704,"hostname":"HUCN001086914","reqId":"req-j","res":{"statusCode":500},"responseTime":7.796099990606308,"msg":"request completed"}
+  [31mÔ£û menu import endpoint should calculate meal cost from recipe items and enforce service goal [90m(106.3741ms)[39m[39m
+{"level":30,"time":1781196724072,"pid":35704,"hostname":"HUCN001086914","reqId":"req-k","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62862},"msg":"incoming request"}
+{"level":30,"time":1781196724074,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"9bd4e3c0-39c3-467c-8bb4-045d9d365539","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196724125,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196724125,"pid":35704,"hostname":"HUCN001086914","reqId":"req-k","res":{"statusCode":200},"responseTime":52.89070001244545,"msg":"request completed"}
+{"level":30,"time":1781196724128,"pid":35704,"hostname":"HUCN001086914","reqId":"req-l","req":{"method":"POST","url":"/menus/imports/parse-report","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62863},"msg":"incoming request"}
+{"level":30,"time":1781196724132,"pid":35704,"hostname":"HUCN001086914","reqId":"req-l","res":{"statusCode":200},"responseTime":3.419500008225441,"msg":"request completed"}
+  [32mÔ£ö menu import parse-report endpoint should parse raw text into daily payloads [90m(64.3178ms)[39m[39m
+{"level":30,"time":1781196724135,"pid":35704,"hostname":"HUCN001086914","reqId":"req-m","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62864},"msg":"incoming request"}
+{"level":30,"time":1781196724136,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"0176f511-d9f7-4020-b89b-7769776b2d21","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196724182,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196724182,"pid":35704,"hostname":"HUCN001086914","reqId":"req-m","res":{"statusCode":200},"responseTime":47.20819999277592,"msg":"request completed"}
+{"level":30,"time":1781196724187,"pid":35704,"hostname":"HUCN001086914","reqId":"req-n","req":{"method":"POST","url":"/menus/imports/parse-report-file","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62865},"msg":"incoming request"}
+{"level":30,"time":1781196724192,"pid":35704,"hostname":"HUCN001086914","reqId":"req-n","res":{"statusCode":400},"responseTime":4.938400000333786,"msg":"request completed"}
+  [32mÔ£ö menu import parse-report-file endpoint should reject non-pdf upload [90m(59.9817ms)[39m[39m
+{"level":30,"time":1781196724195,"pid":35704,"hostname":"HUCN001086914","reqId":"req-o","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62866},"msg":"incoming request"}
+{"level":30,"time":1781196724196,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"8ef33dba-4f4b-496f-b73b-59f062f9c5fc","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196724247,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196724247,"pid":35704,"hostname":"HUCN001086914","reqId":"req-o","res":{"statusCode":200},"responseTime":52.51569999754429,"msg":"request completed"}
+{"level":30,"time":1781196724252,"pid":35704,"hostname":"HUCN001086914","reqId":"req-p","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62867},"msg":"incoming request"}
+{"level":30,"time":1781196724256,"pid":35704,"hostname":"HUCN001086914","reqId":"req-p","res":{"statusCode":400},"responseTime":3.7003999948501587,"msg":"request completed"}
+  [32mÔ£ö menu import monthly-cycle endpoint should reject non-pdf upload [90m(63.8356ms)[39m[39m
+{"level":30,"time":1781196724261,"pid":35704,"hostname":"HUCN001086914","reqId":"req-q","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62868},"msg":"incoming request"}
+{"level":30,"time":1781196724262,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"36d50a76-cb9b-474d-8940-e708ba1cd63b","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196724326,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196724326,"pid":35704,"hostname":"HUCN001086914","reqId":"req-q","res":{"statusCode":200},"responseTime":65.3509999960661,"msg":"request completed"}
+{"level":30,"time":1781196724347,"pid":35704,"hostname":"HUCN001086914","reqId":"req-r","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62869},"msg":"incoming request"}
+{"level":30,"time":1781196725550,"pid":35704,"hostname":"HUCN001086914","reqId":"req-r","res":{"statusCode":400},"responseTime":1202.4653999954462,"msg":"request completed"}
+  [31mÔ£û menu import monthly-cycle endpoint should process a real monthly pdf or return db fallback [90m(1311.816ms)[39m[39m
+{"level":30,"time":1781196725582,"pid":35704,"hostname":"HUCN001086914","reqId":"req-s","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62870},"msg":"incoming request"}
+{"level":30,"time":1781196725586,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"8bf7eaa0-b81e-4f0a-80bf-ad3e9b3eddd8","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196725703,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196725704,"pid":35704,"hostname":"HUCN001086914","reqId":"req-s","res":{"statusCode":200},"responseTime":121.62979999184608,"msg":"request completed"}
+{"level":30,"time":1781196725716,"pid":35704,"hostname":"HUCN001086914","reqId":"req-t","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62871},"msg":"incoming request"}
+{"level":30,"time":1781196725878,"pid":35704,"hostname":"HUCN001086914","reqId":"req-t","res":{"statusCode":400},"responseTime":162.06599999964237,"msg":"request completed"}
+  [31mÔ£û menu import monthly-cycle endpoint should expose per-day audit and suggestion summaries [90m(317.6623ms)[39m[39m
+{"level":30,"time":1781196725890,"pid":35704,"hostname":"HUCN001086914","reqId":"req-u","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62872},"msg":"incoming request"}
+{"level":30,"time":1781196725892,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"5d28a429-9dbc-41f1-a194-c7c4c9237231","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196725952,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196725952,"pid":35704,"hostname":"HUCN001086914","reqId":"req-u","res":{"statusCode":200},"responseTime":61.83389998972416,"msg":"request completed"}
+{"level":30,"time":1781196725961,"pid":35704,"hostname":"HUCN001086914","reqId":"req-v","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62874},"msg":"incoming request"}
+{"level":30,"time":1781196726120,"pid":35704,"hostname":"HUCN001086914","reqId":"req-v","res":{"statusCode":400},"responseTime":158.70870000123978,"msg":"request completed"}
+  [31mÔ£û menu import monthly-cycle endpoint should keep aggregate totals consistent with per-day items [90m(236.0562ms)[39m[39m
+{"level":30,"time":1781196726128,"pid":35704,"hostname":"HUCN001086914","reqId":"req-w","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62876},"msg":"incoming request"}
+{"level":30,"time":1781196726131,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"99f37ffb-6955-4b75-a448-8f320163a479","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196726223,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196726223,"pid":35704,"hostname":"HUCN001086914","reqId":"req-w","res":{"statusCode":200},"responseTime":95.03610000014305,"msg":"request completed"}
+{"level":30,"time":1781196726232,"pid":35704,"hostname":"HUCN001086914","reqId":"req-x","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62877},"msg":"incoming request"}
+{"level":30,"time":1781196726353,"pid":35704,"hostname":"HUCN001086914","reqId":"req-x","res":{"statusCode":400},"responseTime":121.18940000236034,"msg":"request completed"}
+  [31mÔ£û menu import monthly-cycle endpoint should identify days above goal from the real monthly pdf [90m(231.5679ms)[39m[39m
+{"level":30,"time":1781196726357,"pid":35704,"hostname":"HUCN001086914","reqId":"req-y","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62878},"msg":"incoming request"}
+{"level":30,"time":1781196726359,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"30a7685a-5799-42ab-8234-ff3b9c405a99","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196726416,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196726416,"pid":35704,"hostname":"HUCN001086914","reqId":"req-y","res":{"statusCode":200},"responseTime":58.94320000708103,"msg":"request completed"}
+{"level":30,"time":1781196726427,"pid":35704,"hostname":"HUCN001086914","reqId":"req-z","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62880},"msg":"incoming request"}
+{"level":30,"time":1781196726557,"pid":35704,"hostname":"HUCN001086914","reqId":"req-z","res":{"statusCode":400},"responseTime":129.4353000074625,"msg":"request completed"}
+  [31mÔ£û menu import monthly-cycle endpoint should persist monthly summary for later query [90m(203.9461ms)[39m[39m
+{"level":30,"time":1781196726561,"pid":35704,"hostname":"HUCN001086914","reqId":"req-10","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62881},"msg":"incoming request"}
+{"level":30,"time":1781196726562,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"dd1efd51-6182-463f-a765-6f7365b3bf7d","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196726609,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196726610,"pid":35704,"hostname":"HUCN001086914","reqId":"req-10","res":{"statusCode":200},"responseTime":48.743599995970726,"msg":"request completed"}
+{"level":30,"time":1781196726619,"pid":35704,"hostname":"HUCN001086914","reqId":"req-11","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62882},"msg":"incoming request"}
+{"level":30,"time":1781196726725,"pid":35704,"hostname":"HUCN001086914","reqId":"req-11","res":{"statusCode":400},"responseTime":105.69579999148846,"msg":"request completed"}
+{"level":30,"time":1781196726736,"pid":35704,"hostname":"HUCN001086914","reqId":"req-12","req":{"method":"GET","url":"/menus/imports/monthly-summaries?month=undefined","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62884},"msg":"incoming request"}
+{"level":30,"time":1781196726738,"pid":35704,"hostname":"HUCN001086914","reqId":"req-12","res":{"statusCode":400},"responseTime":1.7516999989748,"msg":"request completed"}
+  [31mÔ£û menu import monthly summary should expose persisted per-day processing messages [90m(180.838ms)[39m[39m
+{"level":30,"time":1781196726742,"pid":35704,"hostname":"HUCN001086914","reqId":"req-13","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62885},"msg":"incoming request"}
+{"level":30,"time":1781196726744,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"d79a5ac9-4794-4b19-bb8a-29ecfb3ff82c","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196726786,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196726787,"pid":35704,"hostname":"HUCN001086914","reqId":"req-13","res":{"statusCode":200},"responseTime":44.447399988770485,"msg":"request completed"}
+{"level":30,"time":1781196726795,"pid":35704,"hostname":"HUCN001086914","reqId":"req-14","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62886},"msg":"incoming request"}
+{"level":30,"time":1781196726907,"pid":35704,"hostname":"HUCN001086914","reqId":"req-14","res":{"statusCode":400},"responseTime":111.64800000190735,"msg":"request completed"}
+  [31mÔ£û menu import monthly summary should support selective reprocess for failed items [90m(168.7559ms)[39m[39m
+{"level":30,"time":1781196726911,"pid":35704,"hostname":"HUCN001086914","reqId":"req-15","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62887},"msg":"incoming request"}
+{"level":30,"time":1781196726912,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"bb5888c8-f0f1-4b6c-b834-71758f24b2ac","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196726965,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196726965,"pid":35704,"hostname":"HUCN001086914","reqId":"req-15","res":{"statusCode":200},"responseTime":54.243499994277954,"msg":"request completed"}
+{"level":30,"time":1781196726968,"pid":35704,"hostname":"HUCN001086914","reqId":"req-16","req":{"method":"POST","url":"/recipes/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62888},"msg":"incoming request"}
+{"level":50,"time":1781196726991,"pid":35704,"hostname":"HUCN001086914","reqId":"req-16","req":{"method":"POST","url":"/recipes/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62888},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.importRecipes (C:\\MenuCare\\apps\\api\\src\\modules\\recipes\\service.ts:185:7)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\recipes\\routes.ts:18:18)","code":"P2010","meta":{"type":"Object","message":"ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT","stack":"","code":"42P10"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`"}
+{"level":30,"time":1781196726993,"pid":35704,"hostname":"HUCN001086914","reqId":"req-16","res":{"statusCode":500},"responseTime":24.502900004386902,"msg":"request completed"}
+  [31mÔ£û recipe import endpoint should accept structured recipes or return db fallback [90m(85.8422ms)[39m[39m
+{"level":30,"time":1781196726997,"pid":35704,"hostname":"HUCN001086914","reqId":"req-17","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62889},"msg":"incoming request"}
+{"level":30,"time":1781196726999,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"a089f56f-683b-48f5-ab4c-0806292cba04","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727049,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727050,"pid":35704,"hostname":"HUCN001086914","reqId":"req-17","res":{"statusCode":200},"responseTime":52.6102000027895,"msg":"request completed"}
+{"level":30,"time":1781196727053,"pid":35704,"hostname":"HUCN001086914","reqId":"req-18","req":{"method":"POST","url":"/recipes/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62890},"msg":"incoming request"}
+{"level":50,"time":1781196727058,"pid":35704,"hostname":"HUCN001086914","reqId":"req-18","req":{"method":"POST","url":"/recipes/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62890},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.importRecipes (C:\\MenuCare\\apps\\api\\src\\modules\\recipes\\service.ts:185:7)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\recipes\\routes.ts:18:18)","code":"P2010","meta":{"type":"Object","message":"ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT","stack":"","code":"42P10"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`"}
+{"level":30,"time":1781196727059,"pid":35704,"hostname":"HUCN001086914","reqId":"req-18","res":{"statusCode":500},"responseTime":5.928500011563301,"msg":"request completed"}
+  [31mÔ£û recipe manual classification endpoint should reclassify recipe or return db fallback [90m(65.9268ms)[39m[39m
+{"level":30,"time":1781196727062,"pid":35704,"hostname":"HUCN001086914","reqId":"req-19","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62891},"msg":"incoming request"}
+{"level":30,"time":1781196727064,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"d38ed67d-db62-45c9-9bd6-1908863f7fa1","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727120,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727121,"pid":35704,"hostname":"HUCN001086914","reqId":"req-19","res":{"statusCode":200},"responseTime":58.45560000836849,"msg":"request completed"}
+{"level":30,"time":1781196727123,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1a","req":{"method":"GET","url":"/recipes/coverage","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62892},"msg":"incoming request"}
+{"level":30,"time":1781196727140,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1a","res":{"statusCode":200},"responseTime":16.095400005578995,"msg":"request completed"}
+  [32mÔ£ö recipe coverage endpoint should return metrics or db fallback [90m(80.6062ms)[39m[39m
+{"level":30,"time":1781196727143,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1b","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62893},"msg":"incoming request"}
+{"level":30,"time":1781196727144,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"6288722a-7578-46f0-837e-4c3177b30c4c","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727187,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727188,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1b","res":{"statusCode":200},"responseTime":44.926500007510185,"msg":"request completed"}
+{"level":30,"time":1781196727191,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1c","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62894},"msg":"incoming request"}
+{"level":30,"time":1781196727208,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1c","res":{"statusCode":201},"responseTime":16.531700000166893,"msg":"request completed"}
+{"level":30,"time":1781196727210,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1d","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62895},"msg":"incoming request"}
+{"level":30,"time":1781196727212,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1d","res":{"statusCode":400},"responseTime":1.5370999872684479,"msg":"request completed"}
+  [31mÔ£û menu import audit should compare imported recipes against approved rules [90m(72.1973ms)[39m[39m
+{"level":30,"time":1781196727216,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1e","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62896},"msg":"incoming request"}
+{"level":30,"time":1781196727217,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"3ee13c24-046a-47f7-8935-b67820a2540a","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727263,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727264,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1e","res":{"statusCode":200},"responseTime":47.755400002002716,"msg":"request completed"}
+{"level":30,"time":1781196727267,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1f","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62897},"msg":"incoming request"}
+{"level":30,"time":1781196727270,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1f","res":{"statusCode":201},"responseTime":3.1067000031471252,"msg":"request completed"}
+{"level":30,"time":1781196727273,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1g","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62898},"msg":"incoming request"}
+{"level":30,"time":1781196727273,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1g","res":{"statusCode":400},"responseTime":0.703900009393692,"msg":"request completed"}
+  [31mÔ£û menu import audit should evaluate structured frequency and recurrence rules [90m(61.6941ms)[39m[39m
+{"level":30,"time":1781196727277,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1h","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62899},"msg":"incoming request"}
+{"level":30,"time":1781196727279,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"849d3f29-d5e5-49db-aae9-3f7239ea7d7b","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727326,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727326,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1h","res":{"statusCode":200},"responseTime":48.96849998831749,"msg":"request completed"}
+{"level":30,"time":1781196727329,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1i","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62900},"msg":"incoming request"}
+{"level":30,"time":1781196727332,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1i","res":{"statusCode":201},"responseTime":2.8444999903440475,"msg":"request completed"}
+{"level":30,"time":1781196727334,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1j","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62901},"msg":"incoming request"}
+{"level":30,"time":1781196727335,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1j","res":{"statusCode":400},"responseTime":0.6142999976873398,"msg":"request completed"}
+  [31mÔ£û menu import audit should map contextual lunch synonyms to structured evidence [90m(60.9824ms)[39m[39m
+{"level":30,"time":1781196727339,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1k","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62902},"msg":"incoming request"}
+{"level":30,"time":1781196727340,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"6316eac8-dd10-4da8-8a08-e977399640d0","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727394,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727395,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1k","res":{"statusCode":200},"responseTime":56.347100004553795,"msg":"request completed"}
+{"level":30,"time":1781196727400,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1l","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62903},"msg":"incoming request"}
+{"level":30,"time":1781196727406,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1l","res":{"statusCode":201},"responseTime":5.379399999976158,"msg":"request completed"}
+{"level":30,"time":1781196727410,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1m","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62904},"msg":"incoming request"}
+{"level":30,"time":1781196727414,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1m","res":{"statusCode":400},"responseTime":2.1102000027894974,"msg":"request completed"}
+  [31mÔ£û menu import audit should map fish commercial aliases to structured evidence [90m(79.2839ms)[39m[39m
+{"level":30,"time":1781196727421,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1n","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62905},"msg":"incoming request"}
+{"level":30,"time":1781196727423,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"6ca2eeef-72b8-442d-b2e0-56ae780a2ed0","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727477,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727477,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1n","res":{"statusCode":200},"responseTime":55.979400008916855,"msg":"request completed"}
+{"level":30,"time":1781196727479,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1o","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62906},"msg":"incoming request"}
+{"level":30,"time":1781196727483,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1o","res":{"statusCode":201},"responseTime":3.4890000075101852,"msg":"request completed"}
+{"level":30,"time":1781196727485,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1p","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62907},"msg":"incoming request"}
+{"level":30,"time":1781196727486,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1p","res":{"statusCode":400},"responseTime":0.5779000073671341,"msg":"request completed"}
+  [31mÔ£û menu import audit should map breakfast citrus aliases to structured evidence [90m(70.8021ms)[39m[39m
+{"level":30,"time":1781196727488,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1q","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62908},"msg":"incoming request"}
+{"level":30,"time":1781196727490,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"89134cfb-d210-4e04-867d-67c7c411db54","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727532,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727533,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1q","res":{"statusCode":200},"responseTime":44.35469999909401,"msg":"request completed"}
+{"level":30,"time":1781196727537,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1r","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62909},"msg":"incoming request"}
+{"level":30,"time":1781196727540,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1r","res":{"statusCode":201},"responseTime":3.5858000069856644,"msg":"request completed"}
+{"level":30,"time":1781196727542,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1s","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62910},"msg":"incoming request"}
+{"level":30,"time":1781196727543,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1s","res":{"statusCode":400},"responseTime":0.594200000166893,"msg":"request completed"}
+  [31mÔ£û menu import audit should map lunch vegetable aliases to structured evidence [90m(57.2456ms)[39m[39m
+{"level":30,"time":1781196727546,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1t","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62911},"msg":"incoming request"}
+{"level":30,"time":1781196727548,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"ca3dfde2-f31c-482f-b1d9-286161b2fe08","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727603,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727603,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1t","res":{"statusCode":200},"responseTime":56.54610000550747,"msg":"request completed"}
+{"level":30,"time":1781196727613,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1u","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62912},"msg":"incoming request"}
+{"level":30,"time":1781196727617,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1u","res":{"statusCode":201},"responseTime":3.2858000099658966,"msg":"request completed"}
+{"level":30,"time":1781196727619,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1v","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62913},"msg":"incoming request"}
+{"level":30,"time":1781196727620,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1v","res":{"statusCode":400},"responseTime":0.7654999941587448,"msg":"request completed"}
+  [31mÔ£û menu import audit should map commercial vegetable aliases to structured evidence [90m(77.5367ms)[39m[39m
+{"level":30,"time":1781196727625,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1w","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62914},"msg":"incoming request"}
+{"level":30,"time":1781196727627,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"f19839fb-a889-428f-925b-9e747d17e11e","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727674,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727674,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1w","res":{"statusCode":200},"responseTime":48.843799993395805,"msg":"request completed"}
+{"level":30,"time":1781196727677,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1x","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62915},"msg":"incoming request"}
+{"level":30,"time":1781196727681,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1x","res":{"statusCode":201},"responseTime":3.9108999967575073,"msg":"request completed"}
+{"level":30,"time":1781196727683,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1y","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62916},"msg":"incoming request"}
+{"level":30,"time":1781196727684,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1y","res":{"statusCode":400},"responseTime":0.8111000061035156,"msg":"request completed"}
+  [31mÔ£û menu import suggestions should be generated from audit and financial context [90m(63.7689ms)[39m[39m
+{"level":30,"time":1781196727687,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1z","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62917},"msg":"incoming request"}
+{"level":30,"time":1781196727688,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"3aa195fd-b52f-4281-873e-46cec6f7463a","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727739,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727739,"pid":35704,"hostname":"HUCN001086914","reqId":"req-1z","res":{"statusCode":200},"responseTime":51.576800003647804,"msg":"request completed"}
+{"level":30,"time":1781196727742,"pid":35704,"hostname":"HUCN001086914","reqId":"req-20","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62919},"msg":"incoming request"}
+{"level":30,"time":1781196727746,"pid":35704,"hostname":"HUCN001086914","reqId":"req-20","res":{"statusCode":201},"responseTime":3.649400010704994,"msg":"request completed"}
+{"level":30,"time":1781196727748,"pid":35704,"hostname":"HUCN001086914","reqId":"req-21","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62920},"msg":"incoming request"}
+{"level":30,"time":1781196727749,"pid":35704,"hostname":"HUCN001086914","reqId":"req-21","res":{"statusCode":400},"responseTime":0.7213000059127808,"msg":"request completed"}
+  [31mÔ£û menu import suggestions should expose explicit structured frequency and recurrence subtypes [90m(64.2429ms)[39m[39m
+{"level":30,"time":1781196727751,"pid":35704,"hostname":"HUCN001086914","reqId":"req-22","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62921},"msg":"incoming request"}
+{"level":30,"time":1781196727752,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"6f1bfd29-c6e5-4238-ac7f-24622e47e1e6","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727799,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727799,"pid":35704,"hostname":"HUCN001086914","reqId":"req-22","res":{"statusCode":200},"responseTime":47.57819999754429,"msg":"request completed"}
+{"level":30,"time":1781196727802,"pid":35704,"hostname":"HUCN001086914","reqId":"req-23","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62922},"msg":"incoming request"}
+{"level":30,"time":1781196727805,"pid":35704,"hostname":"HUCN001086914","reqId":"req-23","res":{"statusCode":201},"responseTime":3.539700001478195,"msg":"request completed"}
+{"level":30,"time":1781196727807,"pid":35704,"hostname":"HUCN001086914","reqId":"req-24","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62923},"msg":"incoming request"}
+{"level":30,"time":1781196727808,"pid":35704,"hostname":"HUCN001086914","reqId":"req-24","res":{"statusCode":400},"responseTime":0.6629000008106232,"msg":"request completed"}
+  [31mÔ£û menu adjusted version should track applied suggestions and impacts [90m(59.395ms)[39m[39m
+{"level":30,"time":1781196727812,"pid":35704,"hostname":"HUCN001086914","reqId":"req-25","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62924},"msg":"incoming request"}
+{"level":30,"time":1781196727813,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"0f44a5de-87ba-434e-a28e-20882309a49d","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727858,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727858,"pid":35704,"hostname":"HUCN001086914","reqId":"req-25","res":{"statusCode":200},"responseTime":45.59790000319481,"msg":"request completed"}
+{"level":30,"time":1781196727861,"pid":35704,"hostname":"HUCN001086914","reqId":"req-26","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62927},"msg":"incoming request"}
+{"level":50,"time":1781196727866,"pid":35704,"hostname":"HUCN001086914","reqId":"req-26","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62927},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781196727866,"pid":35704,"hostname":"HUCN001086914","reqId":"req-26","res":{"statusCode":500},"responseTime":5.711800009012222,"msg":"request completed"}
+{"level":30,"time":1781196727869,"pid":35704,"hostname":"HUCN001086914","reqId":"req-27","req":{"method":"POST","url":"/menus/commemorative-dates","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62928},"msg":"incoming request"}
+{"level":50,"time":1781196727874,"pid":35704,"hostname":"HUCN001086914","reqId":"req-27","req":{"method":"POST","url":"/menus/commemorative-dates","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62928},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:2316:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781196727875,"pid":35704,"hostname":"HUCN001086914","reqId":"req-27","res":{"statusCode":500},"responseTime":5.921300008893013,"msg":"request completed"}
+  [31mÔ£û commemorative dates should influence adjusted version for future months [90m(66.5937ms)[39m[39m
+{"level":30,"time":1781196727878,"pid":35704,"hostname":"HUCN001086914","reqId":"req-28","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62929},"msg":"incoming request"}
+{"level":30,"time":1781196727880,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"d6b21242-0352-40c7-8cb5-1172a4f62095","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727928,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727928,"pid":35704,"hostname":"HUCN001086914","reqId":"req-28","res":{"statusCode":200},"responseTime":49.90479999780655,"msg":"request completed"}
+{"level":30,"time":1781196727931,"pid":35704,"hostname":"HUCN001086914","reqId":"req-29","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62930},"msg":"incoming request"}
+{"level":50,"time":1781196727936,"pid":35704,"hostname":"HUCN001086914","reqId":"req-29","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62930},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781196727936,"pid":35704,"hostname":"HUCN001086914","reqId":"req-29","res":{"statusCode":500},"responseTime":5.579199999570847,"msg":"request completed"}
+  [31mÔ£û evaluation import and intelligence rebuild should generate combination insights [90m(61.5602ms)[39m[39m
+{"level":30,"time":1781196727940,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2a","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62931},"msg":"incoming request"}
+{"level":30,"time":1781196727941,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"5a4a82ab-b2df-4e95-8707-1d65278b8942","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196727991,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196727992,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2a","res":{"statusCode":200},"responseTime":52.15520000457764,"msg":"request completed"}
+{"level":30,"time":1781196727995,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2b","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62932},"msg":"incoming request"}
+{"level":50,"time":1781196728000,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2b","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62932},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781196728001,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2b","res":{"statusCode":500},"responseTime":5.664900004863739,"msg":"request completed"}
+  [31mÔ£û recommendation preview should keep historical layer non-blocking [90m(64.5855ms)[39m[39m
+{"level":30,"time":1781196728004,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2c","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62933},"msg":"incoming request"}
+{"level":30,"time":1781196728006,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"576706c6-fb29-4ea3-8735-28ffd6a1d85a","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196728068,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196728069,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2c","res":{"statusCode":200},"responseTime":64.32029999792576,"msg":"request completed"}
+{"level":30,"time":1781196728071,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2d","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62934},"msg":"incoming request"}
+{"level":50,"time":1781196728075,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2d","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62934},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781196728075,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2d","res":{"statusCode":500},"responseTime":3.7094999998807907,"msg":"request completed"}
+{"level":30,"time":1781196728077,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2e","req":{"method":"POST","url":"/evaluations/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62935},"msg":"incoming request"}
+{"level":50,"time":1781196728082,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2e","req":{"method":"POST","url":"/evaluations/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62935},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.importEvaluation (C:\\MenuCare\\apps\\api\\src\\modules\\evaluations\\service.ts:69:5)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\evaluations\\routes.ts:18:18)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781196728082,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2e","res":{"statusCode":500},"responseTime":5.306200012564659,"msg":"request completed"}
+{"level":30,"time":1781196728085,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2f","req":{"method":"POST","url":"/evaluations/intelligence/rebuild","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62936},"msg":"incoming request"}
+{"level":30,"time":1781196728135,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2f","res":{"statusCode":200},"responseTime":49.60790000855923,"msg":"request completed"}
+{"level":30,"time":1781196728139,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2g","req":{"method":"POST","url":"/governance/recommendations/undefined/next-menu","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62937},"msg":"incoming request"}
+{"level":30,"time":1781196728144,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2g","res":{"statusCode":404},"responseTime":4.445100009441376,"msg":"request completed"}
+  [31mÔ£û next menu proposal should use historical layer as recommendation and never as blocker [90m(142.9165ms)[39m[39m
+{"level":30,"time":1781196728149,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2h","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62938},"msg":"incoming request"}
+{"level":30,"time":1781196728150,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"9181cd31-cf43-48e7-907f-2bee80dffd8c","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196728230,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196728231,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2h","res":{"statusCode":200},"responseTime":82.53450000286102,"msg":"request completed"}
+{"level":30,"time":1781196728235,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2i","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62939},"msg":"incoming request"}
+{"level":50,"time":1781196728240,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2i","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62939},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781196728240,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2i","res":{"statusCode":500},"responseTime":5.586000010371208,"msg":"request completed"}
+{"level":30,"time":1781196728244,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2j","req":{"method":"POST","url":"/governance/recommendations/undefined/next-menu/decision","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62940},"msg":"incoming request"}
+{"level":30,"time":1781196728246,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2j","res":{"statusCode":404},"responseTime":2.1289000064134598,"msg":"request completed"}
+  [31mÔ£û next menu decision should persist approval workflow with governance enforcement [90m(102.0844ms)[39m[39m
+{"level":30,"time":1781196728250,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2k","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62941},"msg":"incoming request"}
+{"level":30,"time":1781196728250,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2k","res":{"statusCode":401},"responseTime":0.3906000107526779,"msg":"request completed"}
+{"level":30,"time":1781196728252,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2l","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62942},"msg":"incoming request"}
+{"level":30,"time":1781196728252,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2l","res":{"statusCode":401},"responseTime":0.40309999883174896,"msg":"request completed"}
+{"level":30,"time":1781196728254,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2m","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62943},"msg":"incoming request"}
+{"level":30,"time":1781196728254,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2m","res":{"statusCode":401},"responseTime":0.3075000047683716,"msg":"request completed"}
+{"level":30,"time":1781196728259,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2n","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62944},"msg":"incoming request"}
+{"level":30,"time":1781196728260,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2n","res":{"statusCode":401},"responseTime":0.9706999957561493,"msg":"request completed"}
+{"level":30,"time":1781196728264,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2o","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62945},"msg":"incoming request"}
+{"level":30,"time":1781196728265,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2o","res":{"statusCode":429},"responseTime":1.063299998641014,"msg":"request completed"}
+{"level":30,"time":1781196728270,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2p","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62946},"msg":"incoming request"}
+{"level":30,"time":1781196728271,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2p","res":{"statusCode":429},"responseTime":0.9977999925613403,"msg":"request completed"}
+  [32mÔ£ö login should return 429 after too many failed attempts [90m(25.5492ms)[39m[39m
+{"level":30,"time":1781196728276,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2q","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62947},"msg":"incoming request"}
+{"level":30,"time":1781196728279,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"e96b3a84-034a-4bdc-9f1c-ad3de1900437","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196728344,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196728344,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2q","res":{"statusCode":200},"responseTime":67.49570000171661,"msg":"request completed"}
+{"level":30,"time":1781196728347,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2r","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62948},"msg":"incoming request"}
+{"level":30,"time":1781196728350,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2r","res":{"statusCode":201},"responseTime":3.42909999191761,"msg":"request completed"}
+{"level":30,"time":1781196728352,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2s","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62949},"msg":"incoming request"}
+{"level":30,"time":1781196728392,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2s","res":{"statusCode":201},"responseTime":39.24530000984669,"msg":"request completed"}
+{"level":30,"time":1781196728394,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2t","req":{"method":"POST","url":"/rules/2cf6080e-1f66-4358-a739-bb57f109a8ec/promote-control","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62950},"msg":"incoming request"}
+{"level":30,"time":1781196728463,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2t","res":{"statusCode":201},"responseTime":69.01799999177456,"msg":"request completed"}
+{"level":30,"time":1781196728465,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2u","req":{"method":"GET","url":"/compliance-controls?limit=10","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62951},"msg":"incoming request"}
+{"level":30,"time":1781196728492,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2u","res":{"statusCode":200},"responseTime":26.509200006723404,"msg":"request completed"}
+{"level":30,"time":1781196728494,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2v","req":{"method":"POST","url":"/compliance-controls/23a480d6-e1ad-45d6-a607-470337973cb1/executions","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62952},"msg":"incoming request"}
+{"level":50,"time":1781196728499,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2v","req":{"method":"POST","url":"/compliance-controls/23a480d6-e1ad-45d6-a607-470337973cb1/executions","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62952},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"execution_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"execution_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\compliance\\service.ts:906:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"execution_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"execution_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781196728502,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2v","res":{"statusCode":500},"responseTime":7.18639999628067,"msg":"request completed"}
+  [31mÔ£û approved rule should be promoted to compliance control and preserve full traceability [90m(230.1385ms)[39m[39m
+{"level":30,"time":1781196728506,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2w","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62953},"msg":"incoming request"}
+{"level":30,"time":1781196728507,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"58ff8f6f-f7e2-4519-94fd-51a57319f25b","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196728553,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196728554,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2w","res":{"statusCode":200},"responseTime":48.111800000071526,"msg":"request completed"}
+{"level":30,"time":1781196728556,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2x","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62954},"msg":"incoming request"}
+{"level":30,"time":1781196728559,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2x","res":{"statusCode":201},"responseTime":2.4963000118732452,"msg":"request completed"}
+{"level":30,"time":1781196728561,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2y","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62955},"msg":"incoming request"}
+{"level":30,"time":1781196728569,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2y","res":{"statusCode":201},"responseTime":7.923800006508827,"msg":"request completed"}
+{"level":30,"time":1781196728570,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2z","req":{"method":"POST","url":"/rules/6307aea3-6fcd-4022-8a8f-e00a01dc5119/promote-control","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62956},"msg":"incoming request"}
+{"level":30,"time":1781196728577,"pid":35704,"hostname":"HUCN001086914","reqId":"req-2z","res":{"statusCode":201},"responseTime":6.753899991512299,"msg":"request completed"}
+{"level":30,"time":1781196728580,"pid":35704,"hostname":"HUCN001086914","reqId":"req-30","req":{"method":"GET","url":"/compliance-controls/ac39eaed-1097-4fbd-8662-3f76687ab6b4","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62957},"msg":"incoming request"}
+{"level":30,"time":1781196728604,"pid":35704,"hostname":"HUCN001086914","reqId":"req-30","res":{"statusCode":200},"responseTime":24.10199999809265,"msg":"request completed"}
+{"level":30,"time":1781196728608,"pid":35704,"hostname":"HUCN001086914","reqId":"req-31","req":{"method":"PATCH","url":"/compliance-controls/ac39eaed-1097-4fbd-8662-3f76687ab6b4/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62958},"msg":"incoming request"}
+{"level":30,"time":1781196728614,"pid":35704,"hostname":"HUCN001086914","reqId":"req-31","res":{"statusCode":409},"responseTime":5.442300006747246,"msg":"request completed"}
+{"level":30,"time":1781196728616,"pid":35704,"hostname":"HUCN001086914","reqId":"req-32","req":{"method":"GET","url":"/compliance-controls/ac39eaed-1097-4fbd-8662-3f76687ab6b4","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62959},"msg":"incoming request"}
+{"level":30,"time":1781196728623,"pid":35704,"hostname":"HUCN001086914","reqId":"req-32","res":{"statusCode":200},"responseTime":6.908600002527237,"msg":"request completed"}
+{"level":30,"time":1781196728626,"pid":35704,"hostname":"HUCN001086914","reqId":"req-33","req":{"method":"PATCH","url":"/compliance-controls/ac39eaed-1097-4fbd-8662-3f76687ab6b4/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62960},"msg":"incoming request"}
+{"level":30,"time":1781196728632,"pid":35704,"hostname":"HUCN001086914","reqId":"req-33","res":{"statusCode":200},"responseTime":6.190600007772446,"msg":"request completed"}
+{"level":30,"time":1781196728634,"pid":35704,"hostname":"HUCN001086914","reqId":"req-34","req":{"method":"GET","url":"/compliance-controls/ac39eaed-1097-4fbd-8662-3f76687ab6b4","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62961},"msg":"incoming request"}
+{"level":30,"time":1781196728671,"pid":35704,"hostname":"HUCN001086914","reqId":"req-34","res":{"statusCode":200},"responseTime":37.29800000786781,"msg":"request completed"}
+{"level":30,"time":1781196728674,"pid":35704,"hostname":"HUCN001086914","reqId":"req-35","req":{"method":"PATCH","url":"/compliance-controls/ac39eaed-1097-4fbd-8662-3f76687ab6b4/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62962},"msg":"incoming request"}
+{"level":30,"time":1781196728678,"pid":35704,"hostname":"HUCN001086914","reqId":"req-35","res":{"statusCode":200},"responseTime":4.69990000128746,"msg":"request completed"}
+{"level":30,"time":1781196728681,"pid":35704,"hostname":"HUCN001086914","reqId":"req-36","req":{"method":"GET","url":"/compliance-controls/ac39eaed-1097-4fbd-8662-3f76687ab6b4","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62963},"msg":"incoming request"}
+{"level":30,"time":1781196728688,"pid":35704,"hostname":"HUCN001086914","reqId":"req-36","res":{"statusCode":200},"responseTime":7.164100006222725,"msg":"request completed"}
+{"level":30,"time":1781196728690,"pid":35704,"hostname":"HUCN001086914","reqId":"req-37","req":{"method":"PATCH","url":"/compliance-controls/ac39eaed-1097-4fbd-8662-3f76687ab6b4/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62964},"msg":"incoming request"}
+{"level":30,"time":1781196728696,"pid":35704,"hostname":"HUCN001086914","reqId":"req-37","res":{"statusCode":200},"responseTime":5.898199990391731,"msg":"request completed"}
+  [31mÔ£û control state machine should accept valid transitions and reject invalid ones without events [90m(193.6169ms)[39m[39m
+{"level":30,"time":1781196728699,"pid":35704,"hostname":"HUCN001086914","reqId":"req-38","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62965},"msg":"incoming request"}
+{"level":30,"time":1781196728700,"pid":35704,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"4f8cf46a-979c-4d95-b24d-09e3eff7cd25","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":40,"time":1781196728747,"pid":35704,"hostname":"HUCN001086914","error":{"code":"P2010","meta":{"code":"23503","message":"inser├º├úo ou atualiza├º├úo em tabela \"auth_refresh_sessions\" viola restri├º├úo de chave estrangeira \"fk_auth_refresh_sessions_user\""},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"Falha ao criar sessao de refresh token."}
+{"level":30,"time":1781196728748,"pid":35704,"hostname":"HUCN001086914","reqId":"req-38","res":{"statusCode":200},"responseTime":48.666300013661385,"msg":"request completed"}
+{"level":30,"time":1781196728751,"pid":35704,"hostname":"HUCN001086914","reqId":"req-39","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62966},"msg":"incoming request"}
+{"level":30,"time":1781196728754,"pid":35704,"hostname":"HUCN001086914","reqId":"req-39","res":{"statusCode":201},"responseTime":3.537000000476837,"msg":"request completed"}
+{"level":30,"time":1781196728757,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3a","req":{"method":"POST","url":"/rules","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62967},"msg":"incoming request"}
+{"level":30,"time":1781196728763,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3a","res":{"statusCode":201},"responseTime":6.159099996089935,"msg":"request completed"}
+{"level":30,"time":1781196728765,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3b","req":{"method":"POST","url":"/rules/abf1d1ce-eead-46f8-901a-28abac2bc306/promote-control","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62968},"msg":"incoming request"}
+{"level":30,"time":1781196728772,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3b","res":{"statusCode":201},"responseTime":6.799500003457069,"msg":"request completed"}
+{"level":30,"time":1781196728775,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3c","req":{"method":"POST","url":"/compliance-controls/92692a58-7e1b-4abf-85a3-5bb251cec306/findings","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62969},"msg":"incoming request"}
+{"level":30,"time":1781196728818,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3c","res":{"statusCode":201},"responseTime":43.34329999983311,"msg":"request completed"}
+{"level":30,"time":1781196728820,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3d","req":{"method":"GET","url":"/compliance-controls/92692a58-7e1b-4abf-85a3-5bb251cec306","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62970},"msg":"incoming request"}
+{"level":30,"time":1781196728829,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3d","res":{"statusCode":200},"responseTime":8.78599999845028,"msg":"request completed"}
+{"level":30,"time":1781196728832,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3e","req":{"method":"PATCH","url":"/compliance-controls/92692a58-7e1b-4abf-85a3-5bb251cec306/findings/f1053298-6cb9-488a-bf2f-01a2dc40d03c/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62971},"msg":"incoming request"}
+{"level":30,"time":1781196728838,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3e","res":{"statusCode":200},"responseTime":6.309799998998642,"msg":"request completed"}
+{"level":30,"time":1781196728840,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3f","req":{"method":"GET","url":"/compliance-controls/92692a58-7e1b-4abf-85a3-5bb251cec306","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62972},"msg":"incoming request"}
+{"level":30,"time":1781196728847,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3f","res":{"statusCode":200},"responseTime":6.892999991774559,"msg":"request completed"}
+{"level":30,"time":1781196728850,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3g","req":{"method":"PATCH","url":"/compliance-controls/92692a58-7e1b-4abf-85a3-5bb251cec306/findings/f1053298-6cb9-488a-bf2f-01a2dc40d03c/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62973},"msg":"incoming request"}
+{"level":30,"time":1781196728854,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3g","res":{"statusCode":200},"responseTime":4.183100000023842,"msg":"request completed"}
+{"level":30,"time":1781196728856,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3h","req":{"method":"GET","url":"/compliance-controls/92692a58-7e1b-4abf-85a3-5bb251cec306","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62974},"msg":"incoming request"}
+{"level":30,"time":1781196728861,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3h","res":{"statusCode":200},"responseTime":5.587499991059303,"msg":"request completed"}
+{"level":30,"time":1781196728863,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3i","req":{"method":"PATCH","url":"/compliance-controls/92692a58-7e1b-4abf-85a3-5bb251cec306/findings/f1053298-6cb9-488a-bf2f-01a2dc40d03c/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62975},"msg":"incoming request"}
+{"level":30,"time":1781196728865,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3i","res":{"statusCode":409},"responseTime":1.9178999960422516,"msg":"request completed"}
+{"level":30,"time":1781196728867,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3j","req":{"method":"GET","url":"/compliance-controls/92692a58-7e1b-4abf-85a3-5bb251cec306","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62976},"msg":"incoming request"}
+{"level":30,"time":1781196728871,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3j","res":{"statusCode":200},"responseTime":3.9261000007390976,"msg":"request completed"}
+{"level":30,"time":1781196728873,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3k","req":{"method":"POST","url":"/compliance-controls/92692a58-7e1b-4abf-85a3-5bb251cec306/findings","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62977},"msg":"incoming request"}
+{"level":30,"time":1781196728878,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3k","res":{"statusCode":201},"responseTime":4.707100003957748,"msg":"request completed"}
+{"level":30,"time":1781196728880,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3l","req":{"method":"PATCH","url":"/compliance-controls/92692a58-7e1b-4abf-85a3-5bb251cec306/findings/04b982ff-9170-4162-b5b1-7f5a7b71b797/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62978},"msg":"incoming request"}
+{"level":30,"time":1781196728885,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3l","res":{"statusCode":200},"responseTime":4.668500006198883,"msg":"request completed"}
+{"level":30,"time":1781196728887,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3m","req":{"method":"PATCH","url":"/compliance-controls/92692a58-7e1b-4abf-85a3-5bb251cec306/findings/04b982ff-9170-4162-b5b1-7f5a7b71b797/status","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62979},"msg":"incoming request"}
+{"level":30,"time":1781196728890,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3m","res":{"statusCode":409},"responseTime":2.280100002884865,"msg":"request completed"}
+{"level":30,"time":1781196728892,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3n","req":{"method":"GET","url":"/compliance-controls/92692a58-7e1b-4abf-85a3-5bb251cec306","host":"127.0.0.1:3001","remoteAddress":"127.0.0.1","remotePort":62980},"msg":"incoming request"}
+{"level":30,"time":1781196728897,"pid":35704,"hostname":"HUCN001086914","reqId":"req-3n","res":{"statusCode":200},"responseTime":5.097100004553795,"msg":"request completed"}
+  [32mÔ£ö finding lifecycle should create events and block invalid regressions [90m(201.0684ms)[39m[39m
+[31mÔ£û API integration [90m(6375.6445ms)[39m[39m
+[34mÔä╣ tests 45[39m
+[34mÔä╣ suites 1[39m
+[34mÔä╣ pass 10[39m
+[34mÔä╣ fail 35[39m
+[34mÔä╣ cancelled 0[39m
+[34mÔä╣ skipped 0[39m
+[34mÔä╣ todo 0[39m
+[34mÔä╣ duration_ms 22942.169[39m
+
+[31mÔ£û failing tests:[39m
+
+test at src\server.test.ts:1:3211
+[31mÔ£û login should return token with valid credentials [90m(136.4184ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: The input did not match the regular expression /menucare_refresh_token=/i. Input:
+  
+  ''
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:137:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: /menucare_refresh_token=/i,
+    operator: 'match',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:3715
+[31mÔ£û refresh endpoint should rotate refresh token and reject old cookie [90m(80.5866ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(initialCookie)
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:148:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:4616
+[31mÔ£û auth flow id should remain consistent across login refresh and logout [90m(69.1768ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(refreshCookie)
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:179:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:5653
+[31mÔ£û login should revoke previous refresh session on same device [90m(61.1924ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(firstCookie)
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:211:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:6908
+[31mÔ£û login should enforce maximum active refresh sessions per user [90m(61.5936ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+  
+    assert.ok(cookie)
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:257:14)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: '',
+    expected: true,
+    operator: '==',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:8253
+[31mÔ£û operational onboarding profile should return default and allow update [90m(89.6981ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:315:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:10244
+[31mÔ£û operational cardapio endpoint should create and list manual menu entries [90m(65.2846ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:362:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:12492
+[31mÔ£û menu import endpoint should create and list pdf imports [90m(65.6856ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:435:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:13815
+[31mÔ£û menu import endpoint should calculate meal cost from recipe items and enforce service goal [90m(106.3741ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:482:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:18216
+[31mÔ£û menu import monthly-cycle endpoint should process a real monthly pdf or return db fallback [90m(1311.816ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:618:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:19288
+[31mÔ£û menu import monthly-cycle endpoint should expose per-day audit and suggestion summaries [90m(317.6623ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:650:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:22022
+[31mÔ£û menu import monthly-cycle endpoint should keep aggregate totals consistent with per-day items [90m(236.0562ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:751:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:24424
+[31mÔ£û menu import monthly-cycle endpoint should identify days above goal from the real monthly pdf [90m(231.5679ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:831:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:26117
+[31mÔ£û menu import monthly-cycle endpoint should persist monthly summary for later query [90m(203.9461ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:886:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:28444
+[31mÔ£û menu import monthly summary should expose persisted per-day processing messages [90m(180.838ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:969:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:30518
+[31mÔ£û menu import monthly summary should support selective reprocess for failed items [90m(168.7559ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1045:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:32062
+[31mÔ£û recipe import endpoint should accept structured recipes or return db fallback [90m(85.8422ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1101:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:33026
+[31mÔ£û recipe manual classification endpoint should reclassify recipe or return db fallback [90m(65.9268ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1139:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:35987
+[31mÔ£û menu import audit should compare imported recipes against approved rules [90m(72.1973ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1247:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:38689
+[31mÔ£û menu import audit should evaluate structured frequency and recurrence rules [90m(61.6941ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1349:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:42194
+[31mÔ£û menu import audit should map contextual lunch synonyms to structured evidence [90m(60.9824ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1495:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:44434
+[31mÔ£û menu import audit should map fish commercial aliases to structured evidence [90m(79.2839ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1586:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:46726
+[31mÔ£û menu import audit should map breakfast citrus aliases to structured evidence [90m(70.8021ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1677:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:49019
+[31mÔ£û menu import audit should map lunch vegetable aliases to structured evidence [90m(57.2456ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1768:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:51278
+[31mÔ£û menu import audit should map commercial vegetable aliases to structured evidence [90m(77.5367ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1859:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:53597
+[31mÔ£û menu import suggestions should be generated from audit and financial context [90m(63.7689ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1948:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:57743
+[31mÔ£û menu import suggestions should expose explicit structured frequency and recurrence subtypes [90m(64.2429ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2094:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:62083
+[31mÔ£û menu adjusted version should track applied suggestions and impacts [90m(59.395ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2274:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:64663
+[31mÔ£û commemorative dates should influence adjusted version for future months [90m(66.5937ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2367:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:66778
+[31mÔ£û evaluation import and intelligence rebuild should generate combination insights [90m(61.5602ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2425:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:68679
+[31mÔ£û recommendation preview should keep historical layer non-blocking [90m(64.5855ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2491:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:70324
+[31mÔ£û next menu proposal should use historical layer as recommendation and never as blocker [90m(142.9165ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  404 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2569:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 404,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:71924
+[31mÔ£û next menu decision should persist approval workflow with governance enforcement [90m(102.0844ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  404 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2615:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 404,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:74398
+[31mÔ£û approved rule should be promoted to compliance control and preserve full traceability [90m(230.1385ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2682:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:77133
+[31mÔ£û control state machine should accept valid transitions and reject invalid ones without events [90m(193.6169ms)[39m[39m
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  200 !== 409
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2788:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 200,
+    expected: 409,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

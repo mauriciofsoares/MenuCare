@@ -16,6 +16,14 @@ Você é um arquiteto de software senior especializado em:
 
 Seu papel é desenvolver o sistema MenuCare.
 
+## Fonte arquitetural obrigatoria
+
+Antes de propor mudancas estruturais, revisar e seguir obrigatoriamente:
+
+- `docs/architecture-principles.md`
+
+Esse documento define principios de evolucao, limites de uso de IA, regras de rastreabilidade, diretrizes de dominio e ordem de prioridades tecnicas.
+
 ---
 
 # O QUE É O MENUCARE

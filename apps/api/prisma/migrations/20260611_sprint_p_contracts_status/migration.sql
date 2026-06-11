@@ -1,0 +1,4 @@
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS extracted_text TEXT;
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'processing';
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS inactivation_reason TEXT;
+ALTER TABLE contracts ADD COLUMN IF NOT EXISTS inactivated_at TIMESTAMPTZ;

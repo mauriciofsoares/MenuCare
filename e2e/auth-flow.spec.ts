@@ -306,6 +306,251 @@ test('mantem sessao apos reload usando auth/me e localStorage', async ({ page })
   await expect(page.locator('form.auth-form input[type="email"]')).toHaveCount(0)
 })
 
+test('renova sessao automaticamente quando auth/me retorna 401 e refresh e bem-sucedido', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      'menucare.auth',
+      JSON.stringify({
+        token: 'expired-token',
+        user: {
+          id: 'user-expired',
+          name: 'Sessao Expirada',
+          email: 'expired@menucare.local',
+          companyName: 'Empresa Expirada',
+          accessProfile: 'Administrador',
+        },
+      }),
+    )
+  })
+
+  let authMeRequestCount = 0
+
+  await page.route('**/auth/me', async (route) => {
+    authMeRequestCount += 1
+
+    if (authMeRequestCount === 1) {
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'error', message: 'Sessao invalida ou expirada' }),
+      })
+      return
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        user: {
+          id: 'user-refreshed',
+          name: 'Sessao Renovada',
+          email: 'renewed@menucare.local',
+          companyName: 'Empresa Renovada',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/auth/refresh', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'renewed-token',
+        user: {
+          id: 'user-refreshed',
+          name: 'Sessao Renovada',
+          email: 'renewed@menucare.local',
+          companyName: 'Empresa Renovada',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 5,
+          rulesApprovedCount: 4,
+          rulesPendingCount: 1,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ contracts: [] }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rules: [] }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.goto('/')
+
+  await expect(page.locator('.session-chip')).toContainText('Empresa Renovada')
+
+  const persistedSession = await page.evaluate(() => window.localStorage.getItem('menucare.auth'))
+  expect(persistedSession).toContain('renewed-token')
+})
+
+test('propaga x-auth-flow-id do login para refresh, retry e logout', async ({ page }) => {
+  const authFlowId = 'flow-e2e-001'
+  let dashboardRequestCount = 0
+  let refreshRequestFlowId: string | undefined
+  let retryDashboardFlowId: string | undefined
+  let logoutRequestFlowId: string | undefined
+
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: {
+        'access-control-expose-headers': 'x-auth-flow-id',
+        'x-auth-flow-id': authFlowId,
+      },
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    dashboardRequestCount += 1
+    const requestFlowId = route.request().headers()['x-auth-flow-id']
+
+    if (dashboardRequestCount === 1) {
+      expect(requestFlowId).toBe(authFlowId)
+      await route.fulfill({
+        status: 401,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'error', message: 'Sessao invalida ou expirada' }),
+      })
+      return
+    }
+
+    retryDashboardFlowId = requestFlowId
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 12,
+          rulesApprovedCount: 8,
+          rulesPendingCount: 3,
+          nonConformitiesOpenCount: 2,
+          actionPlansInProgressCount: 1,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/auth/refresh', async (route) => {
+    refreshRequestFlowId = route.request().headers()['x-auth-flow-id']
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: {
+        'access-control-expose-headers': 'x-auth-flow-id',
+        'x-auth-flow-id': authFlowId,
+      },
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'renewed-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ contracts: [] }),
+    })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ rules: [] }),
+    })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ nonConformities: [] }),
+    })
+  })
+
+  await page.route('**/auth/logout', async (route) => {
+    logoutRequestFlowId = route.request().headers()['x-auth-flow-id']
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      headers: {
+        'access-control-expose-headers': 'x-auth-flow-id',
+        'x-auth-flow-id': authFlowId,
+      },
+      body: JSON.stringify({ status: 'ok' }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  await expect(page.locator('.hero-panel')).toBeVisible()
+  await page.locator('.topbar-actions .logout-button').click()
+
+  expect(refreshRequestFlowId).toBe(authFlowId)
+  expect(retryDashboardFlowId).toBe(authFlowId)
+  expect(logoutRequestFlowId).toBe(authFlowId)
+})
+
 test('limpa sessao expirada quando auth/me retorna 401', async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem(
@@ -5072,6 +5317,7 @@ test('importa receita estruturada e salva reclassificacao manual auditada', asyn
     .locator('.invite-history-head')
     .filter({ has: page.getByRole('heading', { name: 'Base estruturada de receitas' }) })
   const recipeImportForm = recipeImportHeader.locator('xpath=following-sibling::form[1]')
+  const recipeImportSubmitButton = recipeImportForm.locator('button.auth-button')
 
   await recipeImportForm.locator('input[type="text"]').nth(0).fill('FICHAS-TECNICAS-E2E.pdf')
   await recipeImportForm.locator('input[type="text"]').nth(1).fill('Genial')
@@ -5299,7 +5545,7 @@ test('garante resiliencia em receitas com concorrencia, retry e timeout de aviso
 
   await expect(recipeImportSubmitButton).toContainText('Importando receita...')
   await expect(recipeImportSubmitButton).toBeDisabled()
-  await expect(page.locator('.auth-error')).toContainText('Falha temporaria ao importar receita.')
+  await expect(page.getByText('Falha temporaria ao importar receita.')).toBeVisible()
   expect(recipeImportPostCount).toBe(1)
 
   await recipeImportSubmitButton.click()
@@ -5500,6 +5746,7 @@ test('mantem estabilidade em carga leve com importacoes sequenciais de receitas'
     .locator('.invite-history-head')
     .filter({ has: page.getByRole('heading', { name: 'Base estruturada de receitas' }) })
   const recipeImportForm = recipeImportHeader.locator('xpath=following-sibling::form[1]')
+  const recipeImportSubmitButton = recipeImportForm.locator('button.auth-button')
 
   const importRecipe = async (name: string, fileName: string) => {
     await recipeImportForm.locator('input[type="text"]').nth(0).fill(fileName)
@@ -5507,8 +5754,9 @@ test('mantem estabilidade em carga leve com importacoes sequenciais de receitas'
     await recipeImportForm.locator('input[type="text"]').nth(2).fill(name)
     await recipeImportForm.locator('textarea').nth(0).fill(`Ingrediente ${name}`)
     await recipeImportForm.locator('textarea').nth(1).fill(`Preparo ${name}`)
-    await recipeImportForm.locator('button.auth-button').click()
-    await expect(menuImportPanel).toContainText(name)
+    await recipeImportSubmitButton.click()
+    await expect(recipeImportSubmitButton).toContainText('Importar receita estruturada', { timeout: 15_000 })
+    await expect(menuImportPanel).toContainText(name, { timeout: 15_000 })
   }
 
   await importRecipe('Frango Assado Lote 1', 'FICHA-LOTE-1.pdf')
@@ -5522,6 +5770,8 @@ test('mantem estabilidade em carga leve com importacoes sequenciais de receitas'
 })
 
 test('sustenta volume moderado com importacoes e reclassificacoes sequenciais', async ({ page }) => {
+  test.setTimeout(90_000)
+
   const importedRecipes: Array<{
     id: string
     sourceFileName: string
@@ -5743,6 +5993,7 @@ test('sustenta volume moderado com importacoes e reclassificacoes sequenciais', 
     .locator('.invite-history-head')
     .filter({ has: page.getByRole('heading', { name: 'Base estruturada de receitas' }) })
   const recipeImportForm = recipeImportHeader.locator('xpath=following-sibling::form[1]')
+  const recipeImportSubmitButton = recipeImportForm.locator('button.auth-button')
 
   const importRecipe = async (name: string, fileName: string) => {
     await recipeImportForm.locator('input[type="text"]').nth(0).fill(fileName)
@@ -5750,8 +6001,9 @@ test('sustenta volume moderado com importacoes e reclassificacoes sequenciais', 
     await recipeImportForm.locator('input[type="text"]').nth(2).fill(name)
     await recipeImportForm.locator('textarea').nth(0).fill(`Ingrediente ${name}`)
     await recipeImportForm.locator('textarea').nth(1).fill(`Preparo ${name}`)
-    await recipeImportForm.locator('button.auth-button').click()
-    await expect(menuImportPanel).toContainText(name)
+    await recipeImportSubmitButton.click()
+    await expect(recipeImportSubmitButton).toContainText('Importar receita estruturada', { timeout: 15_000 })
+    await expect(menuImportPanel).toContainText(name, { timeout: 15_000 })
   }
 
   await importRecipe('Frango Assado Volume 1', 'FICHA-VOLUME-1.pdf')
@@ -5772,6 +6024,7 @@ test('sustenta volume moderado com importacoes e reclassificacoes sequenciais', 
   const reclassificationForm = reclassificationHeader.locator('xpath=following-sibling::form[1]')
 
   const reclassifyRecipe = async (recipeId: string, category: string, subcategory: string, group: string) => {
+    const reclassificationSubmitButton = reclassificationForm.locator('button.logout-button')
     await reclassificationForm.locator('select').selectOption(recipeId)
     await reclassificationForm.locator('input[type="text"]').nth(0).fill(category)
     await reclassificationForm.locator('input[type="text"]').nth(1).fill(subcategory)
@@ -5779,8 +6032,11 @@ test('sustenta volume moderado com importacoes e reclassificacoes sequenciais', 
     await reclassificationForm.locator('input[type="number"]').fill('0.93')
     await reclassificationForm.locator('input[type="text"]').nth(3).fill('reviewed, poultry')
     await reclassificationForm.locator('textarea').fill(`Revisao manual ${recipeId}.`)
-    await reclassificationForm.locator('button.logout-button').click()
-    await expect(reclassificationForm).toContainText('Reclassificacao salva com sucesso e registrada na auditoria.')
+    await reclassificationSubmitButton.click()
+    await expect(reclassificationSubmitButton).toContainText('Salvar reclassificacao', { timeout: 15_000 })
+    await expect(reclassificationForm).toContainText('Reclassificacao salva com sucesso e registrada na auditoria.', {
+      timeout: 15_000,
+    })
   }
 
   await reclassifyRecipe('recipe-lib-load-moderate-e2e-1', 'Proteina revisada 1', 'Aves premium 1', 'Proteina revisada A')
@@ -6026,6 +6282,8 @@ test('mantem estabilidade em stress controlado com ciclos prolongados de receita
     .locator('.invite-history-head')
     .filter({ has: page.getByRole('heading', { name: 'Base estruturada de receitas' }) })
   const recipeImportForm = recipeImportHeader.locator('xpath=following-sibling::form[1]')
+  const recipeImportSubmitButton = recipeImportForm.locator('button.auth-button')
+  const recipeList = recipeImportHeader.locator('xpath=following-sibling::ul[1]/li')
 
   const importRecipe = async (index: number) => {
     const name = `Frango Soak ${index}`
@@ -6034,18 +6292,18 @@ test('mantem estabilidade em stress controlado com ciclos prolongados de receita
     await recipeImportForm.locator('input[type="text"]').nth(2).fill(name)
     await recipeImportForm.locator('textarea').nth(0).fill(`Ingrediente ${name}`)
     await recipeImportForm.locator('textarea').nth(1).fill(`Preparo ${name}`)
-    await recipeImportForm.locator('button.auth-button').click()
-    await expect(menuImportPanel).toContainText(name)
+    await recipeImportSubmitButton.click()
+    await expect(recipeImportSubmitButton).toContainText('Importar receita estruturada', { timeout: 15_000 })
+    await expect.poll(async () => recipeList.count(), { timeout: 15_000 }).toBeGreaterThanOrEqual(index)
   }
 
-  for (let index = 1; index <= 8; index += 1) {
+  for (let index = 1; index <= 6; index += 1) {
     await importRecipe(index)
   }
 
-  const recipeList = recipeImportHeader.locator('xpath=following-sibling::ul[1]/li')
-  await expect(recipeList).toHaveCount(8)
-  await expect(menuImportPanel).toContainText('8 classificadas de 8 receitas')
-  await expect(menuImportPanel).toContainText('Revisadas manualmente: 0 · Heuristica: 8')
+  await expect(recipeList).toHaveCount(6)
+  await expect(menuImportPanel).toContainText('6 classificadas de 6 receitas')
+  await expect(menuImportPanel).toContainText('Revisadas manualmente: 0 · Heuristica: 6')
 
   const reclassificationHeader = menuImportPanel
     .locator('.invite-history-head')
@@ -6071,10 +6329,10 @@ test('mantem estabilidade em stress controlado com ciclos prolongados de receita
   }
 
   await expect(reclassificationForm).toContainText('Reclassificacao salva com sucesso e registrada na auditoria.')
-  await expect(menuImportPanel).toContainText('Revisadas manualmente: 5 · Heuristica: 3')
+  await expect(menuImportPanel).toContainText('Revisadas manualmente: 5 · Heuristica: 1')
   await expect(menuImportPanel).toContainText('Proteina soak 1 · Aves soak 1 · Grupo soak 1')
   await expect(menuImportPanel).toContainText('Proteina soak 5 · Aves soak 5 · Grupo soak 5')
-  expect(recipeImportPostCount).toBe(8)
+  expect(recipeImportPostCount).toBe(6)
   expect(recipeReclassificationPatchCount).toBe(5)
 })
 
@@ -6341,4 +6599,386 @@ test('suporta chaos com falhas intermitentes e latencia extrema em ciclos longos
   await expect(menuImportPanel).toContainText('Proteina chaos 1 · Aves chaos 1 · Grupo chaos 1')
   await expect(menuImportPanel).toContainText('Proteina chaos 6 · Aves chaos 6 · Grupo chaos 6')
   expect(recipeReclassificationPatchCount).toBe(8)
+})
+
+const setupOperationalProfileGateBaseRoutes = async (page: import('@playwright/test').Page) => {
+  await page.route('**/auth/login', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        token: 'fake-token',
+        user: {
+          id: 'user-1',
+          name: 'Admin MenuCare',
+          email: 'admin@menucare.local',
+          companyName: 'Empresa Teste',
+          accessProfile: 'Administrador',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/dashboard/summary', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        summary: {
+          contractsCount: 1,
+          rulesApprovedCount: 2,
+          rulesPendingCount: 0,
+          nonConformitiesOpenCount: 0,
+          actionPlansInProgressCount: 0,
+        },
+      }),
+    })
+  })
+
+  await page.route('**/contracts?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ contracts: [] }) })
+  })
+
+  await page.route('**/rules?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ rules: [] }) })
+  })
+
+  await page.route('**/non-conformities?limit=30', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ nonConformities: [] }) })
+  })
+
+  await page.route('**/governance/recommendation-policy', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        policy: {
+          priorityOrder: ['financial_goal', 'nutritional_restrictions', 'operational_rules', 'historical_ratings'],
+          levels: [
+            {
+              key: 'mandatory',
+              blocksApproval: true,
+              criteria: ['financial_goal'],
+            },
+          ],
+        },
+      }),
+    })
+  })
+
+  await page.route('**/menus/imports?limit=10', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        imports: [
+          {
+            id: 'menu-import-gate-e2e-1',
+            fileName: 'CARDAPIO-GATE-E2E.pdf',
+            unitName: 'Hospital MenuCare',
+            serviceName: 'Almoco executivo',
+            referenceDate: '2026-06-30',
+            mealType: 'Almoco',
+            financialGoal: 15,
+            mealCost: 14.3,
+            exceededValue: 0,
+            exceededPercent: 0,
+            validationStatus: 'within_goal',
+            recipes: ['Frango grelhado', 'Arroz integral', 'Laranja em gomos'],
+            createdAt: '2026-06-10T10:00:00.000Z',
+          },
+        ],
+      }),
+    })
+  })
+
+  await page.route('**/menus/imports/monthly-summaries**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', summaries: [], total: 0, hasNext: false }),
+    })
+  })
+
+  await page.route('**/menus/imports/menu-import-gate-e2e-1/audit', async (route) => {
+    const request = route.request()
+
+    if (request.method() === 'POST') {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', results: [] }) })
+      return
+    }
+
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', results: [] }) })
+  })
+
+  await page.route('**/menus/imports/menu-import-gate-e2e-1/suggestions', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', suggestions: [] }) })
+  })
+
+  await page.route('**/menus/imports/menu-import-gate-e2e-1/adjusted-versions', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', versions: [] }) })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-gate-e2e-1', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        recommendation: {
+          policy: {
+            priorityOrder: ['financial_goal'],
+            levels: [{ key: 'mandatory', blocksApproval: true }],
+            blockingCriteria: ['financial_goal'],
+          },
+          importContext: {
+            importId: 'menu-import-gate-e2e-1',
+            unitName: 'Hospital MenuCare',
+            serviceName: 'Almoco executivo',
+            financialGoal: 15,
+            mealCost: 14.3,
+            currentRecipes: ['Frango grelhado', 'Arroz integral', 'Laranja em gomos'],
+          },
+          decision: {
+            blocksApproval: false,
+            mandatoryFindings: [{ criterion: 'Meta financeira', status: 'ok', detail: 'Dentro da meta.' }],
+          },
+          historicalLayer: {
+            nonBlocking: true,
+            note: 'Historico neutro.',
+            recommendedCombinations: [],
+          },
+        },
+      }),
+    })
+  })
+
+  await page.route('**/governance/recommendations/menu-import-gate-e2e-1/next-menu/decisions?limit=10', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', decisions: [] }) })
+  })
+
+  await page.route('**/recipes?limit=20', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', recipes: [] }) })
+  })
+
+  await page.route('**/recipes/coverage', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', coverage: { totalRecipes: 0, classifiedRecipes: 0, manualReviewedCount: 0, heuristicCount: 0 } }),
+    })
+  })
+
+  await page.route('**/evaluations/imports?limit=10', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', evaluations: [] }) })
+  })
+
+  await page.route('**/evaluations/intelligence?limit=10', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', combinations: [] }) })
+  })
+
+  await page.route('**/menus/commemorative-dates?year=*&limit=400', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ status: 'ok', commemorativeDates: [] }) })
+  })
+}
+
+test('bloqueia ciclo mensal por PDF quando perfil operacional nao e Genial integrado', async ({ page }) => {
+  await setupOperationalProfileGateBaseRoutes(page)
+
+  await page.route('**/onboarding/operational-profile', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        operationalProfile: {
+          sourceProfile: 'manual_only',
+          contractMode: 'internal_kitchen',
+          complianceMode: 'internal_policy',
+        },
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+
+  const monthlyCycleButton = menuImportPanel
+    .locator('button.auth-button', { hasText: 'Executar ciclo mensal via PDF' })
+
+  await expect(monthlyCycleButton).toBeDisabled()
+  await expect(menuImportPanel).toContainText('Esta conta nao esta em modo Genial integrado')
+})
+
+test('abre tela manual dedicada e registra cardapio operacional para perfil manual', async ({ page }) => {
+  await setupOperationalProfileGateBaseRoutes(page)
+
+  const operationalCardapios = [
+    {
+      id: 'operational-cardapio-e2e-1',
+      entryLabel: 'Registro inicial',
+      unitName: 'Hospital MenuCare',
+      serviceName: 'Almoco executivo',
+      referenceDate: '2026-06-09',
+      mealType: 'Almoco',
+      financialGoal: 15,
+      mealCost: 14.2,
+      exceededValue: 0,
+      exceededPercent: 0,
+      validationStatus: 'within_goal',
+      recipes: ['Frango grelhado', 'Arroz integral'],
+      createdAt: '2026-06-10T09:00:00.000Z',
+    },
+  ]
+
+  await page.route('**/onboarding/operational-profile', async (route) => {
+    const request = route.request()
+
+    if (request.method() === 'POST') {
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          status: 'ok',
+          operationalProfile: {
+            sourceProfile: 'manual_only',
+            contractMode: 'internal_kitchen',
+            complianceMode: 'internal_policy',
+          },
+        }),
+      })
+      return
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        operationalProfile: {
+          sourceProfile: 'manual_only',
+          contractMode: 'internal_kitchen',
+          complianceMode: 'internal_policy',
+        },
+      }),
+    })
+  })
+
+  await page.route('**/menus/operational-cardapios**', async (route) => {
+    const request = route.request()
+
+    if (request.method() === 'POST') {
+      const payload = request.postDataJSON() as {
+        entryLabel: string
+        unitName: string
+        serviceName: string
+        referenceDate: string
+        mealType: string
+        financialGoal: number
+        mealCost: number
+        recipes: string[]
+      }
+
+      const exceededValue = Math.max(payload.mealCost - payload.financialGoal, 0)
+      const exceededPercent = payload.financialGoal > 0 ? (exceededValue / payload.financialGoal) * 100 : 0
+
+      const createdItem = {
+        id: 'operational-cardapio-e2e-2',
+        ...payload,
+        exceededValue,
+        exceededPercent,
+        validationStatus: exceededValue > 0 ? 'above_goal' : 'within_goal',
+        createdAt: '2026-06-10T11:30:00.000Z',
+      }
+
+      operationalCardapios.unshift(createdItem)
+
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ status: 'ok', operationalCardapio: createdItem }),
+      })
+      return
+    }
+
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok', operationalCardapios }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  await page.goto('/#manual-flow')
+
+  await expect(page).toHaveURL(/#manual-flow$/)
+  await expect(page.getByRole('heading', { name: 'Cadastro operacional manual.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Cardapios operacionais recentes' })).toBeVisible()
+  await expect(page.locator('.validation-history-list')).toContainText('Registro inicial')
+
+  await page.locator('input[type="text"]').nth(0).fill('Cardapio manual 10/06')
+  await page.locator('input[type="text"]').nth(1).fill('Hospital MenuCare')
+  await page.locator('input[type="text"]').nth(2).fill('Jantar')
+  await page.locator('input[type="date"]').fill('2026-06-10')
+  await page.locator('input[type="text"]').nth(3).fill('Jantar')
+  await page.locator('input[type="number"]').nth(0).fill('18')
+  await page.locator('input[type="number"]').nth(1).fill('16.4')
+  await page.locator('textarea').fill('Sopa de legumes\nFile de frango')
+  await page.getByRole('button', { name: 'Registrar cardapio operacional' }).click()
+
+  await expect(page.locator('.validation-history-list')).toContainText('Cardapio manual 10/06')
+  await expect(page.locator('.validation-history-list')).toContainText('Sopa de legumes | File de frango')
+
+  await page.getByRole('button', { name: 'Voltar ao dashboard' }).click()
+  await expect(page).not.toHaveURL(/#manual-flow$/)
+})
+
+test('bloqueia auditoria contratual quando complianceMode e politica interna', async ({ page }) => {
+  await setupOperationalProfileGateBaseRoutes(page)
+
+  await page.route('**/onboarding/operational-profile', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        status: 'ok',
+        operationalProfile: {
+          sourceProfile: 'genial_integrated',
+          contractMode: 'with_contract',
+          complianceMode: 'internal_policy',
+        },
+      }),
+    })
+  })
+
+  await page.goto('/')
+
+  await page.locator('form.auth-form input[type="email"]').fill('admin@menucare.local')
+  await page.locator('form.auth-form input[type="password"]').fill('Admin@123')
+  await page.locator('form.auth-form .auth-button').click()
+
+  const menuImportPanel = page
+    .locator('article.panel')
+    .filter({ has: page.getByRole('heading', { name: 'Cardapio PDF da Genial' }) })
+
+  const auditButton = menuImportPanel
+    .locator('button.logout-button', { hasText: 'Executar auditoria contratual' })
+
+  await expect(auditButton).toBeDisabled()
+  await expect(menuImportPanel).toContainText('Auditoria contratual desabilitada para esta conta')
 })

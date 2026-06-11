@@ -2,10 +2,12 @@ import 'dotenv/config';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import jwt from '@fastify/jwt';
+import multipart from '@fastify/multipart';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { scrypt, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
+import { PDFParse } from 'pdf-parse';
 import { z } from 'zod';
 import { getApiMessage } from './messages.js';
 import {
@@ -14,6 +16,15 @@ import {
   buildRulePreparationContext,
   classifyRecipeFromText,
 } from './ai-prep.js';
+import { registerAuthRoutes } from './modules/auth/routes.js';
+import { registerContractsRoutes } from './modules/contracts/routes.js';
+import { registerRulesRoutes } from './modules/rules/routes.js';
+import { registerMenusRoutes } from './modules/menus/routes.js';
+import { registerRecipesRoutes } from './modules/recipes/routes.js';
+import { registerComplianceRoutes } from './modules/compliance/routes.js';
+import { registerEvaluationsRoutes } from './modules/evaluations/routes.js';
+import { registerRecommendationsRoutes } from './modules/recommendations/routes.js';
+import { registerGovernanceRoutes } from './modules/governance/routes.js';
 
 export const app = Fastify({ logger: true });
 const apiMessage = getApiMessage(process.env.API_LOCALE);
@@ -49,10 +60,27 @@ const localeSchema = z.object({
   locale: z.enum(['pt-BR', 'en-US']),
 });
 
+const sourceProfileSchema = z.enum(['genial_integrated', 'external_non_genial', 'manual_only']);
+const contractModeSchema = z.enum(['with_contract', 'internal_kitchen']);
+const complianceModeSchema = z.enum(['contractual', 'internal_policy']);
+
+const operationalProfileSchema = z.object({
+  sourceProfile: sourceProfileSchema,
+  contractMode: contractModeSchema,
+  complianceMode: complianceModeSchema,
+}).superRefine((value, ctx) => {
+  if (value.contractMode === 'internal_kitchen' && value.complianceMode === 'contractual') {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Cozinha interna deve operar com compliance interno.',
+      path: ['complianceMode'],
+    });
+  }
+});
+
 const contractSchema = z.object({
   title: z.string().min(3),
   sourceType: z.enum(['contract', 'bid_notice', 'reference_term', 'regulation']),
-  status: z.enum(['draft', 'processing', 'active', 'archived']).default('processing'),
 });
 
 const recipeImportSchema = z.object({
@@ -98,12 +126,66 @@ const menuImportSchema = z.object({
   referenceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   mealType: z.string().min(2).max(60),
   financialGoal: z.coerce.number().positive(),
-  mealCost: z.coerce.number().nonnegative(),
+  mealCost: z.coerce.number().nonnegative().optional(),
   recipes: z.array(z.string().min(1).max(180)).max(60).default([]),
+  recipeItems: z.array(
+    z.object({
+      name: z.string().trim().min(1).max(180),
+      cost: z.coerce.number().nonnegative(),
+    }),
+  ).max(120).optional(),
+}).superRefine((value, ctx) => {
+  if (typeof value.mealCost !== 'number' && (!value.recipeItems || value.recipeItems.length === 0)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Informe mealCost ou recipeItems com custos por receita.',
+      path: ['mealCost'],
+    })
+  }
+});
+
+const operationalMenuCardapioSchema = z.object({
+  entryLabel: z.string().trim().min(2).max(120),
+  unitName: z.string().trim().min(2).max(120),
+  serviceName: z.string().trim().min(2).max(120),
+  referenceDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  mealType: z.string().trim().min(2).max(60),
+  financialGoal: z.coerce.number().positive(),
+  mealCost: z.coerce.number().nonnegative(),
+  recipes: z.array(z.string().trim().min(1).max(180)).max(60).default([]),
+});
+
+const menuImportParseReportSchema = z.object({
+  rawText: z.string().min(20),
+  fileName: z.string().min(5).max(240).regex(/\.pdf$/i).optional(),
+  unitName: z.string().min(2).max(120).optional(),
+  serviceName: z.string().min(2).max(120).optional(),
+  mealType: z.string().min(2).max(60).optional(),
+  financialGoal: z.coerce.number().positive().optional(),
 });
 
 const menuImportListQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
+});
+
+const menuMonthlySummaryListQuerySchema = z.object({
+  month: z.string().regex(/^\d{4}-\d{2}$/).optional(),
+  unitName: z.string().trim().min(2).max(120).optional(),
+  serviceName: z.string().trim().min(2).max(120).optional(),
+  limit: z.coerce.number().int().min(1).max(24).default(12),
+});
+
+const menuMonthlySummaryReprocessSchema = z.object({
+  summaryMonth: z.string().regex(/^\d{4}-\d{2}$/),
+  unitName: z.string().trim().min(2).max(120),
+  serviceName: z.string().trim().min(2).max(120),
+  maxAutoRetries: z.coerce.number().int().min(0).max(2).default(1),
+  continueOnItemError: z.coerce.boolean().default(true),
+});
+
+const menuMonthlyCycleQuerySchema = z.object({
+  continueOnItemError: z.coerce.boolean().default(true),
+  maxAutoRetries: z.coerce.number().int().min(0).max(2).default(1),
 });
 
 const menuImportParamsSchema = z.object({
@@ -155,15 +237,16 @@ const intelligenceListQuerySchema = z.object({
 const ruleSchema = z.object({
   contractId: z.string().min(1),
   title: z.string().min(3),
-  description: z.string().min(3),
-  category: z.string().min(2),
-  status: z
-    .enum(['identified', 'under_review', 'approved', 'rejected', 'archived'])
-    .default('identified'),
+  description: z.string().min(3).optional().default('Sem descricao.'),
+  category: z.enum(['nutrition', 'management', 'legal', 'compliance', 'operations']),
+  sourceExcerpt: z.string().trim().min(3).max(500).optional(),
+  sourcePage: z.coerce.number().int().positive().optional(),
+  evidenceConfidence: z.coerce.number().min(0).max(1).optional(),
+  status: z.enum(['pending', 'approved', 'rejected']).default('pending'),
 });
 
 const ruleStatusUpdateSchema = z.object({
-  status: z.enum(['identified', 'under_review', 'approved', 'rejected', 'archived']),
+  status: z.enum(['approved', 'rejected']),
   note: z.string().min(3).max(300).optional(),
 });
 
@@ -316,6 +399,8 @@ const demoPassword = process.env.DEMO_PASSWORD ?? 'Admin@123';
 const demoInviteToken = process.env.DEMO_INVITE_TOKEN ?? 'MENUCARE-PRIMEIRO-ACESSO';
 const parsedLoginAttemptLimit = Number(process.env.LOGIN_RATE_LIMIT_MAX_ATTEMPTS ?? 5);
 const parsedLoginRateLimitWindowMs = Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS ?? 10 * 60 * 1000);
+const parsedRefreshTokenTtlMs = Number(process.env.REFRESH_TOKEN_TTL_MS ?? 7 * 24 * 60 * 60 * 1000);
+const parsedRefreshMaxActiveSessions = Number(process.env.REFRESH_MAX_ACTIVE_SESSIONS ?? 3);
 const loginAttemptLimit = Number.isFinite(parsedLoginAttemptLimit) && parsedLoginAttemptLimit > 0
   ? parsedLoginAttemptLimit
   : 5;
@@ -323,9 +408,45 @@ const loginRateLimitWindowMs =
   Number.isFinite(parsedLoginRateLimitWindowMs) && parsedLoginRateLimitWindowMs > 0
     ? parsedLoginRateLimitWindowMs
     : 10 * 60 * 1000;
+const refreshTokenTtlMs =
+  Number.isFinite(parsedRefreshTokenTtlMs) && parsedRefreshTokenTtlMs > 0
+    ? parsedRefreshTokenTtlMs
+    : 7 * 24 * 60 * 60 * 1000;
+const refreshMaxActiveSessions =
+  Number.isFinite(parsedRefreshMaxActiveSessions) && parsedRefreshMaxActiveSessions > 0
+    ? Math.floor(parsedRefreshMaxActiveSessions)
+    : 3;
+const refreshCookieName = 'menucare_refresh_token';
+const authFlowHeaderName = 'x-auth-flow-id';
 const localeByCompany = new Map<string, SupportedLocale>();
+const operationalProfileByCompany = new Map<string, {
+  source_profile: z.infer<typeof sourceProfileSchema>;
+  contract_mode: z.infer<typeof contractModeSchema>;
+  compliance_mode: z.infer<typeof complianceModeSchema>;
+  updated_at: Date;
+}>();
 const scryptAsync = promisify(scrypt);
 const loginAttemptByKey = new Map<string, { attempts: number; blockedUntil: number }>();
+const refreshSessionMemory = new Map<string, {
+  id: string;
+  user_id: string;
+  email: string;
+  company_name: string;
+  access_profile: string;
+  tenant_id: string;
+  role_key: string;
+  user_name: string;
+  token_hash: string;
+  auth_flow_id: string;
+  device_fingerprint: string;
+  device_label: string;
+  ip_address: string | null;
+  expires_at: Date;
+  created_at: Date;
+  last_seen_at: Date;
+  revoked_at: Date | null;
+  replaced_by_session_id: string | null;
+}>();
 
 type PrismaLike = {
   $queryRaw: <T = unknown>(query: TemplateStringsArray, ...values: unknown[]) => Promise<T>;
@@ -334,6 +455,7 @@ type PrismaLike = {
 
 let prisma: PrismaLike | null = null;
 let localeTableReady = false;
+let operationalProfileTableReady = false;
 let domainTablesReady = false;
 let authTablesReady = false;
 
@@ -352,10 +474,18 @@ try {
 await app.register(cors, {
   origin: true,
   credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
 });
 
 await app.register(jwt, {
-  secret: process.env.JWT_SECRET ?? 'menucare-dev-secret',
+  secret: process.env.JWT_ACCESS_SECRET ?? process.env.JWT_SECRET ?? 'menucare-dev-secret',
+});
+
+await app.register(multipart, {
+  limits: {
+    fileSize: 10 * 1024 * 1024,
+    files: 1,
+  },
 });
 
 const authenticate = async (request: FastifyRequest, reply: FastifyReply) => {
@@ -379,524 +509,21 @@ const ensureLocalePreferencesTable = async () => {
     return;
   }
 
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS company_locale_preferences (
-      company_name TEXT PRIMARY KEY,
-      locale TEXT NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
   localeTableReady = true;
+};
+
+const ensureOperationalProfileTable = async () => {
+  if (!prisma || operationalProfileTableReady) {
+    return;
+  }
+
+  operationalProfileTableReady = true;
 };
 
 const ensureDomainTables = async () => {
   if (!prisma || domainTablesReady) {
     return;
   }
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS contracts (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      title TEXT NOT NULL,
-      source_type TEXT NOT NULL,
-      status TEXT NOT NULL,
-      created_by TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS extracted_rules (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      contract_id TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      category TEXT NOT NULL,
-      status TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS rule_validation_events (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      rule_id TEXT NOT NULL,
-      previous_status TEXT NOT NULL,
-      next_status TEXT NOT NULL,
-      note TEXT,
-      actor_id TEXT NOT NULL,
-      actor_name TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS non_conformities (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      title TEXT NOT NULL,
-      description TEXT NOT NULL,
-      origin TEXT NOT NULL,
-      impact TEXT NOT NULL,
-      owner TEXT NOT NULL,
-      due_date DATE NOT NULL,
-      status TEXT NOT NULL,
-      created_by TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS non_conformity_action_plans (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      non_conformity_id TEXT NOT NULL,
-      description TEXT NOT NULL,
-      owner TEXT NOT NULL,
-      due_date DATE NOT NULL,
-      status TEXT NOT NULL,
-      created_by TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS non_conformity_events (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      non_conformity_id TEXT NOT NULL,
-      previous_status TEXT NOT NULL,
-      next_status TEXT NOT NULL,
-      actor_id TEXT NOT NULL,
-      actor_name TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS non_conformity_action_events (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      non_conformity_id TEXT NOT NULL,
-      action_plan_id TEXT NOT NULL,
-      previous_status TEXT NOT NULL,
-      next_status TEXT NOT NULL,
-      actor_id TEXT NOT NULL,
-      actor_name TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS compliance_export_events (
-      id TEXT PRIMARY KEY,
-      export_id TEXT NOT NULL UNIQUE,
-      company_name TEXT NOT NULL,
-      export_type TEXT NOT NULL,
-      non_conformity_id TEXT,
-      action_plan_id TEXT,
-      filter_export_id TEXT,
-      filter_non_conformity_id TEXT,
-      filter_action_plan_id TEXT,
-      filter_sort_order TEXT,
-      filter_export_scope TEXT,
-      filter_actor TEXT,
-      filter_from DATE,
-      filter_to DATE,
-      actor_id TEXT NOT NULL,
-      actor_name TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS menu_pdf_imports (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      file_name TEXT NOT NULL,
-      unit_name TEXT NOT NULL,
-      service_name TEXT NOT NULL,
-      reference_date DATE NOT NULL,
-      meal_type TEXT NOT NULL,
-      financial_goal NUMERIC(12, 2) NOT NULL,
-      meal_cost NUMERIC(12, 2) NOT NULL,
-      exceeded_value NUMERIC(12, 2) NOT NULL,
-      exceeded_percent NUMERIC(8, 2) NOT NULL,
-      validation_status TEXT NOT NULL,
-      recipes_json TEXT NOT NULL,
-      imported_by TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS menu_import_rule_audits (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      menu_import_id TEXT NOT NULL,
-      rule_id TEXT,
-      rule_title TEXT NOT NULL,
-      result_status TEXT NOT NULL,
-      evidence TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS menu_import_adjustment_suggestions (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      menu_import_id TEXT NOT NULL,
-      source_type TEXT NOT NULL,
-      source_reference TEXT,
-      suggestion_text TEXT NOT NULL,
-      estimated_financial_impact NUMERIC(12, 2) NOT NULL,
-      estimated_nutritional_impact TEXT NOT NULL,
-      priority_level TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS menu_adjusted_versions (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      menu_import_id TEXT NOT NULL,
-      version_label TEXT NOT NULL,
-      target_month TEXT,
-      planning_months_ahead INT,
-      adjusted_meal_cost NUMERIC(12, 2) NOT NULL,
-      total_financial_impact NUMERIC(12, 2) NOT NULL,
-      nutritional_impact_summary TEXT NOT NULL,
-      commemorative_context_json TEXT,
-      applied_suggestions_json TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS menu_commemorative_dates (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      reference_date DATE NOT NULL,
-      date_year INT NOT NULL,
-      title TEXT NOT NULL,
-      noble_dish_hint TEXT,
-      created_by TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS menu_evaluation_imports (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      file_name TEXT NOT NULL,
-      unit_name TEXT NOT NULL,
-      service_name TEXT NOT NULL,
-      reference_date DATE NOT NULL,
-      score NUMERIC(4, 2) NOT NULL,
-      evaluations_count INT NOT NULL,
-      comments TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS menu_combination_intelligence (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      combination_key TEXT NOT NULL,
-      recipes_json TEXT NOT NULL,
-      unit_name TEXT NOT NULL,
-      service_name TEXT NOT NULL,
-      average_rating NUMERIC(4, 2) NOT NULL,
-      evaluations_count INT NOT NULL,
-      mapped_records INT NOT NULL,
-      last_reference_date DATE NOT NULL,
-      trend TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS recipe_library_items (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      source_file_name TEXT NOT NULL,
-      source_reference TEXT,
-      name TEXT NOT NULL,
-      normalized_name TEXT NOT NULL,
-      category TEXT NOT NULL,
-      subcategory TEXT NOT NULL,
-      food_group TEXT NOT NULL,
-      cost_per_capita NUMERIC(12, 2),
-      serving_yield NUMERIC(12, 2),
-      preparation_method TEXT,
-      nutritional_info_json TEXT,
-      compatible_diets_json TEXT,
-      allergens_json TEXT,
-      ai_classification_json TEXT NOT NULL,
-      ai_provider TEXT NOT NULL,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS recipe_ingredients (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      name TEXT NOT NULL,
-      normalized_name TEXT NOT NULL,
-      ingredient_group TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS recipe_item_ingredients (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      recipe_id TEXT NOT NULL,
-      ingredient_id TEXT NOT NULL,
-      quantity NUMERIC(12, 2),
-      unit TEXT,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS recipe_import_events (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      file_name TEXT NOT NULL,
-      imported_count INT NOT NULL,
-      classified_count INT NOT NULL,
-      warnings_json TEXT NOT NULL,
-      actor_id TEXT NOT NULL,
-      actor_name TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS recipe_classification_events (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      recipe_id TEXT NOT NULL,
-      previous_classification_json TEXT NOT NULL,
-      next_classification_json TEXT NOT NULL,
-      reason TEXT,
-      actor_id TEXT NOT NULL,
-      actor_name TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS ai_preparation_events (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      module_key TEXT NOT NULL,
-      source_kind TEXT NOT NULL,
-      payload_json TEXT NOT NULL,
-      provider_key TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS menu_next_menu_decisions (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      menu_import_id TEXT NOT NULL,
-      decision_status TEXT NOT NULL,
-      justification TEXT NOT NULL,
-      proposal_json TEXT NOT NULL,
-      governance_blocks_approval BOOLEAN NOT NULL,
-      historical_non_blocking BOOLEAN NOT NULL,
-      actor_id TEXT NOT NULL,
-      actor_name TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    ALTER TABLE compliance_export_events
-    ADD COLUMN IF NOT EXISTS filter_export_id TEXT
-  `;
-
-  await prisma.$executeRaw`
-    ALTER TABLE compliance_export_events
-    ADD COLUMN IF NOT EXISTS filter_non_conformity_id TEXT
-  `;
-
-  await prisma.$executeRaw`
-    ALTER TABLE compliance_export_events
-    ADD COLUMN IF NOT EXISTS filter_action_plan_id TEXT
-  `;
-
-  await prisma.$executeRaw`
-    ALTER TABLE compliance_export_events
-    ADD COLUMN IF NOT EXISTS filter_sort_order TEXT
-  `;
-
-  await prisma.$executeRaw`
-    ALTER TABLE compliance_export_events
-    ADD COLUMN IF NOT EXISTS filter_export_scope TEXT
-  `;
-
-  await prisma.$executeRaw`
-    ALTER TABLE menu_adjusted_versions
-    ADD COLUMN IF NOT EXISTS target_month TEXT
-  `;
-
-  await prisma.$executeRaw`
-    ALTER TABLE menu_adjusted_versions
-    ADD COLUMN IF NOT EXISTS planning_months_ahead INT
-  `;
-
-  await prisma.$executeRaw`
-    ALTER TABLE menu_adjusted_versions
-    ADD COLUMN IF NOT EXISTS commemorative_context_json TEXT
-  `;
-
-  await prisma.$executeRaw`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_menu_commemorative_dates_company_refdate
-    ON menu_commemorative_dates (company_name, reference_date)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_contracts_company_created_at
-    ON contracts (company_name, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_rules_company_status
-    ON extracted_rules (company_name, status)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_rule_validation_events_rule_created_at
-    ON rule_validation_events (rule_id, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_non_conformities_company_status
-    ON non_conformities (company_name, status)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_non_conformity_action_plans_non_conformity
-    ON non_conformity_action_plans (non_conformity_id, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_non_conformity_action_events_action
-    ON non_conformity_action_events (action_plan_id, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_non_conformity_events_non_conformity
-    ON non_conformity_events (non_conformity_id, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_compliance_export_events_company_created_at
-    ON compliance_export_events (company_name, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_compliance_export_events_export_type
-    ON compliance_export_events (export_type, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_menu_pdf_imports_company_created_at
-    ON menu_pdf_imports (company_name, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_menu_import_rule_audits_import_created_at
-    ON menu_import_rule_audits (menu_import_id, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_menu_import_adjustment_suggestions_import_created_at
-    ON menu_import_adjustment_suggestions (menu_import_id, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_menu_adjusted_versions_import_created_at
-    ON menu_adjusted_versions (menu_import_id, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_menu_commemorative_dates_company_year_date
-    ON menu_commemorative_dates (company_name, date_year, reference_date)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_menu_evaluation_imports_company_created_at
-    ON menu_evaluation_imports (company_name, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_menu_combination_intelligence_company_created_at
-    ON menu_combination_intelligence (company_name, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_recipe_library_items_company_category
-    ON recipe_library_items (company_name, category, subcategory)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_recipe_library_items_company_normalized_name
-    ON recipe_library_items (company_name, normalized_name)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_recipe_ingredients_company_group
-    ON recipe_ingredients (company_name, ingredient_group)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_recipe_ingredients_company_normalized_name
-    ON recipe_ingredients (company_name, normalized_name)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_recipe_item_ingredients_recipe
-    ON recipe_item_ingredients (recipe_id, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_recipe_import_events_company_created_at
-    ON recipe_import_events (company_name, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_recipe_classification_events_recipe_created_at
-    ON recipe_classification_events (recipe_id, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_ai_preparation_events_company_module_created_at
-    ON ai_preparation_events (company_name, module_key, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_menu_next_menu_decisions_import_created_at
-    ON menu_next_menu_decisions (menu_import_id, created_at DESC)
-  `;
 
   domainTablesReady = true;
 };
@@ -907,52 +534,8 @@ const ensureAuthTables = async () => {
   }
 
   await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS first_access_invites (
-      token TEXT PRIMARY KEY,
-      email TEXT NOT NULL,
-      company_name TEXT NOT NULL,
-      is_active BOOLEAN NOT NULL DEFAULT TRUE,
-      used_at TIMESTAMPTZ,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS auth_password_overrides (
-      email TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      password_hash TEXT NOT NULL,
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE TABLE IF NOT EXISTS invite_audit_events (
-      id TEXT PRIMARY KEY,
-      company_name TEXT NOT NULL,
-      invite_token TEXT NOT NULL,
-      invite_email TEXT NOT NULL,
-      action TEXT NOT NULL,
-      note TEXT,
-      actor_id TEXT NOT NULL,
-      actor_name TEXT NOT NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_first_access_invites_company
-    ON first_access_invites (company_name, is_active)
-  `;
-
-  await prisma.$executeRaw`
-    CREATE INDEX IF NOT EXISTS idx_invite_audit_company_created_at
-    ON invite_audit_events (company_name, created_at DESC)
-  `;
-
-  await prisma.$executeRaw`
-    INSERT INTO first_access_invites (token, email, company_name, is_active)
-    VALUES (${demoInviteToken}, ${demoUser.email}, ${demoUser.companyName}, TRUE)
+    INSERT INTO first_access_invites (id, token, email, company_name, is_active)
+    VALUES (${randomUUID()}, ${demoInviteToken}, ${demoUser.email}, ${demoUser.companyName}, TRUE)
     ON CONFLICT (token)
     DO NOTHING
   `;
@@ -1039,6 +622,125 @@ const saveLocaleInDatabase = async (companyName: string, locale: SupportedLocale
   `;
 };
 
+const getDefaultOperationalProfile = () => ({
+  sourceProfile: 'genial_integrated' as const,
+  contractMode: 'with_contract' as const,
+  complianceMode: 'contractual' as const,
+});
+
+const readOperationalProfileFromDatabase = async (companyName: string) => {
+  if (!prisma) {
+    return null;
+  }
+
+  await ensureOperationalProfileTable();
+
+  const rows = await prisma.$queryRaw<Array<{
+    source_profile: string;
+    contract_mode: string;
+    compliance_mode: string;
+    updated_at: Date;
+  }>>`
+    SELECT source_profile, contract_mode, compliance_mode, updated_at
+    FROM company_operational_profiles
+    WHERE company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  const row = rows[0];
+
+  if (!row) {
+    return null;
+  }
+
+  const parsed = operationalProfileSchema.safeParse({
+    sourceProfile: row.source_profile,
+    contractMode: row.contract_mode,
+    complianceMode: row.compliance_mode,
+  });
+
+  if (!parsed.success) {
+    return null;
+  }
+
+  return {
+    ...parsed.data,
+    updatedAt: row.updated_at.toISOString(),
+  };
+};
+
+const saveOperationalProfileInDatabase = async (
+  companyName: string,
+  profile: z.infer<typeof operationalProfileSchema>,
+) => {
+  if (!prisma) {
+    return;
+  }
+
+  await ensureOperationalProfileTable();
+
+  await prisma.$executeRaw`
+    INSERT INTO company_operational_profiles (
+      company_name,
+      source_profile,
+      contract_mode,
+      compliance_mode
+    )
+    VALUES (
+      ${companyName},
+      ${profile.sourceProfile},
+      ${profile.contractMode},
+      ${profile.complianceMode}
+    )
+    ON CONFLICT (company_name)
+    DO UPDATE SET
+      source_profile = EXCLUDED.source_profile,
+      contract_mode = EXCLUDED.contract_mode,
+      compliance_mode = EXCLUDED.compliance_mode,
+      updated_at = NOW()
+  `;
+};
+
+const readOperationalProfile = async (companyName: string) => {
+  if (prisma) {
+    const persisted = await readOperationalProfileFromDatabase(companyName);
+
+    if (persisted) {
+      return persisted;
+    }
+  }
+
+  const memoryProfile = operationalProfileByCompany.get(companyName);
+
+  if (memoryProfile) {
+    return {
+      sourceProfile: memoryProfile.source_profile,
+      contractMode: memoryProfile.contract_mode,
+      complianceMode: memoryProfile.compliance_mode,
+      updatedAt: memoryProfile.updated_at.toISOString(),
+    };
+  }
+
+  return {
+    ...getDefaultOperationalProfile(),
+    updatedAt: new Date(0).toISOString(),
+  };
+};
+
+const saveOperationalProfile = async (
+  companyName: string,
+  profile: z.infer<typeof operationalProfileSchema>,
+) => {
+  operationalProfileByCompany.set(companyName, {
+    source_profile: profile.sourceProfile,
+    contract_mode: profile.contractMode,
+    compliance_mode: profile.complianceMode,
+    updated_at: new Date(),
+  });
+
+  await saveOperationalProfileInDatabase(companyName, profile);
+};
+
 const getUserFromJwt = (request: FastifyRequest) => {
   const payload = request.user as { sub?: string; name?: string };
 
@@ -1048,11 +750,904 @@ const getUserFromJwt = (request: FastifyRequest) => {
   };
 };
 
+const parseCookieHeader = (cookieHeader?: string | null) => {
+  if (!cookieHeader) {
+    return {} as Record<string, string>;
+  }
+
+  return cookieHeader
+    .split(';')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.includes('='))
+    .reduce<Record<string, string>>((acc, entry) => {
+      const separatorIndex = entry.indexOf('=');
+      const key = entry.slice(0, separatorIndex).trim();
+      const value = entry.slice(separatorIndex + 1).trim();
+
+      if (key) {
+        acc[key] = decodeURIComponent(value);
+      }
+
+      return acc;
+    }, {});
+};
+
+const setRefreshTokenCookie = (reply: FastifyReply, token: string, expiresAt: Date) => {
+  const maxAgeSeconds = Math.max(1, Math.floor((expiresAt.getTime() - Date.now()) / 1000));
+  const cookieParts = [
+    `${refreshCookieName}=${encodeURIComponent(token)}`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    `Max-Age=${maxAgeSeconds}`,
+  ];
+
+  if ((process.env.NODE_ENV ?? 'development') !== 'development') {
+    cookieParts.push('Secure');
+  }
+
+  reply.header('Set-Cookie', cookieParts.join('; '));
+};
+
+const clearRefreshTokenCookie = (reply: FastifyReply) => {
+  const cookieParts = [
+    `${refreshCookieName}=`,
+    'Path=/',
+    'HttpOnly',
+    'SameSite=Lax',
+    'Max-Age=0',
+  ];
+
+  if ((process.env.NODE_ENV ?? 'development') !== 'development') {
+    cookieParts.push('Secure');
+  }
+
+  reply.header('Set-Cookie', cookieParts.join('; '));
+};
+
+const issueAccessToken = async (reply: FastifyReply, user: {
+  id: string;
+  email: string;
+  name: string;
+  companyName: string;
+  accessProfile: string;
+  tenantId: string;
+  roleKey: string;
+}) =>
+  reply.jwtSign(
+    {
+      sub: user.id,
+      tenantId: user.tenantId,
+      email: user.email,
+      name: user.name,
+      companyName: user.companyName,
+      accessProfile: user.accessProfile,
+      roleKey: user.roleKey,
+    },
+    {
+      expiresIn: '8h',
+    },
+  );
+
+const buildDeviceFingerprint = (userAgent?: string | null) => {
+  const normalized = (userAgent ?? 'unknown').trim().toLowerCase();
+
+  if (!normalized) {
+    return 'unknown';
+  }
+
+  return createHash('sha256').update(normalized).digest('hex').slice(0, 32);
+};
+
+const buildDeviceLabel = (userAgent?: string | null) => {
+  const normalized = (userAgent ?? '').trim();
+
+  if (!normalized) {
+    return 'unknown';
+  }
+
+  if (normalized.length <= 120) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, 117)}...`;
+};
+
+const getRefreshSessionDeviceContext = (request: FastifyRequest) => {
+  const userAgentHeader = request.headers['user-agent'];
+  const userAgent = Array.isArray(userAgentHeader) ? userAgentHeader[0] : userAgentHeader;
+
+  return {
+    deviceFingerprint: buildDeviceFingerprint(userAgent),
+    deviceLabel: buildDeviceLabel(userAgent),
+    ipAddress: request.ip ?? null,
+  };
+};
+
+const getIncomingAuthFlowId = (request: FastifyRequest) => {
+  const authFlowHeader = request.headers[authFlowHeaderName];
+  const authFlowId = (Array.isArray(authFlowHeader) ? authFlowHeader[0] : authFlowHeader)?.trim();
+
+  if (!authFlowId) {
+    return null;
+  }
+
+  return authFlowId.slice(0, 64);
+};
+
+const resolveAuthFlowId = (request: FastifyRequest, fallback?: string) => {
+  return getIncomingAuthFlowId(request) ?? fallback ?? randomUUID();
+};
+
+const setAuthFlowHeader = (reply: FastifyReply, authFlowId: string) => {
+  reply.header(authFlowHeaderName, authFlowId);
+};
+
+const logRefreshSessionSecurityEvent = (
+  event: string,
+  payload: Record<string, unknown>,
+) => {
+  app.log.info(
+    {
+      event,
+      ...payload,
+    },
+    'Evento de seguranca de refresh session.',
+  );
+};
+
+const cleanupExpiredRefreshSessions = async () => {
+  const now = Date.now();
+  let removedCount = 0;
+
+  if (!prisma) {
+    for (const [sessionId, session] of refreshSessionMemory.entries()) {
+      if (session.expires_at.getTime() <= now) {
+        refreshSessionMemory.delete(sessionId);
+        removedCount += 1;
+      }
+    }
+
+    if (removedCount > 0) {
+      logRefreshSessionSecurityEvent('refresh_sessions_expired_cleanup', {
+        source: 'memory',
+        removedCount,
+      });
+    }
+
+    return;
+  }
+
+  await ensureAuthTables();
+
+  removedCount = await prisma.$executeRaw`
+    DELETE FROM auth_refresh_sessions
+    WHERE expires_at <= NOW()
+  `;
+
+  if (removedCount > 0) {
+    logRefreshSessionSecurityEvent('refresh_sessions_expired_cleanup', {
+      source: 'database',
+      removedCount,
+    });
+  }
+};
+
+const revokeRefreshSessionsByDevice = async (userId: string, deviceFingerprint: string) => {
+  let revokedCount = 0;
+
+  if (!prisma) {
+    for (const [sessionId, session] of refreshSessionMemory.entries()) {
+      if (
+        session.user_id === userId
+        && session.device_fingerprint === deviceFingerprint
+        && !session.revoked_at
+        && session.expires_at.getTime() > Date.now()
+      ) {
+        session.revoked_at = new Date();
+        refreshSessionMemory.set(sessionId, session);
+        revokedCount += 1;
+      }
+    }
+
+    if (revokedCount > 0) {
+      logRefreshSessionSecurityEvent('refresh_sessions_device_revoked', {
+        source: 'memory',
+        userId,
+        deviceFingerprint,
+        revokedCount,
+      });
+    }
+
+    return;
+  }
+
+  await ensureAuthTables();
+
+  revokedCount = await prisma.$executeRaw`
+    UPDATE auth_refresh_sessions
+    SET revoked_at = NOW()
+    WHERE user_id = ${userId}
+      AND device_fingerprint = ${deviceFingerprint}
+      AND revoked_at IS NULL
+      AND expires_at > NOW()
+  `;
+
+  if (revokedCount > 0) {
+    logRefreshSessionSecurityEvent('refresh_sessions_device_revoked', {
+      source: 'database',
+      userId,
+      deviceFingerprint,
+      revokedCount,
+    });
+  }
+};
+
+const enforceRefreshSessionLimit = async (userId: string, maxActiveSessions: number) => {
+  if (maxActiveSessions < 1) {
+    return;
+  }
+
+  if (!prisma) {
+    const activeSessions = Array.from(refreshSessionMemory.values())
+      .filter(
+        (session) =>
+          session.user_id === userId
+          && !session.revoked_at
+          && session.expires_at.getTime() > Date.now(),
+      )
+      .sort((a, b) => b.created_at.getTime() - a.created_at.getTime());
+
+    const sessionsToRevoke = activeSessions.slice(maxActiveSessions);
+
+    for (const session of sessionsToRevoke) {
+      session.revoked_at = new Date();
+      refreshSessionMemory.set(session.id, session);
+    }
+
+    if (sessionsToRevoke.length > 0) {
+      logRefreshSessionSecurityEvent('refresh_sessions_limit_enforced', {
+        source: 'memory',
+        userId,
+        maxActiveSessions,
+        revokedCount: sessionsToRevoke.length,
+      });
+    }
+
+    return;
+  }
+
+  await ensureAuthTables();
+
+  const activeSessions = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM auth_refresh_sessions
+    WHERE user_id = ${userId}
+      AND revoked_at IS NULL
+      AND expires_at > NOW()
+    ORDER BY created_at DESC, id DESC
+  `;
+
+  const sessionsToRevoke = activeSessions.slice(maxActiveSessions);
+
+  for (const session of sessionsToRevoke) {
+    await revokeRefreshSession(session.id);
+  }
+
+  if (sessionsToRevoke.length > 0) {
+    logRefreshSessionSecurityEvent('refresh_sessions_limit_enforced', {
+      source: 'database',
+      userId,
+      maxActiveSessions,
+      revokedCount: sessionsToRevoke.length,
+    });
+  }
+};
+
+const touchRefreshSession = async (sessionId: string) => {
+  if (!prisma) {
+    const session = refreshSessionMemory.get(sessionId);
+
+    if (!session) {
+      return;
+    }
+
+    session.last_seen_at = new Date();
+    refreshSessionMemory.set(sessionId, session);
+    return;
+  }
+
+  await ensureAuthTables();
+
+  await prisma.$executeRaw`
+    UPDATE auth_refresh_sessions
+    SET last_seen_at = NOW()
+    WHERE id = ${sessionId}
+  `;
+};
+
+const createRefreshSession = async (payload: {
+  userId: string;
+  email: string;
+  companyName: string;
+  accessProfile: string;
+  tenantId: string;
+  roleKey: string;
+  userName: string;
+  authFlowId: string;
+  deviceFingerprint: string;
+  deviceLabel: string;
+  ipAddress: string | null;
+}) => {
+  logRefreshSessionSecurityEvent('refresh_session_issuance_started', {
+    userId: payload.userId,
+    authFlowId: payload.authFlowId,
+    deviceFingerprint: payload.deviceFingerprint,
+    hasIpAddress: Boolean(payload.ipAddress),
+  });
+
+  await cleanupExpiredRefreshSessions();
+  await revokeRefreshSessionsByDevice(payload.userId, payload.deviceFingerprint);
+
+  const refreshToken = randomBytes(48).toString('hex');
+  const tokenHash = await hashPassword(refreshToken);
+  const sessionId = randomUUID();
+  const createdAt = new Date();
+  const expiresAt = new Date(Date.now() + refreshTokenTtlMs);
+
+  if (!prisma) {
+    refreshSessionMemory.set(sessionId, {
+      id: sessionId,
+      user_id: payload.userId,
+      email: payload.email,
+      company_name: payload.companyName,
+      access_profile: payload.accessProfile,
+      tenant_id: payload.tenantId,
+      role_key: payload.roleKey,
+      user_name: payload.userName,
+      token_hash: tokenHash,
+      auth_flow_id: payload.authFlowId,
+      device_fingerprint: payload.deviceFingerprint,
+      device_label: payload.deviceLabel,
+      ip_address: payload.ipAddress,
+      expires_at: expiresAt,
+      created_at: createdAt,
+      last_seen_at: createdAt,
+      revoked_at: null,
+      replaced_by_session_id: null,
+    });
+
+    await enforceRefreshSessionLimit(payload.userId, refreshMaxActiveSessions);
+
+    logRefreshSessionSecurityEvent('refresh_session_issued', {
+      source: 'memory',
+      sessionId,
+      userId: payload.userId,
+      authFlowId: payload.authFlowId,
+      deviceFingerprint: payload.deviceFingerprint,
+      expiresAt: expiresAt.toISOString(),
+    });
+
+    return {
+      sessionId,
+      refreshToken,
+      expiresAt,
+    };
+  }
+
+  await ensureAuthTables();
+
+  await prisma.$executeRaw`
+    INSERT INTO auth_refresh_sessions (
+      id,
+      user_id,
+      email,
+      company_name,
+      access_profile,
+      tenant_id,
+      role_key,
+      user_name,
+      token_hash,
+      auth_flow_id,
+      device_fingerprint,
+      device_label,
+      ip_address,
+      expires_at
+    )
+    VALUES (
+      ${sessionId},
+      ${payload.userId},
+      ${payload.email},
+      ${payload.companyName},
+      ${payload.accessProfile},
+      ${payload.tenantId},
+      ${payload.roleKey},
+      ${payload.userName},
+      ${tokenHash},
+      ${payload.authFlowId},
+      ${payload.deviceFingerprint},
+      ${payload.deviceLabel},
+      ${payload.ipAddress},
+      ${expiresAt}
+    )
+  `;
+
+  await enforceRefreshSessionLimit(payload.userId, refreshMaxActiveSessions);
+
+  logRefreshSessionSecurityEvent('refresh_session_issued', {
+    source: 'database',
+    sessionId,
+    userId: payload.userId,
+    authFlowId: payload.authFlowId,
+    deviceFingerprint: payload.deviceFingerprint,
+    expiresAt: expiresAt.toISOString(),
+  });
+
+  return {
+    sessionId,
+    refreshToken,
+    expiresAt,
+  };
+};
+
+const revokeRefreshSession = async (sessionId: string, replacedBySessionId?: string) => {
+  if (!prisma) {
+    const session = refreshSessionMemory.get(sessionId);
+
+    if (!session || session.revoked_at) {
+      return;
+    }
+
+    session.revoked_at = new Date();
+    session.replaced_by_session_id = replacedBySessionId ?? null;
+    refreshSessionMemory.set(sessionId, session);
+    return;
+  }
+
+  await ensureAuthTables();
+
+  await prisma.$executeRaw`
+    UPDATE auth_refresh_sessions
+    SET
+      revoked_at = NOW(),
+      replaced_by_session_id = ${replacedBySessionId ?? null}
+    WHERE id = ${sessionId}
+      AND revoked_at IS NULL
+  `;
+};
+
+const readRefreshSession = async (sessionId: string) => {
+  await cleanupExpiredRefreshSessions();
+
+  if (!prisma) {
+    return refreshSessionMemory.get(sessionId) ?? null;
+  }
+
+  await ensureAuthTables();
+
+  const sessions = await prisma.$queryRaw<Array<{
+    id: string;
+    user_id: string;
+    email: string;
+    company_name: string;
+    access_profile: string;
+    tenant_id: string;
+    role_key: string;
+    user_name: string;
+    token_hash: string;
+    auth_flow_id: string;
+    device_fingerprint: string;
+    device_label: string;
+    ip_address: string | null;
+    expires_at: Date;
+    last_seen_at: Date;
+    revoked_at: Date | null;
+    created_at: Date;
+  }>>`
+    SELECT
+      id,
+      user_id,
+      email,
+      company_name,
+      access_profile,
+      tenant_id,
+      role_key,
+      user_name,
+      token_hash,
+      auth_flow_id,
+      device_fingerprint,
+      device_label,
+      ip_address,
+      expires_at,
+      last_seen_at,
+      revoked_at,
+      created_at
+    FROM auth_refresh_sessions
+    WHERE id = ${sessionId}
+    LIMIT 1
+  `;
+
+  const session = sessions[0];
+
+  if (!session) {
+    return null;
+  }
+
+  return {
+    ...session,
+    replaced_by_session_id: null,
+  };
+};
+
 const normalizeTerm = (value: string) =>
   value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
+
+const parseCurrencyPtBr = (value: string) => Number(value.replace(/\./g, '').replace(',', '.'))
+
+const toIsoDateFromPtBr = (value: string) => {
+  const match = value.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+
+  if (!match) {
+    return null
+  }
+
+  const [, day, month, year] = match
+  return `${year}-${month}-${day}`
+}
+
+const parseMenuPreCostReport = (rawText: string) => {
+  const lines = rawText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+
+  const dayHeaderRegex = /^(\d{2}\/\d{2}\/\d{4})\s*-\s*\[[^\]]+\]$/i
+  const itemWithCostRegex = /^(.*\S)\s+(\d{1,3}(?:\.\d{3})*,\d{2})$/
+  const totalLineRegex = /^(\d{1,3}(?:\.\d{3})*,\d{2})$/
+
+  let unitName: string | null = null
+  let serviceName: string | null = null
+  let financialGoal: number | null = null
+
+  type ParsedRecipeItem = { name: string; cost: number }
+  type ParsedDay = {
+    referenceDate: string
+    recipeItems: ParsedRecipeItem[]
+    reportedTotal: number | null
+  }
+
+  const days: ParsedDay[] = []
+  let currentDay: ParsedDay | null = null
+
+  for (const line of lines) {
+    const unitMatch = line.match(/^Unidade:\s*(.+)$/i)
+    if (unitMatch) {
+      unitName = unitMatch[1].trim()
+      continue
+    }
+
+    const serviceMetaMatch = line.match(/^Servi[cÃ§]o:\s*(.+?)\s+Meta:\s*([\d.,]+)$/i)
+    if (serviceMetaMatch) {
+      serviceName = serviceMetaMatch[1].trim()
+      financialGoal = parseCurrencyPtBr(serviceMetaMatch[2])
+      continue
+    }
+
+    const dayHeaderMatch = line.match(dayHeaderRegex)
+    if (dayHeaderMatch) {
+      const isoDate = toIsoDateFromPtBr(dayHeaderMatch[1])
+
+      if (!isoDate) {
+        continue
+      }
+
+      currentDay = {
+        referenceDate: isoDate,
+        recipeItems: [],
+        reportedTotal: null,
+      }
+      days.push(currentDay)
+      continue
+    }
+
+    if (!currentDay) {
+      continue
+    }
+
+    if (/^observa[cÃ§][aÃ£]o:?$/i.test(line)) {
+      continue
+    }
+
+    const itemMatch = line.match(itemWithCostRegex)
+    if (itemMatch) {
+      currentDay.recipeItems.push({
+        name: itemMatch[1].trim(),
+        cost: Number(parseCurrencyPtBr(itemMatch[2]).toFixed(2)),
+      })
+      continue
+    }
+
+    const totalMatch = line.match(totalLineRegex)
+    if (totalMatch) {
+      currentDay.reportedTotal = Number(parseCurrencyPtBr(totalMatch[1]).toFixed(2))
+    }
+  }
+
+  return {
+    unitName,
+    serviceName,
+    financialGoal,
+    days,
+  }
+}
+
+type ParsedMenuImportPayload = {
+  unitName: string
+  serviceName: string
+  mealType: string
+  financialGoal: number
+  fileName: string
+  days: Array<{
+    referenceDate: string
+    recipeItems: Array<{ name: string; cost: number }>
+    recipes: string[]
+    computedMealCost: number
+    reportedMealCost: number | null
+    costDelta: number
+    financialGoal: number
+    exceededValue: number
+    exceededPercent: number
+    validationStatus: 'above_goal' | 'within_goal'
+  }>
+  suggestedImports: Array<{
+    fileName: string
+    unitName: string
+    serviceName: string
+    referenceDate: string
+    mealType: string
+    financialGoal: number
+    mealCost: number
+    recipes: string[]
+    recipeItems: Array<{ name: string; cost: number }>
+  }>
+}
+
+const buildParsedMenuImportPayload = (payload: {
+  rawText: string
+  fileName?: string
+  unitName?: string
+  serviceName?: string
+  mealType?: string
+  financialGoal?: number
+}): ParsedMenuImportPayload | null => {
+  const report = parseMenuPreCostReport(payload.rawText)
+  const fileName = payload.fileName ?? 'RELATORIO-PRE-CUSTO.pdf'
+  const unitName = payload.unitName ?? report.unitName
+  const serviceName = payload.serviceName ?? report.serviceName
+  const mealType = payload.mealType ?? serviceName ?? 'Almoco'
+  const financialGoal = payload.financialGoal ?? report.financialGoal
+
+  if (!unitName || !serviceName || !financialGoal) {
+    return null
+  }
+
+  const days = report.days
+    .filter((day) => day.recipeItems.length > 0)
+    .map((day) => {
+      const computedMealCost = Number(
+        day.recipeItems.reduce((sum, item) => sum + item.cost, 0).toFixed(2),
+      )
+      const exceededValue = Math.max(computedMealCost - financialGoal, 0)
+      const exceededPercent = Number(((exceededValue / financialGoal) * 100).toFixed(2))
+      const validationStatus: 'above_goal' | 'within_goal' = exceededValue > 0 ? 'above_goal' : 'within_goal'
+      const reportedMealCost = day.reportedTotal
+      const costDelta = Number(((reportedMealCost ?? computedMealCost) - computedMealCost).toFixed(2))
+
+      return {
+        referenceDate: day.referenceDate,
+        recipeItems: day.recipeItems,
+        recipes: day.recipeItems.map((item) => item.name),
+        computedMealCost,
+        reportedMealCost,
+        costDelta,
+        financialGoal: Number(financialGoal.toFixed(2)),
+        exceededValue: Number(exceededValue.toFixed(2)),
+        exceededPercent,
+        validationStatus,
+      }
+    })
+
+  return {
+    unitName,
+    serviceName,
+    mealType,
+    financialGoal: Number(financialGoal.toFixed(2)),
+    fileName,
+    days,
+    suggestedImports: days.map((day) => ({
+      fileName,
+      unitName,
+      serviceName,
+      referenceDate: day.referenceDate,
+      mealType,
+      financialGoal: day.financialGoal,
+      mealCost: day.computedMealCost,
+      recipes: day.recipes,
+      recipeItems: day.recipeItems,
+    })),
+  }
+}
+
+const semanticCategoryAliases: Record<string, string[]> = {
+  peixe: ['peixe', 'tilapia', 'salmao', 'atum', 'bacalhau', 'merluza', 'pescada', 'sardinha', 'dourado', 'pescado'],
+  frango: ['frango', 'galeto', 'sobrecoxa', 'coxa'],
+  bovino: ['carne', 'bovina', 'boi', 'acem', 'patinho', 'musculo'],
+  suino: ['suino', 'porco', 'lombo', 'pernil'],
+  carboidrato: ['carboidrato', 'arroz', 'massa', 'macarrao', 'batata', 'mandioca', 'pure'],
+  fruta: ['fruta', 'laranja', 'banana', 'maca', 'mamao', 'abacaxi', 'melancia', 'uva'],
+  legume: ['legume', 'cenoura', 'abobora', 'chuchu', 'beterraba', 'abobrinha'],
+  verdura: ['verdura', 'alface', 'couve', 'repolho', 'espinafre', 'agriao', 'hortalica', 'hortalicas'],
+}
+
+const semanticAliasByToken = Object.entries(semanticCategoryAliases).reduce<Record<string, string>>(
+  (acc, [canonical, aliases]) => {
+    for (const alias of aliases) {
+      acc[normalizeTerm(alias)] = canonical
+    }
+
+    return acc
+  },
+  {},
+)
+
+const buildSemanticAliasByContext = (context: { mealType?: string; serviceName?: string }) => {
+  const contextualAliasMap = { ...semanticAliasByToken }
+  const normalizedContext = normalizeTerm(`${context.mealType ?? ''} ${context.serviceName ?? ''}`)
+
+  if (/(almoco|jantar)/.test(normalizedContext)) {
+    contextualAliasMap[normalizeTerm('posta')] = 'peixe'
+    contextualAliasMap[normalizeTerm('file')] = 'peixe'
+    contextualAliasMap[normalizeTerm('bife')] = 'bovino'
+    contextualAliasMap[normalizeTerm('salada')] = 'verdura'
+    contextualAliasMap[normalizeTerm('folhas')] = 'verdura'
+    contextualAliasMap[normalizeTerm('folha')] = 'verdura'
+    contextualAliasMap[normalizeTerm('refogado')] = 'legume'
+    contextualAliasMap[normalizeTerm('grelhados')] = 'legume'
+  }
+
+  if (/(cafe|manha)/.test(normalizedContext)) {
+    contextualAliasMap[normalizeTerm('suco')] = 'fruta'
+    contextualAliasMap[normalizeTerm('citrico')] = 'fruta'
+    contextualAliasMap[normalizeTerm('citricos')] = 'fruta'
+    contextualAliasMap[normalizeTerm('vitamina')] = 'fruta'
+    contextualAliasMap[normalizeTerm('pao')] = 'carboidrato'
+    contextualAliasMap[normalizeTerm('tapioca')] = 'carboidrato'
+  }
+
+  return contextualAliasMap
+}
+
+const normalizeSemanticToken = (token: string, aliasByToken: Record<string, string> = semanticAliasByToken) => {
+  const normalizedToken = normalizeTerm(token)
+
+  if (!normalizedToken) {
+    return ''
+  }
+
+  const aliasToken = aliasByToken[normalizedToken] ?? normalizedToken
+
+  if (aliasToken.length <= 3) {
+    return aliasToken
+  }
+
+  let stem = aliasToken
+
+  if (stem.endsWith('es') && stem.length > 5) {
+    stem = stem.slice(0, -2)
+  } else if (stem.endsWith('s') && stem.length > 4) {
+    stem = stem.slice(0, -1)
+  }
+
+  if ((stem.endsWith('a') || stem.endsWith('o')) && stem.length > 5) {
+    stem = stem.slice(0, -1)
+  }
+
+  return stem
+}
+
+const normalizeSemanticTerm = (value: string, aliasByToken: Record<string, string> = semanticAliasByToken) =>
+  normalizeTerm(value)
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 0)
+    .map((token) => normalizeSemanticToken(token, aliasByToken))
+    .filter((token) => token.length > 0)
+    .join(' ')
+
+const hasSemanticKeyword = (normalizedContent: string, canonicalKey: keyof typeof semanticCategoryAliases) =>
+  semanticCategoryAliases[canonicalKey].some((keyword) => normalizedContent.includes(normalizeTerm(keyword)))
+
+const resolveStructuredRecipeFromImportedName = <T extends { normalized_name: string }>(
+  importedRecipeName: string,
+  structuredRecipeRows: T[],
+  structuredRecipeByNormalizedName: Map<string, T>,
+  aliasByToken: Record<string, string> = semanticAliasByToken,
+) => {
+  const normalizedImportedRecipeName = normalizeTerm(importedRecipeName).trim();
+  const semanticImportedRecipeName = normalizeSemanticTerm(importedRecipeName, aliasByToken).trim()
+
+  if (!normalizedImportedRecipeName) {
+    return null;
+  }
+
+  const exactMatch = structuredRecipeByNormalizedName.get(normalizedImportedRecipeName);
+
+  if (exactMatch) {
+    return exactMatch;
+  }
+
+  const importedTokens = normalizedImportedRecipeName
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 3);
+  const semanticImportedTokens = semanticImportedRecipeName
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length >= 3)
+
+  let bestMatch: T | null = null;
+  let bestScore = 0;
+
+  for (const structuredRecipe of structuredRecipeRows) {
+    const candidateNormalizedName = structuredRecipe.normalized_name;
+    const candidateSemanticName = normalizeSemanticTerm(candidateNormalizedName, aliasByToken)
+
+    if (!candidateNormalizedName) {
+      continue;
+    }
+
+    const containmentLength = Math.min(
+      normalizedImportedRecipeName.length,
+      candidateNormalizedName.length,
+    );
+    let score = 0;
+
+    if (containmentLength >= 8 && (
+      normalizedImportedRecipeName.includes(candidateNormalizedName)
+      || candidateNormalizedName.includes(normalizedImportedRecipeName)
+      || semanticImportedRecipeName.includes(candidateSemanticName)
+      || candidateSemanticName.includes(semanticImportedRecipeName)
+    )) {
+      score = 100 + containmentLength;
+    } else if (importedTokens.length >= 1) {
+      const candidateTokens = candidateNormalizedName
+        .split(/[^a-z0-9]+/)
+        .filter((token) => token.length >= 3);
+      const overlapCount = importedTokens.filter((token) => candidateTokens.includes(token)).length;
+      const candidateSemanticTokens = candidateSemanticName
+        .split(/[^a-z0-9]+/)
+        .filter((token) => token.length >= 3)
+      const semanticOverlapCount = semanticImportedTokens.filter((token) => candidateSemanticTokens.includes(token)).length
+      const importedPrefix = normalizedImportedRecipeName.slice(0, 12)
+      const semanticImportedPrefix = semanticImportedRecipeName.slice(0, 12)
+      const hasPrefixMatch = importedPrefix.length >= 8 && candidateNormalizedName.startsWith(importedPrefix)
+      const hasSemanticPrefixMatch = semanticImportedPrefix.length >= 8 && candidateSemanticName.startsWith(semanticImportedPrefix)
+
+      if (overlapCount >= 2 || semanticOverlapCount >= 2) {
+        score = Math.max(overlapCount, semanticOverlapCount) * 20 + containmentLength;
+      } else if (hasPrefixMatch || hasSemanticPrefixMatch) {
+        score = 60 + containmentLength
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestMatch = structuredRecipe;
+    }
+  }
+
+  return bestMatch;
+}
 
 const inferSuggestionEvidenceSource = (input: {
   sourceType: 'rule' | 'financial_goal';
@@ -1117,19 +1712,19 @@ const extractRuleTarget = (value: string) => {
     };
   }
 
-  if (normalized.includes('peixe')) {
+  if (hasSemanticKeyword(normalized, 'peixe')) {
     return {
       label: 'Peixe',
       matches: (item: { category: string; subcategory: string; food_group: string }) =>
-        normalizeTerm(item.subcategory).includes('peixe'),
+        hasSemanticKeyword(normalizeTerm(`${item.category} ${item.subcategory} ${item.food_group}`), 'peixe'),
     };
   }
 
-  if (normalized.includes('frango')) {
+  if (hasSemanticKeyword(normalized, 'frango')) {
     return {
       label: 'Frango',
       matches: (item: { category: string; subcategory: string; food_group: string }) =>
-        normalizeTerm(item.subcategory).includes('frango'),
+        hasSemanticKeyword(normalizeTerm(`${item.category} ${item.subcategory} ${item.food_group}`), 'frango'),
     };
   }
 
@@ -1188,6 +1783,8 @@ const diffUtcDays = (from: string, to: string) => {
   const toDate = parseUtcDate(to)
   return Math.round((toDate.getTime() - fromDate.getTime()) / (1000 * 60 * 60 * 24))
 }
+
+const getMonthKeyFromDate = (value: string) => value.slice(0, 7)
 
 const extractWeeklyMinimum = (normalizedRuleText: string) => {
   const digitMatch = normalizedRuleText.match(/(\d+)\s*(x|vezes)?\s*(por semana|na semana)/)
@@ -1466,141 +2063,118 @@ const isLoginBlocked = (key: string, now: number) => {
   return state.blockedUntil > 0 && now < state.blockedUntil;
 };
 
-app.post('/auth/login', async (request, reply) => {
-  const parsed = authSchema.safeParse(request.body);
+const moduleDeps = {
+  z,
+  PDFParse,
+  apiMessage,
+  authenticate,
+  authSchema,
+  consumeLoginAttempt,
+  isLoginBlocked,
+  demoUser,
+  demoContext,
+  demoPassword,
+  prisma,
+  readPasswordOverride,
+  verifyPassword,
+  issueAccessToken,
+  getRefreshSessionDeviceContext,
+  resolveAuthFlowId,
+  setAuthFlowHeader,
+  createRefreshSession,
+  setRefreshTokenCookie,
+  parseCookieHeader,
+  refreshCookieName,
+  readRefreshSession,
+  revokeRefreshSession,
+  clearRefreshTokenCookie,
+  touchRefreshSession,
+  getCompanyFromJwt,
+  readOperationalProfile,
+  operationalProfileSchema,
+  saveOperationalProfile,
+  inviteActivationSchema,
+  ensureAuthTables,
+  hashPassword,
+  registerInviteAuditEvent,
+  inviteCreationSchema,
+  getUserFromJwt,
+  inviteAuditQuerySchema,
+  inviteListQuerySchema,
+  inviteTokenParamSchema,
+  localeByCompany,
+  loginAttemptByKey,
+  normalizeLocale,
+  readLocaleFromDatabase,
+  saveLocaleInDatabase,
+  localeSchema,
+  randomUUID,
+  contractSchema,
+  ensureDomainTables,
+  buildRulePreparationContext,
+  ruleSchema,
+  ruleParamsSchema,
+  ruleStatusUpdateSchema,
+  recordAiPreparationEvent,
+  menuImportSchema,
+  menuImportParseReportSchema,
+  buildParsedMenuImportPayload,
+  operationalMenuCardapioSchema,
+  menuMonthlyCycleQuerySchema,
+  buildSemanticAliasByContext,
+  resolveStructuredRecipeFromImportedName,
+  getMonthKeyFromDate,
+  getDateOnlyString,
+  addUtcDays,
+  startOfIsoWeek,
+  diffUtcDays,
+  extractRuleTarget,
+  extractWeeklyMinimum,
+  extractRecurrenceDays,
+  normalizeTerm,
+  inferSuggestionEvidenceSource,
+  inferSuggestionEvidenceSubtype,
+  adjustedVersionGenerationSchema,
+  buildMenuPreparationContext,
+  commemorativeDateSchema,
+  commemorativeDateListQuerySchema,
+  menuImportListQuerySchema,
+  menuMonthlySummaryListQuerySchema,
+  menuMonthlySummaryReprocessSchema,
+  menuImportParamsSchema,
+  recipeImportSchema,
+  buildRecipeImportContext,
+  classifyRecipeFromText,
+  recipeParamsSchema,
+  recipeClassificationUpdateSchema,
+  nonConformitySchema,
+  nonConformityParamsSchema,
+  nonConformityStatusSchema,
+  nonConformityHistoryQuerySchema,
+  actionPlanSchema,
+  actionPlanParamsSchema,
+  actionPlanStatusSchema,
+  actionPlanHistoryQuerySchema,
+  complianceExportAuditQuerySchema,
+  evaluationImportSchema,
+  evaluationImportListQuerySchema,
+  intelligenceListQuerySchema,
+  recommendationPolicyContract,
+  buildNextMenuProposal,
+  nextMenuDecisionSchema,
+  nextMenuDecisionListQuerySchema,
+};
 
-  if (!parsed.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: apiMessage.auth.invalidCredentials,
-    });
-  }
-
-  const { email, password } = parsed.data;
-  const normalizedEmail = email.trim().toLowerCase();
-  const loginKey = normalizedEmail;
-  const now = Date.now();
-
-  if (isLoginBlocked(loginKey, now)) {
-    return reply.code(429).send({
-      status: 'error',
-      message: apiMessage.auth.tooManyLoginAttempts,
-    });
-  }
-
-  if (normalizedEmail !== demoUser.email) {
-    const blocked = consumeLoginAttempt(loginKey, now);
-
-    if (blocked) {
-      return reply.code(429).send({
-        status: 'error',
-        message: apiMessage.auth.tooManyLoginAttempts,
-      });
-    }
-
-    return reply.code(401).send({
-      status: 'error',
-      message: apiMessage.auth.wrongEmailOrPassword,
-    });
-  }
-
-  let isValidPassword = password === demoPassword;
-
-  if (prisma) {
-    try {
-      const storedHash = await readPasswordOverride(normalizedEmail, demoUser.companyName);
-
-      if (storedHash) {
-        isValidPassword = await verifyPassword(password, storedHash);
-      }
-    } catch (error) {
-      app.log.warn({ error }, 'Falha ao validar credencial persistida.');
-    }
-  }
-
-  if (!isValidPassword) {
-    const blocked = consumeLoginAttempt(loginKey, now);
-
-    if (blocked) {
-      return reply.code(429).send({
-        status: 'error',
-        message: apiMessage.auth.tooManyLoginAttempts,
-      });
-    }
-
-    return reply.code(401).send({
-      status: 'error',
-      message: apiMessage.auth.wrongEmailOrPassword,
-    });
-  }
-
-  loginAttemptByKey.delete(loginKey);
-
-  const token = await reply.jwtSign(
-    {
-      sub: demoUser.id,
-      tenantId: demoContext.tenantId,
-      email: demoUser.email,
-      name: demoUser.name,
-      companyName: demoUser.companyName,
-      accessProfile: demoUser.accessProfile,
-      roleKey: demoContext.roleKey,
-    },
-    {
-      expiresIn: '8h',
-    },
-  );
-
-  return {
-    status: 'ok',
-    token,
-    user: demoUser,
-  };
-});
-
-app.get('/auth/me', { preHandler: authenticate }, async (request) => {
-  const payload = request.user as {
-    sub?: string;
-    email?: string;
-    name?: string;
-    companyName?: string;
-    accessProfile?: string;
-  };
-
-  return {
-    status: 'ok',
-    user: {
-      id: payload.sub ?? demoUser.id,
-      email: payload.email ?? demoUser.email,
-      name: payload.name ?? demoUser.name,
-      companyName: payload.companyName ?? demoUser.companyName,
-      accessProfile: payload.accessProfile ?? demoUser.accessProfile,
-    },
-  };
-});
-
-app.post('/auth/logout', { preHandler: authenticate }, async () => ({
-  status: 'ok',
-  message: apiMessage.auth.signedOut,
-}));
-
-app.get('/governance/recommendation-policy', { preHandler: authenticate }, async () => {
-  return {
-    status: 'ok',
-    policy: recommendationPolicyContract,
-  };
-});
-
-app.get('/governance/recommendations/:importId', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = menuImportParamsSchema.safeParse(request.params);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Identificador de importacao invalido.',
-    });
-  }
-
+registerAuthRoutes(app, moduleDeps as unknown as import('./modules/auth/service.js').Deps);
+registerContractsRoutes(app, moduleDeps as unknown as import('./modules/contracts/service.js').Deps);
+registerRulesRoutes(app, moduleDeps as unknown as import('./modules/rules/service.js').Deps);
+registerMenusRoutes(app, moduleDeps as unknown as import('./modules/menus/service.js').Deps);
+registerRecipesRoutes(app, moduleDeps as unknown as import('./modules/recipes/service.js').Deps);
+registerComplianceRoutes(app, moduleDeps as unknown as import('./modules/compliance/service.js').Deps);
+registerEvaluationsRoutes(app, moduleDeps as unknown as import('./modules/evaluations/service.js').Deps);
+registerRecommendationsRoutes(app, moduleDeps as unknown as import('./modules/recommendations/service.js').Deps);
+registerGovernanceRoutes(app, moduleDeps as unknown as import('./modules/governance/service.js').Deps);
+app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, reply) => {
   if (!prisma) {
     return reply.code(503).send({
       status: 'error',
@@ -1609,4809 +2183,376 @@ app.get('/governance/recommendations/:importId', { preHandler: authenticate }, a
   }
 
   const companyName = getCompanyFromJwt(request);
-  const importId = parsedParams.data.importId;
 
   await ensureDomainTables();
 
-  const importRows = await prisma.$queryRaw<Array<{
-    id: string;
-    unit_name: string;
-    service_name: string;
-    financial_goal: number | string;
-    meal_cost: number | string;
-    recipes_json: string;
-  }>>`
-    SELECT id, unit_name, service_name, financial_goal, meal_cost, recipes_json
-    FROM menu_pdf_imports
-    WHERE id = ${importId}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  const imported = importRows[0];
-
-  if (!imported) {
-    return reply.code(404).send({
-      status: 'error',
-      message: 'Importacao de cardapio nao encontrada para esta empresa.',
-    });
-  }
-
-  const parseNumber = (value: number | string) => {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number(parsed.toFixed(2));
-  };
-
-  const mealCost = parseNumber(imported.meal_cost);
-  const financialGoal = parseNumber(imported.financial_goal);
-  const mandatoryFindings: Array<{
-    criterion: string;
-    status: 'ok' | 'violation';
-    detail: string;
-  }> = [];
-
-  const ruleAuditRows = await prisma.$queryRaw<Array<{ result_status: 'compliant' | 'non_compliant' }>>`
-    SELECT result_status
-    FROM menu_import_rule_audits
-    WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
-  `;
-
-  const hasRuleViolation = ruleAuditRows.some((item) => item.result_status === 'non_compliant');
-  mandatoryFindings.push({
-    criterion: 'contract_rule_violation',
-    status: hasRuleViolation ? 'violation' : 'ok',
-    detail: hasRuleViolation
-      ? 'Ha regras contratuais nao conformes para este cardapio.'
-      : 'Regras contratuais obrigatorias atendidas.',
-  });
-
-  const isFinancialViolation = mealCost > financialGoal;
-  mandatoryFindings.push({
-    criterion: 'financial_goal_exceeded',
-    status: isFinancialViolation ? 'violation' : 'ok',
-    detail: isFinancialViolation
-      ? 'O custo da refeicao esta acima da meta financeira definida.'
-      : 'Meta financeira atendida para a refeicao.',
-  });
-
-  mandatoryFindings.push({
-    criterion: 'mandatory_nutritional_restriction_violation',
-    status: 'ok',
-    detail: 'Sem violacoes nutricionais obrigatorias detectadas no escopo atual.',
-  });
-
-  mandatoryFindings.push({
-    criterion: 'critical_operational_rule_violation',
-    status: 'ok',
-    detail: 'Sem violacoes operacionais criticas detectadas no escopo atual.',
-  });
-
-  const currentRecipes = JSON.parse(imported.recipes_json) as string[];
-
-  const combinationRows = await prisma.$queryRaw<Array<{
-    id: string;
-    recipes_json: string;
-    average_rating: number | string;
-    evaluations_count: number;
-    trend: 'positive' | 'stable' | 'negative';
-  }>>`
-    SELECT id, recipes_json, average_rating, evaluations_count, trend
-    FROM menu_combination_intelligence
-    WHERE company_name = ${companyName}
-      AND unit_name = ${imported.unit_name}
-      AND service_name = ${imported.service_name}
-    ORDER BY average_rating DESC, evaluations_count DESC
-    LIMIT 3
-  `;
-
-  const recommendedCombinations = combinationRows.map((item) => ({
-    id: item.id,
-    recipes: JSON.parse(item.recipes_json) as string[],
-    averageRating: parseNumber(item.average_rating),
-    evaluationsCount: item.evaluations_count,
-    trend: item.trend,
-  }));
-
-  return {
-    status: 'ok',
-    recommendation: {
-      policy: recommendationPolicyContract,
-      importContext: {
-        importId,
-        unitName: imported.unit_name,
-        serviceName: imported.service_name,
-        financialGoal,
-        mealCost,
-        currentRecipes,
-      },
-      decision: {
-        blocksApproval: mandatoryFindings.some((item) => item.status === 'violation'),
-        mandatoryFindings,
-      },
-      historicalLayer: {
-        nonBlocking: true,
-        note: 'Avaliacao historica e suporte de recomendacao e nunca bloqueio.',
-        recommendedCombinations,
-      },
-    },
-  };
-});
-
-app.post('/governance/recommendations/:importId/next-menu', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = menuImportParamsSchema.safeParse(request.params);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Identificador de importacao invalido.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const importId = parsedParams.data.importId;
-
-  const importedRows = await prisma.$queryRaw<Array<{
-    unit_name: string;
-    service_name: string;
-    reference_date: Date | string;
-    recipes_json: string;
-  }>>`
-    SELECT unit_name, service_name, reference_date, recipes_json
-    FROM menu_pdf_imports
-    WHERE id = ${importId}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  const imported = importedRows[0];
-
-  const nextMenuProposal = await buildNextMenuProposal({ companyName, importId });
-
-  if (!nextMenuProposal) {
-    return reply.code(404).send({
-      status: 'error',
-      message: 'Importacao de cardapio nao encontrada para esta empresa.',
-    });
-  }
-
-  await recordAiPreparationEvent({
-    companyName,
-    moduleKey: 'menus',
-    sourceKind: 'next-menu-proposal',
-    providerKey: 'structured-ready',
-    data: buildMenuPreparationContext({
-      companyName,
-      importId,
-      unitName: imported?.unit_name ?? nextMenuProposal.unitName,
-      serviceName: imported?.service_name ?? nextMenuProposal.serviceName,
-      referenceDate:
-        typeof imported?.reference_date === 'string'
-          ? imported.reference_date.slice(0, 10)
-          : imported?.reference_date instanceof Date
-            ? imported.reference_date.toISOString().slice(0, 10)
-            : new Date().toISOString().slice(0, 10),
-      monthsAhead: 0,
-      recipes: (() => {
-        try {
-          return JSON.parse(imported?.recipes_json ?? '[]') as string[];
-        } catch {
-          return nextMenuProposal.recipes;
-        }
-      })(),
-      targetMonth:
-        typeof imported?.reference_date === 'string'
-          ? imported.reference_date.slice(0, 7)
-          : imported?.reference_date instanceof Date
-            ? imported.reference_date.toISOString().slice(0, 7)
-            : new Date().toISOString().slice(0, 7),
-      commemorativeDates: [],
-    }),
-  });
-
-  return {
-    status: 'ok',
-    nextMenuProposal,
-  };
-});
-
-app.post('/governance/recommendations/:importId/next-menu/decision', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = menuImportParamsSchema.safeParse(request.params);
-  const parsedBody = nextMenuDecisionSchema.safeParse(request.body);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Identificador de importacao invalido.',
-    });
-  }
-
-  if (!parsedBody.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Payload de decisao invalido. Informe decisao e justificativa.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const importId = parsedParams.data.importId;
-
-  const nextMenuProposal = await buildNextMenuProposal({ companyName, importId });
-
-  if (!nextMenuProposal) {
-    return reply.code(404).send({
-      status: 'error',
-      message: 'Importacao de cardapio nao encontrada para esta empresa.',
-    });
-  }
-
-  if (parsedBody.data.decision === 'approved' && nextMenuProposal.governance.blocksApproval) {
-    return reply.code(409).send({
-      status: 'error',
-      message: 'Aprovacao bloqueada por criterios obrigatorios de governanca.',
-    });
-  }
-
-  const decisionId = randomUUID();
-
-  await prisma.$executeRaw`
-    INSERT INTO menu_next_menu_decisions (
-      id,
-      company_name,
-      menu_import_id,
-      decision_status,
-      justification,
-      proposal_json,
-      governance_blocks_approval,
-      historical_non_blocking,
-      actor_id,
-      actor_name
-    )
-    VALUES (
-      ${decisionId},
-      ${companyName},
-      ${importId},
-      ${parsedBody.data.decision},
-      ${parsedBody.data.justification},
-      ${JSON.stringify(nextMenuProposal)},
-      ${nextMenuProposal.governance.blocksApproval},
-      ${nextMenuProposal.historicalLayer.nonBlocking},
-      ${actor.id},
-      ${actor.name}
-    )
-  `;
-
-  const decisionRows = await prisma.$queryRaw<Array<{
-    id: string;
-    decision_status: 'approved' | 'rejected';
-    justification: string;
-    governance_blocks_approval: boolean;
-    historical_non_blocking: boolean;
-    actor_id: string;
-    actor_name: string;
-    created_at: Date | string;
-  }>>`
-    SELECT
-      id,
-      decision_status,
-      justification,
-      governance_blocks_approval,
-      historical_non_blocking,
-      actor_id,
-      actor_name,
-      created_at
-    FROM menu_next_menu_decisions
-    WHERE id = ${decisionId}
-    LIMIT 1
-  `;
-
-  const created = decisionRows[0];
-
-  return reply.code(201).send({
-    status: 'ok',
-    decision: {
-      id: created.id,
-      importId,
-      status: created.decision_status,
-      justification: created.justification,
-      governanceBlocksApproval: created.governance_blocks_approval,
-      historicalNonBlocking: created.historical_non_blocking,
-      actorId: created.actor_id,
-      actorName: created.actor_name,
-      createdAt: created.created_at,
-      nextMenuProposal,
-    },
-  });
-});
-
-app.get('/governance/recommendations/:importId/next-menu/decisions', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = menuImportParamsSchema.safeParse(request.params);
-  const parsedQuery = nextMenuDecisionListQuerySchema.safeParse(request.query);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Identificador de importacao invalido.',
-    });
-  }
-
-  if (!parsedQuery.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Parametros de consulta invalidos.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const importId = parsedParams.data.importId;
-  const { limit } = parsedQuery.data;
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    decision_status: 'approved' | 'rejected';
-    justification: string;
-    proposal_json: string;
-    governance_blocks_approval: boolean;
-    historical_non_blocking: boolean;
-    actor_id: string;
-    actor_name: string;
-    created_at: Date | string;
-  }>>`
-    SELECT
-      id,
-      decision_status,
-      justification,
-      proposal_json,
-      governance_blocks_approval,
-      historical_non_blocking,
-      actor_id,
-      actor_name,
-      created_at
-    FROM menu_next_menu_decisions
-    WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
-    ORDER BY created_at DESC
-    LIMIT ${limit}
-  `;
-
-  return {
-    status: 'ok',
-    decisions: rows.map((row) => ({
-      id: row.id,
-      importId,
-      status: row.decision_status,
-      justification: row.justification,
-      governanceBlocksApproval: row.governance_blocks_approval,
-      historicalNonBlocking: row.historical_non_blocking,
-      actorId: row.actor_id,
-      actorName: row.actor_name,
-      createdAt: row.created_at,
-      nextMenuProposal: JSON.parse(row.proposal_json) as NextMenuProposalData,
-    })),
-  };
-});
-
-app.post('/auth/first-access/activate', async (request, reply) => {
-  const parsed = inviteActivationSchema.safeParse(request.body);
-
-  if (!parsed.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: apiMessage.auth.invalidInvitePayload,
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  await ensureAuthTables();
-
-  const normalizedToken = parsed.data.token.trim();
-  const inviteRows = await prisma.$queryRaw<Array<{ email: string; company_name: string }>>`
-    SELECT email, company_name
-    FROM first_access_invites
-    WHERE token = ${normalizedToken}
-      AND is_active = TRUE
-    LIMIT 1
-  `;
-
-  const invite = inviteRows[0];
-
-  if (!invite) {
-    return reply.code(400).send({
-      status: 'error',
-      message: apiMessage.auth.invalidOrExpiredInvite,
-    });
-  }
-
-  const passwordHash = await hashPassword(parsed.data.password);
-
-  await prisma.$executeRaw`
-    INSERT INTO auth_password_overrides (email, company_name, password_hash)
-    VALUES (${invite.email}, ${invite.company_name}, ${passwordHash})
-    ON CONFLICT (email)
-    DO UPDATE SET
-      company_name = EXCLUDED.company_name,
-      password_hash = EXCLUDED.password_hash,
-      updated_at = NOW()
-  `;
-
-  await prisma.$executeRaw`
-    UPDATE first_access_invites
-    SET is_active = FALSE,
-        used_at = NOW()
-    WHERE token = ${normalizedToken}
-  `;
-
-  await registerInviteAuditEvent({
-    companyName: invite.company_name,
-    inviteToken: normalizedToken,
-    inviteEmail: invite.email,
-    action: 'activated',
-    note: 'Convite utilizado para definir senha inicial.',
-    actorId: 'first-access',
-    actorName: invite.email,
-  });
-
-  return {
-    status: 'ok',
-    message: apiMessage.auth.inviteActivated,
-    email: invite.email,
-  };
-});
-
-app.post('/auth/invites', { preHandler: authenticate }, async (request, reply) => {
-  const parsed = inviteCreationSchema.safeParse(request.body);
-
-  if (!parsed.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: apiMessage.auth.invalidInvitePayload,
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  await ensureAuthTables();
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const normalizedEmail = parsed.data.email.trim().toLowerCase();
-  const inviteToken = `INV-${randomUUID().replace(/-/g, '').slice(0, 20).toUpperCase()}`;
-
-  await prisma.$executeRaw`
-    UPDATE first_access_invites
-    SET is_active = FALSE,
-        used_at = NOW()
-    WHERE email = ${normalizedEmail}
-      AND company_name = ${companyName}
-      AND is_active = TRUE
-  `;
-
-  await prisma.$executeRaw`
-    INSERT INTO first_access_invites (token, email, company_name, is_active)
-    VALUES (${inviteToken}, ${normalizedEmail}, ${companyName}, TRUE)
-  `;
-
-  await registerInviteAuditEvent({
-    companyName,
-    inviteToken,
-    inviteEmail: normalizedEmail,
-    action: 'generated',
-    note: 'Convite criado no portal administrativo.',
-    actorId: actor.id,
-    actorName: actor.name,
-  });
-
-  return reply.code(201).send({
-    status: 'ok',
-    message: apiMessage.auth.inviteGenerated,
-    invite: {
-      token: inviteToken,
-      email: normalizedEmail,
-      companyName,
-      active: true,
-    },
-  });
-});
-
-app.get('/auth/invites/audit', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const parsedQuery = inviteAuditQuerySchema.safeParse(request.query);
-  const limit = parsedQuery.success ? parsedQuery.data.limit : 40;
-  const companyName = getCompanyFromJwt(request);
-
-  await ensureAuthTables();
-
-  const events = await prisma.$queryRaw<
-    Array<{
-      id: string;
-      invite_token: string;
-      invite_email: string;
-      action: string;
-      note: string | null;
-      actor_name: string;
-      created_at: Date;
-    }>
-  >`
-    SELECT id, invite_token, invite_email, action, note, actor_name, created_at
-    FROM invite_audit_events
-    WHERE company_name = ${companyName}
-    ORDER BY created_at DESC
-    LIMIT ${limit}
-  `;
-
-  return {
-    status: 'ok',
-    events: events.map((event) => ({
-      id: event.id,
-      inviteToken: event.invite_token,
-      inviteEmail: event.invite_email,
-      action: event.action,
-      note: event.note,
-      actorName: event.actor_name,
-      createdAt: event.created_at.toISOString(),
-    })),
-  };
-});
-
-app.get('/auth/invites', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const parsedQuery = inviteListQuerySchema.safeParse(request.query);
-  const status = parsedQuery.success ? parsedQuery.data.status : 'all';
-  const limit = parsedQuery.success ? parsedQuery.data.limit : 30;
-  const companyName = getCompanyFromJwt(request);
-
-  await ensureAuthTables();
-
-  const invites =
-    status === 'all'
-      ? await prisma.$queryRaw<
-          Array<{
-            token: string;
-            email: string;
-            is_active: boolean;
-            used_at: Date | null;
-            created_at: Date;
-          }>
-        >`
-          SELECT token, email, is_active, used_at, created_at
-          FROM first_access_invites
-          WHERE company_name = ${companyName}
-          ORDER BY created_at DESC
-          LIMIT ${limit}
-        `
-      : await prisma.$queryRaw<
-          Array<{
-            token: string;
-            email: string;
-            is_active: boolean;
-            used_at: Date | null;
-            created_at: Date;
-          }>
-        >`
-          SELECT token, email, is_active, used_at, created_at
-          FROM first_access_invites
-          WHERE company_name = ${companyName}
-            AND is_active = ${status === 'active'}
-          ORDER BY created_at DESC
-          LIMIT ${limit}
-        `;
-
-  return {
-    status: 'ok',
-    invites: invites.map((invite) => ({
-      token: invite.token,
-      email: invite.email,
-      active: invite.is_active,
-      usedAt: invite.used_at ? invite.used_at.toISOString() : null,
-      createdAt: invite.created_at.toISOString(),
-    })),
-  };
-});
-
-app.post('/auth/invites/:token/revoke', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const parsedParams = inviteTokenParamSchema.safeParse(request.params);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: apiMessage.auth.invalidInvitePayload,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const inviteRows = await prisma.$queryRaw<Array<{ token: string; is_active: boolean }>>`
-    SELECT token, is_active
-    FROM first_access_invites
-    WHERE token = ${parsedParams.data.token}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  const invite = inviteRows[0];
-
-  if (!invite) {
-    return reply.code(404).send({
-      status: 'error',
-      message: apiMessage.auth.inviteNotFound,
-    });
-  }
-
-  if (!invite.is_active) {
-    return reply.code(409).send({
-      status: 'error',
-      message: apiMessage.auth.inviteAlreadyInactive,
-    });
-  }
-
-  await prisma.$executeRaw`
-    UPDATE first_access_invites
-    SET is_active = FALSE,
-        used_at = NOW()
-    WHERE token = ${parsedParams.data.token}
-      AND company_name = ${companyName}
-  `;
-
-  const emailRows = await prisma.$queryRaw<Array<{ email: string }>>`
-    SELECT email
-    FROM first_access_invites
-    WHERE token = ${parsedParams.data.token}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  await registerInviteAuditEvent({
-    companyName,
-    inviteToken: parsedParams.data.token,
-    inviteEmail: emailRows[0]?.email ?? 'desconhecido',
-    action: 'revoked',
-    note: 'Convite revogado manualmente no portal.',
-    actorId: actor.id,
-    actorName: actor.name,
-  });
-
-  return {
-    status: 'ok',
-    message: apiMessage.auth.inviteRevoked,
-  };
-});
-
-app.post('/auth/invites/:token/regenerate', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const parsedParams = inviteTokenParamSchema.safeParse(request.params);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: apiMessage.auth.invalidInvitePayload,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const inviteRows = await prisma.$queryRaw<Array<{ email: string }>>`
-    SELECT email
-    FROM first_access_invites
-    WHERE token = ${parsedParams.data.token}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  const invite = inviteRows[0];
-
-  if (!invite) {
-    return reply.code(404).send({
-      status: 'error',
-      message: apiMessage.auth.inviteNotFound,
-    });
-  }
-
-  await ensureAuthTables();
-
-  const inviteToken = `INV-${randomUUID().replace(/-/g, '').slice(0, 20).toUpperCase()}`;
-
-  await prisma.$executeRaw`
-    UPDATE first_access_invites
-    SET is_active = FALSE,
-        used_at = NOW()
-    WHERE email = ${invite.email}
-      AND company_name = ${companyName}
-      AND is_active = TRUE
-  `;
-
-  await prisma.$executeRaw`
-    INSERT INTO first_access_invites (token, email, company_name, is_active)
-    VALUES (${inviteToken}, ${invite.email}, ${companyName}, TRUE)
-  `;
-
-  await registerInviteAuditEvent({
-    companyName,
-    inviteToken,
-    inviteEmail: invite.email,
-    action: 'regenerated',
-    note: `Regenerado a partir do convite ${parsedParams.data.token}.`,
-    actorId: actor.id,
-    actorName: actor.name,
-  });
-
-  return reply.code(201).send({
-    status: 'ok',
-    message: apiMessage.auth.inviteGenerated,
-    invite: {
-      token: inviteToken,
-      email: invite.email,
-      companyName,
-      active: true,
-    },
-  });
-});
-
-app.get('/preferences/locale', { preHandler: authenticate }, async (request) => {
-  const companyName = getCompanyFromJwt(request);
-  const fallbackLocale =
-    localeByCompany.get(companyName) ?? normalizeLocale(process.env.API_LOCALE);
-
-  try {
-    const persistedLocale = await readLocaleFromDatabase(companyName);
-
-    if (persistedLocale) {
-      localeByCompany.set(companyName, persistedLocale);
-
-      return {
-        status: 'ok',
-        locale: persistedLocale,
-      };
-    }
-  } catch (error) {
-    app.log.warn({ error }, 'Falha ao carregar preferencia de idioma no PostgreSQL.');
-  }
-
-  return {
-    status: 'ok',
-    locale: fallbackLocale,
-  };
-});
-
-app.post('/preferences/locale', { preHandler: authenticate }, async (request, reply) => {
-  const parsed = localeSchema.safeParse(request.body);
-
-  if (!parsed.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: apiMessage.preferences.invalidLocale,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const resolvedLocale = normalizeLocale(parsed.data.locale);
-  localeByCompany.set(companyName, resolvedLocale);
-
-  try {
-    await saveLocaleInDatabase(companyName, resolvedLocale);
-  } catch (error) {
-    app.log.warn({ error }, 'Falha ao salvar preferencia de idioma no PostgreSQL.');
-  }
-
-  return {
-    status: 'ok',
-    locale: resolvedLocale,
-  };
-});
-
-app.post('/contracts', { preHandler: authenticate }, async (request, reply) => {
-  const parsed = contractSchema.safeParse(request.body);
-
-  if (!parsed.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: apiMessage.auth.invalidCredentials,
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const payload = parsed.data;
-  const contractId = randomUUID();
-
-  await ensureDomainTables();
-
-  await prisma.$executeRaw`
-    INSERT INTO contracts (id, company_name, title, source_type, status, created_by)
-    VALUES (${contractId}, ${companyName}, ${payload.title}, ${payload.sourceType}, ${payload.status}, ${actor.id})
-  `;
-
-  const rows = await prisma.$queryRaw<Array<{
+  const controls = await prisma.$queryRaw<Array<{
     id: string;
     title: string;
-    source_type: string;
+    responsible: string;
+    frequency: string;
     status: string;
-    created_at: Date;
-  }>>`
-    SELECT id, title, source_type, status, created_at
-    FROM contracts
-    WHERE id = ${contractId}
-    LIMIT 1
-  `;
-
-  return reply.code(201).send({
-    status: 'ok',
-    contract: {
-      id: rows[0]?.id ?? contractId,
-      title: rows[0]?.title ?? payload.title,
-      sourceType: rows[0]?.source_type ?? payload.sourceType,
-      status: rows[0]?.status ?? payload.status,
-      createdAt: (rows[0]?.created_at ?? new Date()).toISOString(),
-      createdBy: actor.name,
-    },
-  });
-});
-
-app.post('/menus/imports', { preHandler: authenticate }, async (request, reply) => {
-  const parsed = menuImportSchema.safeParse(request.body);
-
-  if (!parsed.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Payload de importacao de cardapio invalido.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const payload = parsed.data;
-  const importId = randomUUID();
-  const exceededValue = Math.max(payload.mealCost - payload.financialGoal, 0);
-  const exceededPercent =
-    payload.financialGoal > 0
-      ? (exceededValue / payload.financialGoal) * 100
-      : 0;
-  const status = exceededValue > 0 ? 'above_goal' : 'within_goal';
-
-  await ensureDomainTables();
-
-  await prisma.$executeRaw`
-    INSERT INTO menu_pdf_imports (
-      id,
-      company_name,
-      file_name,
-      unit_name,
-      service_name,
-      reference_date,
-      meal_type,
-      financial_goal,
-      meal_cost,
-      exceeded_value,
-      exceeded_percent,
-      validation_status,
-      recipes_json,
-      imported_by
-    )
-    VALUES (
-      ${importId},
-      ${companyName},
-      ${payload.fileName.trim()},
-      ${payload.unitName.trim()},
-      ${payload.serviceName.trim()},
-      ${payload.referenceDate},
-      ${payload.mealType.trim()},
-      ${payload.financialGoal},
-      ${payload.mealCost},
-      ${Number(exceededValue.toFixed(2))},
-      ${Number(exceededPercent.toFixed(2))},
-      ${status},
-      ${JSON.stringify(payload.recipes)},
-      ${actor.id}
-    )
-  `;
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    file_name: string;
-    unit_name: string;
-    service_name: string;
-    reference_date: Date;
-    meal_type: string;
-    financial_goal: number | string;
-    meal_cost: number | string;
-    exceeded_value: number | string;
-    exceeded_percent: number | string;
-    validation_status: string;
-    recipes_json: string;
-    created_at: Date;
+    last_execution_at: Date | null;
+    last_execution_status: string | null;
+    open_findings_count: number;
+    critical_findings_count: number;
   }>>`
     SELECT
-      id,
-      file_name,
-      unit_name,
-      service_name,
-      reference_date,
-      meal_type,
-      financial_goal,
-      meal_cost,
-      exceeded_value,
-      exceeded_percent,
-      validation_status,
-      recipes_json,
-      created_at
-    FROM menu_pdf_imports
-    WHERE id = ${importId}
-    LIMIT 1
+      control.id,
+      control.title,
+      control.responsible,
+      UPPER(control.frequency) AS frequency,
+      UPPER(control.status) AS status,
+      last_execution.executed_at AS last_execution_at,
+      last_execution.status AS last_execution_status,
+      COALESCE(open_findings.total, 0)::int AS open_findings_count,
+      COALESCE(critical_findings.total, 0)::int AS critical_findings_count
+    FROM compliance_controls control
+    LEFT JOIN LATERAL (
+      SELECT status, executed_at
+      FROM compliance_control_executions execution
+      WHERE execution.control_id = control.id
+        AND execution.company_name = control.company_name
+      ORDER BY execution.executed_at DESC
+      LIMIT 1
+    ) AS last_execution ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS total
+      FROM compliance_findings finding
+      WHERE finding.control_id = control.id
+        AND finding.company_name = control.company_name
+        AND finding.status IN ('OPEN', 'IN_ANALYSIS')
+    ) AS open_findings ON TRUE
+    LEFT JOIN LATERAL (
+      SELECT COUNT(*)::int AS total
+      FROM compliance_findings finding
+      WHERE finding.control_id = control.id
+        AND finding.company_name = control.company_name
+        AND finding.status IN ('OPEN', 'IN_ANALYSIS')
+        AND finding.severity = 'CRITICAL'
+    ) AS critical_findings ON TRUE
+    WHERE control.company_name = ${companyName}
+    ORDER BY control.created_at DESC
+    LIMIT 160
   `;
 
-  const imported = rows[0];
-
-  const parseNumber = (value: number | string | undefined) => {
-    if (typeof value === 'number') {
-      return Number(value.toFixed(2));
-    }
-
-    const parsedValue = Number(value ?? 0);
-    return Number(parsedValue.toFixed(2));
-  };
-
-  return reply.code(201).send({
-    status: 'ok',
-    import: {
-      id: imported?.id ?? importId,
-      fileName: imported?.file_name ?? payload.fileName,
-      unitName: imported?.unit_name ?? payload.unitName,
-      serviceName: imported?.service_name ?? payload.serviceName,
-      referenceDate: (imported?.reference_date ?? new Date(payload.referenceDate)).toISOString(),
-      mealType: imported?.meal_type ?? payload.mealType,
-      financialGoal: parseNumber(imported?.financial_goal),
-      mealCost: parseNumber(imported?.meal_cost),
-      exceededValue: parseNumber(imported?.exceeded_value),
-      exceededPercent: parseNumber(imported?.exceeded_percent),
-      validationStatus: imported?.validation_status ?? status,
-      recipes: imported ? JSON.parse(imported.recipes_json) : payload.recipes,
-      createdAt: (imported?.created_at ?? new Date()).toISOString(),
-    },
-  });
-});
-
-app.get('/menus/imports', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const parsedQuery = menuImportListQuerySchema.safeParse(request.query);
-  const limit = parsedQuery.success ? parsedQuery.data.limit : 20;
-  const companyName = getCompanyFromJwt(request);
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    file_name: string;
-    unit_name: string;
-    service_name: string;
-    reference_date: Date;
-    meal_type: string;
-    financial_goal: number | string;
-    meal_cost: number | string;
-    exceeded_value: number | string;
-    exceeded_percent: number | string;
-    validation_status: string;
-    recipes_json: string;
-    created_at: Date;
-  }>>`
+  const [findingsSummary] = await prisma.$queryRaw<Array<{ open_total: number; critical_total: number }>>`
     SELECT
-      id,
-      file_name,
-      unit_name,
-      service_name,
-      reference_date,
-      meal_type,
-      financial_goal,
-      meal_cost,
-      exceeded_value,
-      exceeded_percent,
-      validation_status,
-      recipes_json,
-      created_at
-    FROM menu_pdf_imports
+      COUNT(*) FILTER (WHERE status IN ('OPEN', 'IN_ANALYSIS'))::int AS open_total,
+      COUNT(*) FILTER (WHERE status IN ('OPEN', 'IN_ANALYSIS') AND severity = 'CRITICAL')::int AS critical_total
+    FROM compliance_findings
     WHERE company_name = ${companyName}
-    ORDER BY created_at DESC
-    LIMIT ${limit}
   `;
 
-  const parseNumber = (value: number | string) => {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number(parsed.toFixed(2));
-  };
-
-  return {
-    status: 'ok',
-    imports: rows.map((item) => ({
-      id: item.id,
-      fileName: item.file_name,
-      unitName: item.unit_name,
-      serviceName: item.service_name,
-      referenceDate: item.reference_date.toISOString(),
-      mealType: item.meal_type,
-      financialGoal: parseNumber(item.financial_goal),
-      mealCost: parseNumber(item.meal_cost),
-      exceededValue: parseNumber(item.exceeded_value),
-      exceededPercent: parseNumber(item.exceeded_percent),
-      validationStatus: item.validation_status,
-      recipes: JSON.parse(item.recipes_json) as string[],
-      createdAt: item.created_at.toISOString(),
-    })),
-  };
-});
-
-app.post('/recipes/imports', { preHandler: authenticate }, async (request, reply) => {
-  const parsed = recipeImportSchema.safeParse(request.body);
-
-  if (!parsed.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Payload de importacao de receitas invalido.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const payload = parsed.data;
-
-  await ensureDomainTables();
-
-  const aiContext = buildRecipeImportContext({
-    companyName,
-    sourceFileName: payload.fileName.trim(),
-    recipes: payload.recipes.map((recipe) => ({
-      name: recipe.name.trim(),
-      ingredients: recipe.ingredients,
-      preparationMethod: recipe.preparationMethod ?? null,
-      perCapita: recipe.perCapita ?? null,
-      yield: recipe.yield ?? null,
-      group: recipe.group ?? null,
-      nutritionalInfo: recipe.nutritionalInfo ?? null,
-      compatibleDiets: recipe.compatibleDiets ?? [],
-      allergens: recipe.allergens ?? [],
-      cost: recipe.cost ?? null,
-    })),
-  });
-
-  await recordAiPreparationEvent({
-    companyName,
-    moduleKey: 'recipes',
-    sourceKind: 'pdf-import',
-    providerKey: 'structured-ready',
-    data: aiContext,
-  });
-
-  const importEventId = randomUUID();
-  const importedItems: Array<{
-    id: string;
-    name: string;
-    category: string;
-    subcategory: string;
-    foodGroup: string;
-    confidence: number;
-  }> = [];
-
-  for (const recipe of payload.recipes) {
-    const classification = classifyRecipeFromText(recipe.name, recipe.ingredients)
-    const normalizedName = normalizeTerm(recipe.name)
-    const recipeId = randomUUID()
-
-    await prisma.$executeRaw`
-      INSERT INTO recipe_library_items (
-        id,
-        company_name,
-        source_file_name,
-        source_reference,
-        name,
-        normalized_name,
-        category,
-        subcategory,
-        food_group,
-        cost_per_capita,
-        serving_yield,
-        preparation_method,
-        nutritional_info_json,
-        compatible_diets_json,
-        allergens_json,
-        ai_classification_json,
-        ai_provider,
-        is_active
+  const [pendingRecommendationsRow] = await prisma.$queryRaw<Array<{ total: number }>>`
+    SELECT COUNT(DISTINCT suggestion.menu_import_id)::int AS total
+    FROM menu_import_adjustment_suggestions suggestion
+    WHERE suggestion.company_name = ${companyName}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM menu_next_menu_decisions decision
+        WHERE decision.company_name = suggestion.company_name
+          AND decision.menu_import_id = suggestion.menu_import_id
       )
-      VALUES (
-        ${recipeId},
-        ${companyName},
-        ${payload.fileName.trim()},
-        ${payload.sourceReference?.trim() || null},
-        ${recipe.name.trim()},
-        ${normalizedName},
-        ${classification.category},
-        ${classification.subcategory},
-        ${classification.foodGroup},
-        ${recipe.cost ?? null},
-        ${recipe.yield ?? null},
-        ${recipe.preparationMethod ?? null},
-        ${JSON.stringify(recipe.nutritionalInfo ?? null)},
-        ${JSON.stringify(recipe.compatibleDiets ?? [])},
-        ${JSON.stringify(recipe.allergens ?? [])},
-        ${JSON.stringify({ classification, source: 'heuristic-ready' })},
-        ${'heuristic-ready'},
-        TRUE
-      )
-      ON CONFLICT (company_name, normalized_name)
-      DO UPDATE SET
-        source_file_name = EXCLUDED.source_file_name,
-        source_reference = EXCLUDED.source_reference,
-        category = EXCLUDED.category,
-        subcategory = EXCLUDED.subcategory,
-        food_group = EXCLUDED.food_group,
-        cost_per_capita = EXCLUDED.cost_per_capita,
-        serving_yield = EXCLUDED.serving_yield,
-        preparation_method = EXCLUDED.preparation_method,
-        nutritional_info_json = EXCLUDED.nutritional_info_json,
-        compatible_diets_json = EXCLUDED.compatible_diets_json,
-        allergens_json = EXCLUDED.allergens_json,
-        ai_classification_json = EXCLUDED.ai_classification_json,
-        ai_provider = EXCLUDED.ai_provider,
-        is_active = TRUE,
-        updated_at = NOW()
-    `;
-
-    for (const ingredientName of recipe.ingredients) {
-      const normalizedIngredientName = normalizeTerm(ingredientName)
-      const ingredientId = randomUUID()
-
-      await prisma.$executeRaw`
-        INSERT INTO recipe_ingredients (
-          id,
-          company_name,
-          name,
-          normalized_name,
-          ingredient_group
-        )
-        VALUES (
-          ${ingredientId},
-          ${companyName},
-          ${ingredientName.trim()},
-          ${normalizedIngredientName},
-          ${classification.foodGroup}
-        )
-        ON CONFLICT (company_name, normalized_name)
-        DO UPDATE SET
-          name = EXCLUDED.name,
-          ingredient_group = EXCLUDED.ingredient_group
-      `;
-
-      const linkedIngredientRows = await prisma.$queryRaw<Array<{ id: string }>>`
-        SELECT id
-        FROM recipe_ingredients
-        WHERE company_name = ${companyName}
-          AND normalized_name = ${normalizedIngredientName}
-        LIMIT 1
-      `;
-
-      const linkedIngredientId = linkedIngredientRows[0]?.id ?? ingredientId;
-
-      await prisma.$executeRaw`
-        INSERT INTO recipe_item_ingredients (
-          id,
-          company_name,
-          recipe_id,
-          ingredient_id,
-          quantity,
-          unit
-        )
-        VALUES (
-          ${randomUUID()},
-          ${companyName},
-          ${recipeId},
-          ${linkedIngredientId},
-          ${null},
-          ${null}
-        )
-      `;
-    }
-
-    importedItems.push({
-      id: recipeId,
-      name: recipe.name.trim(),
-      category: classification.category,
-      subcategory: classification.subcategory,
-      foodGroup: classification.foodGroup,
-      confidence: classification.confidence,
-    });
-  }
-
-  await prisma.$executeRaw`
-    INSERT INTO recipe_import_events (
-      id,
-      company_name,
-      file_name,
-      imported_count,
-      classified_count,
-      warnings_json,
-      actor_id,
-      actor_name
-    )
-    VALUES (
-      ${importEventId},
-      ${companyName},
-      ${payload.fileName.trim()},
-      ${payload.recipes.length},
-      ${importedItems.length},
-      ${JSON.stringify([])},
-      ${actor.id},
-      ${actor.name}
-    )
   `;
 
-  return reply.code(201).send({
-    status: 'ok',
-    recipeImport: {
-      id: importEventId,
-      fileName: payload.fileName.trim(),
-      sourceReference: payload.sourceReference?.trim() || null,
-      importedCount: importedItems.length,
-      classifiedCount: importedItems.length,
-      recipes: importedItems,
-      createdAt: new Date().toISOString(),
-      aiPreparation: aiContext,
-    },
-  });
-});
+  const [pendingMenusRow] = await prisma.$queryRaw<Array<{ total: number }>>`
+    SELECT COUNT(*)::int AS total
+    FROM menu_pdf_imports menu_import
+    WHERE menu_import.company_name = ${companyName}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM menu_next_menu_decisions decision
+        WHERE decision.company_name = menu_import.company_name
+          AND decision.menu_import_id = menu_import.id
+      )
+  `;
 
-app.get('/recipes', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const query = z.object({
-    limit: z.coerce.number().int().min(1).max(100).default(20),
-    category: z.string().trim().max(80).optional(),
-    subcategory: z.string().trim().max(80).optional(),
-    foodGroup: z.string().trim().max(80).optional(),
-    active: z.enum(['all', 'active', 'inactive']).default('active'),
-  }).safeParse(request.query);
-
-  const { limit, category, subcategory, foodGroup, active } = query.success
-    ? query.data
-    : { limit: 20, category: undefined, subcategory: undefined, foodGroup: undefined, active: 'active' as const };
-
-  const companyName = getCompanyFromJwt(request);
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
+  const failedExecutionsRows = await prisma.$queryRaw<Array<{
     id: string;
-    source_file_name: string;
-    source_reference: string | null;
-    name: string;
-    normalized_name: string;
-    category: string;
-    subcategory: string;
-    food_group: string;
-    cost_per_capita: number | string | null;
-    serving_yield: number | string | null;
-    preparation_method: string | null;
-    nutritional_info_json: string | null;
-    compatible_diets_json: string | null;
-    allergens_json: string | null;
-    ai_classification_json: string;
-    ai_provider: string;
-    is_active: boolean;
-    created_at: Date;
-    updated_at: Date;
+    control_id: string;
+    control_title: string;
+    executed_at: Date;
+    evidence_summary: string;
   }>>`
     SELECT
-      id,
-      source_file_name,
-      source_reference,
-      name,
-      normalized_name,
-      category,
-      subcategory,
-      food_group,
-      cost_per_capita,
-      serving_yield,
-      preparation_method,
-      nutritional_info_json,
-      compatible_diets_json,
-      allergens_json,
-      ai_classification_json,
-      ai_provider,
-      is_active,
-      created_at,
-      updated_at
-    FROM recipe_library_items
-    WHERE company_name = ${companyName}
-      AND (${category ?? null} IS NULL OR category = ${category ?? null})
-      AND (${subcategory ?? null} IS NULL OR subcategory = ${subcategory ?? null})
-      AND (${foodGroup ?? null} IS NULL OR food_group = ${foodGroup ?? null})
-      AND (
-        ${active} = 'all'
-        OR (${active} = 'active' AND is_active = TRUE)
-        OR (${active} = 'inactive' AND is_active = FALSE)
-      )
-    ORDER BY created_at DESC
-    LIMIT ${limit}
-  `;
-
-  const parseNumber = (value: number | string | null) => {
-    if (value === null) {
-      return null;
-    }
-
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number(parsed.toFixed(2));
-  };
-
-  return {
-    status: 'ok',
-    recipes: rows.map((item) => ({
-      id: item.id,
-      sourceFileName: item.source_file_name,
-      sourceReference: item.source_reference,
-      name: item.name,
-      normalizedName: item.normalized_name,
-      category: item.category,
-      subcategory: item.subcategory,
-      foodGroup: item.food_group,
-      costPerCapita: parseNumber(item.cost_per_capita),
-      servingYield: parseNumber(item.serving_yield),
-      preparationMethod: item.preparation_method,
-      nutritionalInfo: item.nutritional_info_json ? JSON.parse(item.nutritional_info_json) : null,
-      compatibleDiets: item.compatible_diets_json ? JSON.parse(item.compatible_diets_json) as string[] : [],
-      allergens: item.allergens_json ? JSON.parse(item.allergens_json) as string[] : [],
-      aiClassification: JSON.parse(item.ai_classification_json) as ReturnType<typeof buildRecipeImportContext>['classifiedRecipes'][number]['classification'],
-      aiProvider: item.ai_provider,
-      isActive: item.is_active,
-      createdAt: item.created_at.toISOString(),
-      updatedAt: item.updated_at.toISOString(),
-    })),
-  };
-});
-
-app.get('/recipes/coverage', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-
-  await ensureDomainTables();
-
-  const summaryRows = await prisma.$queryRaw<Array<{
-    total_recipes: number | string;
-    active_recipes: number | string;
-    classified_recipes: number | string;
-    manual_reviewed_recipes: number | string;
-  }>>`
-    SELECT
-      COUNT(*) AS total_recipes,
-      SUM(CASE WHEN is_active = TRUE THEN 1 ELSE 0 END) AS active_recipes,
-      SUM(CASE WHEN category <> 'Outros' AND subcategory <> 'Nao classificado' THEN 1 ELSE 0 END) AS classified_recipes,
-      SUM(CASE WHEN ai_provider = 'manual-reviewed' THEN 1 ELSE 0 END) AS manual_reviewed_recipes
-    FROM recipe_library_items
-    WHERE company_name = ${companyName}
-  `;
-
-  const categoryRows = await prisma.$queryRaw<Array<{
-    category: string;
-    total: number | string;
-  }>>`
-    SELECT category, COUNT(*) AS total
-    FROM recipe_library_items
-    WHERE company_name = ${companyName}
-    GROUP BY category
-    ORDER BY total DESC
+      execution.id,
+      execution.control_id,
+      control.title AS control_title,
+      execution.executed_at,
+      execution.evidence_summary
+    FROM compliance_control_executions execution
+    INNER JOIN compliance_controls control
+      ON control.id = execution.control_id
+     AND control.company_name = execution.company_name
+    WHERE execution.company_name = ${companyName}
+      AND execution.status = 'failed'
+    ORDER BY execution.executed_at DESC
     LIMIT 8
   `;
 
-  const toInt = (value: number | string | null | undefined) => {
-    if (value === null || value === undefined) {
-      return 0;
-    }
-
-    return typeof value === 'number' ? value : Number(value);
-  };
-
-  const summary = summaryRows[0] ?? {
-    total_recipes: 0,
-    active_recipes: 0,
-    classified_recipes: 0,
-    manual_reviewed_recipes: 0,
-  };
-
-  const totalRecipes = toInt(summary.total_recipes);
-  const activeRecipes = toInt(summary.active_recipes);
-  const classifiedRecipes = toInt(summary.classified_recipes);
-  const manualReviewedRecipes = toInt(summary.manual_reviewed_recipes);
-  const heuristicRecipes = Math.max(0, totalRecipes - manualReviewedRecipes);
-  const coveragePercent =
-    totalRecipes > 0
-      ? Number(((classifiedRecipes / totalRecipes) * 100).toFixed(2))
-      : 0;
-
-  return {
-    status: 'ok',
-    coverage: {
-      totalRecipes,
-      activeRecipes,
-      classifiedRecipes,
-      manualReviewedRecipes,
-      heuristicRecipes,
-      coveragePercent,
-      categoryDistribution: categoryRows.map((item) => ({
-        category: item.category,
-        total: toInt(item.total),
-      })),
-    },
-  };
-});
-
-app.patch('/recipes/:recipeId/classification', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = recipeParamsSchema.safeParse(request.params);
-  const parsedBody = recipeClassificationUpdateSchema.safeParse(request.body);
-
-  if (!parsedParams.success || !parsedBody.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Payload de reclassificacao de receita invalido.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const { recipeId } = parsedParams.data;
-  const payload = parsedBody.data;
-
-  await ensureDomainTables();
-
-  const recipeRows = await prisma.$queryRaw<Array<{
+  const openCriticalFindingsRows = await prisma.$queryRaw<Array<{
     id: string;
-    name: string;
-    category: string;
-    subcategory: string;
-    food_group: string;
-    ai_classification_json: string;
-  }>>`
-    SELECT id, name, category, subcategory, food_group, ai_classification_json
-    FROM recipe_library_items
-    WHERE id = ${recipeId}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  const recipe = recipeRows[0];
-
-  if (!recipe) {
-    return reply.code(404).send({
-      status: 'error',
-      message: 'Receita nao encontrada para reclassificacao.',
-    });
-  }
-
-  const extractClassification = (rawValue: string) => {
-    try {
-      const parsed = JSON.parse(rawValue) as unknown;
-
-      if (parsed && typeof parsed === 'object' && 'classification' in parsed) {
-        const wrapped = (parsed as { classification?: unknown }).classification;
-
-        if (wrapped && typeof wrapped === 'object') {
-          return wrapped as {
-            category?: string;
-            subcategory?: string;
-            foodGroup?: string;
-            confidence?: number;
-            tags?: string[];
-          };
-        }
-      }
-
-      if (parsed && typeof parsed === 'object') {
-        return parsed as {
-          category?: string;
-          subcategory?: string;
-          foodGroup?: string;
-          confidence?: number;
-          tags?: string[];
-        };
-      }
-    } catch {
-      return null;
-    }
-
-    return null;
-  };
-
-  const previousClassificationParsed = extractClassification(recipe.ai_classification_json);
-
-  const previousClassification = {
-    category: previousClassificationParsed?.category ?? recipe.category,
-    subcategory: previousClassificationParsed?.subcategory ?? recipe.subcategory,
-    foodGroup: previousClassificationParsed?.foodGroup ?? recipe.food_group,
-    confidence:
-      typeof previousClassificationParsed?.confidence === 'number'
-        ? previousClassificationParsed.confidence
-        : 0,
-    tags: Array.isArray(previousClassificationParsed?.tags)
-      ? previousClassificationParsed.tags
-      : [],
-  };
-
-  const nextClassification = {
-    category: payload.category,
-    subcategory: payload.subcategory,
-    foodGroup: payload.foodGroup,
-    confidence: payload.confidence ?? previousClassification.confidence,
-    tags: payload.tags ?? previousClassification.tags,
-  };
-
-  await prisma.$executeRaw`
-    UPDATE recipe_library_items
-    SET
-      category = ${nextClassification.category},
-      subcategory = ${nextClassification.subcategory},
-      food_group = ${nextClassification.foodGroup},
-      ai_classification_json = ${JSON.stringify({
-        classification: nextClassification,
-        source: 'manual-reviewed',
-        reason: payload.reason ?? null,
-      })},
-      ai_provider = ${'manual-reviewed'},
-      updated_at = NOW()
-    WHERE id = ${recipe.id}
-      AND company_name = ${companyName}
-  `;
-
-  await prisma.$executeRaw`
-    INSERT INTO recipe_classification_events (
-      id,
-      company_name,
-      recipe_id,
-      previous_classification_json,
-      next_classification_json,
-      reason,
-      actor_id,
-      actor_name
-    )
-    VALUES (
-      ${randomUUID()},
-      ${companyName},
-      ${recipe.id},
-      ${JSON.stringify(previousClassification)},
-      ${JSON.stringify(nextClassification)},
-      ${payload.reason ?? null},
-      ${actor.id},
-      ${actor.name}
-    )
-  `;
-
-  await recordAiPreparationEvent({
-    companyName,
-    moduleKey: 'recipes',
-    sourceKind: 'manual-reclassification',
-    providerKey: 'manual-reviewed',
-    data: {
-      recipeId: recipe.id,
-      recipeName: recipe.name,
-      previousClassification,
-      nextClassification,
-      reason: payload.reason ?? null,
-      actor,
-    },
-  });
-
-  return reply.send({
-    status: 'ok',
-    recipe: {
-      id: recipe.id,
-      name: recipe.name,
-      category: nextClassification.category,
-      subcategory: nextClassification.subcategory,
-      foodGroup: nextClassification.foodGroup,
-      aiClassification: nextClassification,
-      aiProvider: 'manual-reviewed',
-    },
-  });
-});
-
-app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = menuImportParamsSchema.safeParse(request.params);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Identificador de importacao invalido.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const importId = parsedParams.data.importId;
-
-  await ensureDomainTables();
-
-  const importedRows = await prisma.$queryRaw<Array<{
-    id: string;
-    unit_name: string;
-    service_name: string;
-    reference_date: Date | string;
-    recipes_json: string;
-  }>>`
-    SELECT id, unit_name, service_name, reference_date, recipes_json
-    FROM menu_pdf_imports
-    WHERE id = ${importId}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  const imported = importedRows[0];
-
-  if (!imported) {
-    return reply.code(404).send({
-      status: 'error',
-      message: 'Importacao de cardapio nao encontrada para esta empresa.',
-    });
-  }
-
-  const approvedRules = await prisma.$queryRaw<Array<{
-    id: string;
-    title: string;
+    control_id: string;
+    control_title: string;
+    severity: string;
     description: string;
-  }>>`
-    SELECT id, title, description
-    FROM extracted_rules
-    WHERE company_name = ${companyName}
-      AND status = 'approved'
-    ORDER BY created_at DESC
-    LIMIT 200
-  `;
-
-  const importedRecipes = (() => {
-    try {
-      const parsed = JSON.parse(imported.recipes_json) as string[];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  })();
-
-  const normalizedImportedRecipes = importedRecipes.map((item) => normalizeTerm(item));
-  const importReferenceDate = getDateOnlyString(imported.reference_date);
-
-  const structuredRecipeRows = await prisma.$queryRaw<Array<{
-    name: string;
-    normalized_name: string;
-    category: string;
-    subcategory: string;
-    food_group: string;
-  }>>`
-    SELECT name, normalized_name, category, subcategory, food_group
-    FROM recipe_library_items
-    WHERE company_name = ${companyName}
-      AND is_active = TRUE
-  `;
-
-  const structuredRecipeByNormalizedName = new Map(
-    structuredRecipeRows.map((item) => [item.normalized_name, item]),
-  );
-
-  const importedStructuredRecipes = normalizedImportedRecipes
-    .map((normalizedName) => structuredRecipeByNormalizedName.get(normalizedName))
-    .filter((item): item is NonNullable<typeof item> => Boolean(item));
-
-  const recipeCorpus = normalizeTerm(importedRecipes.join(' '));
-
-  const buildTermVariants = (value: string) => {
-    const normalized = normalizeTerm(value);
-
-    if (!normalized || normalized === 'outros' || normalized === 'nao classificado') {
-      return [] as string[];
-    }
-
-    const variants = new Set<string>([normalized]);
-
-    if (normalized.endsWith('s') && normalized.length > 4) {
-      variants.add(normalized.slice(0, -1));
-    }
-
-    return Array.from(variants);
-  };
-
-  await prisma.$executeRaw`
-    DELETE FROM menu_import_rule_audits
-    WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
-  `;
-
-  const auditRows: Array<{
-    id: string;
-    ruleId: string;
-    ruleTitle: string;
-    resultStatus: 'compliant' | 'non_compliant';
-    evidence: string;
-    createdAt: string;
-  }> = [];
-
-  for (const rule of approvedRules) {
-    const normalizedRuleText = normalizeTerm(`${rule.title} ${rule.description}`);
-    const tokenSource = normalizedRuleText
-      .split(/[^a-z0-9]+/)
-      .filter((token) => token.length >= 4)
-      .slice(0, 12);
-    const ruleTarget = extractRuleTarget(normalizedRuleText);
-    const weeklyMinimum = extractWeeklyMinimum(normalizedRuleText);
-    const recurrenceDays = extractRecurrenceDays(normalizedRuleText);
-
-    if (ruleTarget && weeklyMinimum !== null) {
-      const weekStart = startOfIsoWeek(importReferenceDate);
-      const weekEnd = addUtcDays(weekStart, 6);
-      const weekImportRows = await prisma.$queryRaw<Array<{
-        reference_date: Date | string;
-        recipes_json: string;
-      }>>`
-        SELECT reference_date, recipes_json
-        FROM menu_pdf_imports
-        WHERE company_name = ${companyName}
-          AND unit_name = ${imported.unit_name}
-          AND service_name = ${imported.service_name}
-          AND reference_date BETWEEN ${weekStart} AND ${weekEnd}
-        ORDER BY reference_date ASC
-      `;
-
-      const weeklyOccurrences = weekImportRows.filter((item) => {
-        try {
-          const parsedRecipes = JSON.parse(item.recipes_json) as string[];
-          const structuredRecipes = parsedRecipes
-            .map((recipeName) => structuredRecipeByNormalizedName.get(normalizeTerm(recipeName)))
-            .filter((recipe): recipe is NonNullable<typeof recipe> => Boolean(recipe));
-
-          return structuredRecipes.some((recipe) => ruleTarget.matches(recipe));
-        } catch {
-          return false;
-        }
-      }).length;
-
-      const resultStatus: 'compliant' | 'non_compliant' = weeklyOccurrences >= weeklyMinimum
-        ? 'compliant'
-        : 'non_compliant';
-      const evidence = `Regra avaliada por frequencia estruturada: ${ruleTarget.label} encontrado ${weeklyOccurrences} vez(es) na semana de ${weekStart} a ${weekEnd}; minimo exigido ${weeklyMinimum}.`;
-      const rowId = randomUUID();
-
-      await prisma.$executeRaw`
-        INSERT INTO menu_import_rule_audits (
-          id,
-          company_name,
-          menu_import_id,
-          rule_id,
-          rule_title,
-          result_status,
-          evidence
-        )
-        VALUES (
-          ${rowId},
-          ${companyName},
-          ${importId},
-          ${rule.id},
-          ${rule.title},
-          ${resultStatus},
-          ${evidence}
-        )
-      `;
-
-      auditRows.push({
-        id: rowId,
-        ruleId: rule.id,
-        ruleTitle: rule.title,
-        resultStatus,
-        evidence,
-        createdAt: new Date().toISOString(),
-      });
-      continue;
-    }
-
-    if (ruleTarget && recurrenceDays !== null) {
-      const currentHasTarget = importedStructuredRecipes.some((recipe) => ruleTarget.matches(recipe));
-
-      if (!currentHasTarget) {
-        const rowId = randomUUID();
-        const evidence = `Regra avaliada por recorrencia estruturada: ${ruleTarget.label} nao aparece nesta importacao, sem violacao de recorrencia.`;
-
-        await prisma.$executeRaw`
-          INSERT INTO menu_import_rule_audits (
-            id,
-            company_name,
-            menu_import_id,
-            rule_id,
-            rule_title,
-            result_status,
-            evidence
-          )
-          VALUES (
-            ${rowId},
-            ${companyName},
-            ${importId},
-            ${rule.id},
-            ${rule.title},
-            ${'compliant'},
-            ${evidence}
-          )
-        `;
-
-        auditRows.push({
-          id: rowId,
-          ruleId: rule.id,
-          ruleTitle: rule.title,
-          resultStatus: 'compliant',
-          evidence,
-          createdAt: new Date().toISOString(),
-        });
-        continue;
-      }
-
-      const recurrenceWindowStart = addUtcDays(importReferenceDate, -(recurrenceDays - 1));
-      const previousImportRows = await prisma.$queryRaw<Array<{
-        reference_date: Date | string;
-        recipes_json: string;
-      }>>`
-        SELECT reference_date, recipes_json
-        FROM menu_pdf_imports
-        WHERE company_name = ${companyName}
-          AND unit_name = ${imported.unit_name}
-          AND service_name = ${imported.service_name}
-          AND reference_date BETWEEN ${recurrenceWindowStart} AND ${addUtcDays(importReferenceDate, -1)}
-        ORDER BY reference_date DESC
-      `;
-
-      const previousOccurrence = previousImportRows.find((item) => {
-        try {
-          const parsedRecipes = JSON.parse(item.recipes_json) as string[];
-          const structuredRecipes = parsedRecipes
-            .map((recipeName) => structuredRecipeByNormalizedName.get(normalizeTerm(recipeName)))
-            .filter((recipe): recipe is NonNullable<typeof recipe> => Boolean(recipe));
-
-          return structuredRecipes.some((recipe) => ruleTarget.matches(recipe));
-        } catch {
-          return false;
-        }
-      });
-
-      const previousOccurrenceDate = previousOccurrence
-        ? getDateOnlyString(previousOccurrence.reference_date)
-        : null;
-      const daysSincePreviousOccurrence = previousOccurrenceDate
-        ? diffUtcDays(previousOccurrenceDate, importReferenceDate)
-        : null;
-      const resultStatus: 'compliant' | 'non_compliant' = previousOccurrenceDate ? 'non_compliant' : 'compliant';
-      const evidence = previousOccurrenceDate
-        ? `Regra avaliada por recorrencia estruturada: ${ruleTarget.label} reapareceu apos ${daysSincePreviousOccurrence} dia(s), abaixo do minimo de ${recurrenceDays} dias.`
-        : `Regra avaliada por recorrencia estruturada: ${ruleTarget.label} sem repeticao nos ultimos ${recurrenceDays} dias.`;
-      const rowId = randomUUID();
-
-      await prisma.$executeRaw`
-        INSERT INTO menu_import_rule_audits (
-          id,
-          company_name,
-          menu_import_id,
-          rule_id,
-          rule_title,
-          result_status,
-          evidence
-        )
-        VALUES (
-          ${rowId},
-          ${companyName},
-          ${importId},
-          ${rule.id},
-          ${rule.title},
-          ${resultStatus},
-          ${evidence}
-        )
-      `;
-
-      auditRows.push({
-        id: rowId,
-        ruleId: rule.id,
-        ruleTitle: rule.title,
-        resultStatus,
-        evidence,
-        createdAt: new Date().toISOString(),
-      });
-      continue;
-    }
-
-    const structuredEvidence = importedStructuredRecipes.find((recipe) => {
-      const candidates = [
-        ...buildTermVariants(recipe.name),
-        ...buildTermVariants(recipe.category),
-        ...buildTermVariants(recipe.subcategory),
-        ...buildTermVariants(recipe.food_group),
-      ];
-
-      return candidates.some((candidate) => candidate.length >= 4 && normalizedRuleText.includes(candidate));
-    });
-
-    const hasTextualEvidence = tokenSource.some((token) => recipeCorpus.includes(token));
-    const hasEvidence = Boolean(structuredEvidence) || hasTextualEvidence;
-    const resultStatus: 'compliant' | 'non_compliant' = hasEvidence
-      ? 'compliant'
-      : 'non_compliant';
-    const evidence = structuredEvidence
-      ? `Regra com evidencia por classificacao estruturada: ${structuredEvidence.name} (${structuredEvidence.category} / ${structuredEvidence.subcategory} / ${structuredEvidence.food_group}).`
-      : hasTextualEvidence
-        ? 'Regra com evidencia textual nas receitas importadas por fallback.'
-        : 'Regra sem evidencia estruturada ou textual nas receitas importadas.';
-    const rowId = randomUUID();
-
-    await prisma.$executeRaw`
-      INSERT INTO menu_import_rule_audits (
-        id,
-        company_name,
-        menu_import_id,
-        rule_id,
-        rule_title,
-        result_status,
-        evidence
-      )
-      VALUES (
-        ${rowId},
-        ${companyName},
-        ${importId},
-        ${rule.id},
-        ${rule.title},
-        ${resultStatus},
-        ${evidence}
-      )
-    `;
-
-    auditRows.push({
-      id: rowId,
-      ruleId: rule.id,
-      ruleTitle: rule.title,
-      resultStatus,
-      evidence,
-      createdAt: new Date().toISOString(),
-    });
-  }
-
-  const compliantCount = auditRows.filter((item) => item.resultStatus === 'compliant').length;
-  const nonCompliantCount = auditRows.filter((item) => item.resultStatus === 'non_compliant').length;
-
-  return {
-    status: 'ok',
-    summary: {
-      auditedRules: auditRows.length,
-      compliantCount,
-      nonCompliantCount,
-    },
-    results: auditRows,
-  };
-});
-
-app.get('/menus/imports/:importId/audit', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = menuImportParamsSchema.safeParse(request.params);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Identificador de importacao invalido.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const importId = parsedParams.data.importId;
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    rule_id: string | null;
-    rule_title: string;
-    result_status: 'compliant' | 'non_compliant';
-    evidence: string;
-    created_at: Date;
-  }>>`
-    SELECT id, rule_id, rule_title, result_status, evidence, created_at
-    FROM menu_import_rule_audits
-    WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
-    ORDER BY created_at DESC
-  `;
-
-  const compliantCount = rows.filter((item) => item.result_status === 'compliant').length;
-  const nonCompliantCount = rows.filter((item) => item.result_status === 'non_compliant').length;
-
-  return {
-    status: 'ok',
-    summary: {
-      auditedRules: rows.length,
-      compliantCount,
-      nonCompliantCount,
-    },
-    results: rows.map((item) => ({
-      id: item.id,
-      ruleId: item.rule_id,
-      ruleTitle: item.rule_title,
-      resultStatus: item.result_status,
-      evidence: item.evidence,
-      createdAt: item.created_at.toISOString(),
-    })),
-  };
-});
-
-app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = menuImportParamsSchema.safeParse(request.params);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Identificador de importacao invalido.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const importId = parsedParams.data.importId;
-
-  await ensureDomainTables();
-
-  const importedRows = await prisma.$queryRaw<Array<{
-    id: string;
-    meal_cost: number | string;
-    financial_goal: number | string;
-    exceeded_value: number | string;
-    recipes_json: string;
-  }>>`
-    SELECT id, meal_cost, financial_goal, exceeded_value, recipes_json
-    FROM menu_pdf_imports
-    WHERE id = ${importId}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  const imported = importedRows[0];
-
-  if (!imported) {
-    return reply.code(404).send({
-      status: 'error',
-      message: 'Importacao de cardapio nao encontrada para esta empresa.',
-    });
-  }
-
-  const auditRows = await prisma.$queryRaw<Array<{
-    rule_id: string | null;
-    rule_title: string;
-    result_status: 'compliant' | 'non_compliant';
-  }>>`
-    SELECT rule_id, rule_title, result_status
-    FROM menu_import_rule_audits
-    WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
-    ORDER BY created_at DESC
-  `;
-
-  await prisma.$executeRaw`
-    DELETE FROM menu_import_adjustment_suggestions
-    WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
-  `;
-
-  const parseNumber = (value: number | string) => {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number(parsed.toFixed(2));
-  };
-
-  const exceededValue = parseNumber(imported.exceeded_value);
-  const importedRecipes = (() => {
-    try {
-      const parsed = JSON.parse(imported.recipes_json) as string[];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  })();
-
-  const normalizedImportedRecipes = importedRecipes.map((item) => normalizeTerm(item));
-
-  const structuredRecipeRows = await prisma.$queryRaw<Array<{
-    name: string;
-    normalized_name: string;
-    category: string;
-    subcategory: string;
-    food_group: string;
-    cost_per_capita: number | string | null;
-  }>>`
-    SELECT name, normalized_name, category, subcategory, food_group, cost_per_capita
-    FROM recipe_library_items
-    WHERE company_name = ${companyName}
-      AND is_active = TRUE
-  `;
-
-  const structuredRecipeByNormalizedName = new Map(
-    structuredRecipeRows.map((item) => [item.normalized_name, item]),
-  );
-
-  const importedStructuredRecipes = normalizedImportedRecipes
-    .map((normalizedName) => structuredRecipeByNormalizedName.get(normalizedName))
-    .filter((item): item is NonNullable<typeof item> => Boolean(item));
-
-  const parseOptionalNumber = (value: number | string | null) => {
-    if (value === null) {
-      return null;
-    }
-
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number.isFinite(parsed) ? Number(parsed.toFixed(2)) : null;
-  };
-
-  const suggestions: Array<{
-    id: string;
-    sourceType: 'rule' | 'financial_goal';
-    sourceReference: string | null;
-    suggestionText: string;
-    estimatedFinancialImpact: number;
-    estimatedNutritionalImpact: string;
-    evidenceSource: 'structured' | 'textual_fallback' | 'financial_goal' | 'preventive';
-    evidenceSubtype: 'frequency' | 'recurrence' | 'classification' | null;
-    priorityLevel: 'high' | 'medium';
-    createdAt: string;
-  }> = [];
-
-  for (const audit of auditRows.filter((item) => item.result_status === 'non_compliant')) {
-    const suggestionId = randomUUID();
-    const ruleTarget = extractRuleTarget(audit.rule_title);
-    const replacementCandidate = ruleTarget
-      ? structuredRecipeRows.find(
-          (item) =>
-            ruleTarget.matches(item) &&
-            !normalizedImportedRecipes.includes(item.normalized_name),
-        )
-      : null;
-    const recipeToReplace = importedStructuredRecipes.find(
-      (item) => !ruleTarget?.matches(item),
-    );
-    const fallbackRecipeToReplace = importedRecipes[0] ?? 'um item atual da refeicao';
-    const replacementName = replacementCandidate?.name ?? `uma receita classificada como ${ruleTarget?.label ?? 'equivalente'}`;
-    const recipeToReplaceName = recipeToReplace?.name ?? fallbackRecipeToReplace;
-    const suggestionText = ruleTarget
-      ? `Substituir ${recipeToReplaceName} por ${replacementName} para atender a regra: ${audit.rule_title}.`
-      : `Ajustar composicao da refeicao para atender a regra: ${audit.rule_title}.`;
-    const replacementImpactBase = parseOptionalNumber(replacementCandidate?.cost_per_capita ?? null);
-    const estimatedFinancialImpact = Number((
-      replacementImpactBase !== null
-        ? -Math.max(replacementImpactBase, 0.5)
-        : -Math.max(exceededValue * 0.35, 0.5)
-    ).toFixed(2));
-    const estimatedNutritionalImpact = ruleTarget
-      ? `Reforca aderencia ao grupo ${ruleTarget.label} com substituicao equivalente.`
-      : 'Preserva aderencia nutricional com substituicoes equivalentes.';
-
-    await prisma.$executeRaw`
-      INSERT INTO menu_import_adjustment_suggestions (
-        id,
-        company_name,
-        menu_import_id,
-        source_type,
-        source_reference,
-        suggestion_text,
-        estimated_financial_impact,
-        estimated_nutritional_impact,
-        priority_level
-      )
-      VALUES (
-        ${suggestionId},
-        ${companyName},
-        ${importId},
-        ${'rule'},
-        ${audit.rule_id ?? audit.rule_title},
-        ${suggestionText},
-        ${estimatedFinancialImpact},
-        ${estimatedNutritionalImpact},
-        ${'high'}
-      )
-    `;
-
-    const evidenceSource = inferSuggestionEvidenceSource({
-      sourceType: 'rule',
-      suggestionText,
-      estimatedNutritionalImpact,
-      sourceReference: audit.rule_id ?? audit.rule_title,
-    });
-
-    suggestions.push({
-      id: suggestionId,
-      sourceType: 'rule',
-      sourceReference: audit.rule_id ?? audit.rule_title,
-      suggestionText,
-      estimatedFinancialImpact,
-      estimatedNutritionalImpact,
-      evidenceSource,
-      evidenceSubtype: inferSuggestionEvidenceSubtype({
-        evidenceSource,
-        suggestionText,
-        sourceReference: audit.rule_id ?? audit.rule_title,
-      }),
-      priorityLevel: 'high',
-      createdAt: new Date().toISOString(),
-    });
-  }
-
-  if (exceededValue > 0) {
-    const suggestionId = randomUUID();
-    const suggestionText = 'Substituir ao menos um item de maior custo por alternativa equivalente para voltar a meta financeira.';
-    const estimatedFinancialImpact = Number((-Math.max(exceededValue, 0.5)).toFixed(2));
-
-    await prisma.$executeRaw`
-      INSERT INTO menu_import_adjustment_suggestions (
-        id,
-        company_name,
-        menu_import_id,
-        source_type,
-        source_reference,
-        suggestion_text,
-        estimated_financial_impact,
-        estimated_nutritional_impact,
-        priority_level
-      )
-      VALUES (
-        ${suggestionId},
-        ${companyName},
-        ${importId},
-        ${'financial_goal'},
-        ${'meal_cost_vs_goal'},
-        ${suggestionText},
-        ${estimatedFinancialImpact},
-        ${'Mantem cobertura nutricional prevista para a refeicao.'},
-        ${'high'}
-      )
-    `;
-
-    const evidenceSource = inferSuggestionEvidenceSource({
-      sourceType: 'financial_goal',
-      suggestionText,
-      estimatedNutritionalImpact: 'Mantem cobertura nutricional prevista para a refeicao.',
-      sourceReference: 'meal_cost_vs_goal',
-    });
-
-    suggestions.push({
-      id: suggestionId,
-      sourceType: 'financial_goal',
-      sourceReference: 'meal_cost_vs_goal',
-      suggestionText,
-      estimatedFinancialImpact,
-      estimatedNutritionalImpact: 'Mantem cobertura nutricional prevista para a refeicao.',
-      evidenceSource,
-      evidenceSubtype: inferSuggestionEvidenceSubtype({
-        evidenceSource,
-        suggestionText,
-        sourceReference: 'meal_cost_vs_goal',
-      }),
-      priorityLevel: 'high',
-      createdAt: new Date().toISOString(),
-    });
-  }
-
-  if (!suggestions.length) {
-    const suggestionId = randomUUID();
-
-    await prisma.$executeRaw`
-      INSERT INTO menu_import_adjustment_suggestions (
-        id,
-        company_name,
-        menu_import_id,
-        source_type,
-        source_reference,
-        suggestion_text,
-        estimated_financial_impact,
-        estimated_nutritional_impact,
-        priority_level
-      )
-      VALUES (
-        ${suggestionId},
-        ${companyName},
-        ${importId},
-        ${'rule'},
-        ${'preventive_optimization'},
-        ${'Manter cardapio atual e registrar combinacoes de melhor aceitacao para proxima versao.'},
-        ${0},
-        ${'Sem impacto nutricional adverso previsto.'},
-        ${'medium'}
-      )
-    `;
-
-    const evidenceSource = inferSuggestionEvidenceSource({
-      sourceType: 'rule',
-      suggestionText:
-        'Manter cardapio atual e registrar combinacoes de melhor aceitacao para proxima versao.',
-      estimatedNutritionalImpact: 'Sem impacto nutricional adverso previsto.',
-      sourceReference: 'preventive_optimization',
-    });
-
-    suggestions.push({
-      id: suggestionId,
-      sourceType: 'rule',
-      sourceReference: 'preventive_optimization',
-      suggestionText:
-        'Manter cardapio atual e registrar combinacoes de melhor aceitacao para proxima versao.',
-      estimatedFinancialImpact: 0,
-      estimatedNutritionalImpact: 'Sem impacto nutricional adverso previsto.',
-      evidenceSource,
-      evidenceSubtype: inferSuggestionEvidenceSubtype({
-        evidenceSource,
-        suggestionText:
-          'Manter cardapio atual e registrar combinacoes de melhor aceitacao para proxima versao.',
-        sourceReference: 'preventive_optimization',
-      }),
-      priorityLevel: 'medium',
-      createdAt: new Date().toISOString(),
-    });
-  }
-
-  return {
-    status: 'ok',
-    summary: {
-      generatedSuggestions: suggestions.length,
-      estimatedTotalFinancialImpact: Number(
-        suggestions.reduce((sum, item) => sum + item.estimatedFinancialImpact, 0).toFixed(2),
-      ),
-    },
-    suggestions,
-  };
-});
-
-app.get('/menus/imports/:importId/suggestions', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = menuImportParamsSchema.safeParse(request.params);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Identificador de importacao invalido.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const importId = parsedParams.data.importId;
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    source_type: 'rule' | 'financial_goal';
-    source_reference: string | null;
-    suggestion_text: string;
-    estimated_financial_impact: number | string;
-    estimated_nutritional_impact: string;
-    priority_level: 'high' | 'medium';
-    created_at: Date;
+    detected_at: Date;
   }>>`
     SELECT
-      id,
-      source_type,
-      source_reference,
-      suggestion_text,
-      estimated_financial_impact,
-      estimated_nutritional_impact,
-      priority_level,
-      created_at
-    FROM menu_import_adjustment_suggestions
-    WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
-    ORDER BY created_at DESC
+      finding.id,
+      finding.control_id,
+      control.title AS control_title,
+      finding.severity,
+      finding.description,
+      finding.detected_at
+    FROM compliance_findings finding
+    INNER JOIN compliance_controls control
+      ON control.id = finding.control_id
+     AND control.company_name = finding.company_name
+    WHERE finding.company_name = ${companyName}
+      AND finding.status IN ('OPEN', 'IN_ANALYSIS')
+      AND finding.severity IN ('CRITICAL', 'HIGH')
+    ORDER BY
+      CASE finding.severity
+        WHEN 'CRITICAL' THEN 1
+        WHEN 'HIGH' THEN 2
+        ELSE 3
+      END,
+      finding.detected_at ASC
+    LIMIT 10
   `;
 
-  const parseNumber = (value: number | string) => {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number(parsed.toFixed(2));
-  };
-
-  return {
-    status: 'ok',
-    summary: {
-      generatedSuggestions: rows.length,
-      estimatedTotalFinancialImpact: Number(
-        rows.reduce((sum, item) => sum + parseNumber(item.estimated_financial_impact), 0).toFixed(2),
-      ),
-    },
-    suggestions: rows.map((item) => {
-      const evidenceSource = inferSuggestionEvidenceSource({
-        sourceType: item.source_type,
-        suggestionText: item.suggestion_text,
-        estimatedNutritionalImpact: item.estimated_nutritional_impact,
-        sourceReference: item.source_reference,
-      });
-
-      return {
-        id: item.id,
-        sourceType: item.source_type,
-        sourceReference: item.source_reference,
-        suggestionText: item.suggestion_text,
-        estimatedFinancialImpact: parseNumber(item.estimated_financial_impact),
-        estimatedNutritionalImpact: item.estimated_nutritional_impact,
-        evidenceSource,
-        evidenceSubtype: inferSuggestionEvidenceSubtype({
-          evidenceSource,
-          suggestionText: item.suggestion_text,
-          sourceReference: item.source_reference,
-        }),
-        priorityLevel: item.priority_level,
-        createdAt: item.created_at.toISOString(),
-      };
-    }),
-  };
-});
-
-app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = menuImportParamsSchema.safeParse(request.params);
-  const parsedBody = adjustedVersionGenerationSchema.safeParse(request.body ?? {});
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Identificador de importacao invalido.',
-    });
-  }
-
-  if (!parsedBody.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Payload de geracao de versao ajustada invalido.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const importId = parsedParams.data.importId;
-  const { monthsAhead } = parsedBody.data;
-
-  await ensureDomainTables();
-
-  const importRows = await prisma.$queryRaw<Array<{
-    unit_name: string;
-    service_name: string;
-    meal_cost: number | string;
-    financial_goal: number | string;
-    reference_date: Date | string;
-    recipes_json: string;
-  }>>`
-    SELECT unit_name, service_name, meal_cost, financial_goal, reference_date, recipes_json
-    FROM menu_pdf_imports
-    WHERE id = ${importId}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  const imported = importRows[0];
-
-  if (!imported) {
-    return reply.code(404).send({
-      status: 'error',
-      message: 'Importacao de cardapio nao encontrada para esta empresa.',
-    });
-  }
-
-  const suggestionRows = await prisma.$queryRaw<Array<{
-    id: string;
-    suggestion_text: string;
-    estimated_financial_impact: number | string;
-    estimated_nutritional_impact: string;
-    priority_level: 'high' | 'medium';
-  }>>`
-    SELECT
-      id,
-      suggestion_text,
-      estimated_financial_impact,
-      estimated_nutritional_impact,
-      priority_level
-    FROM menu_import_adjustment_suggestions
-    WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
-    ORDER BY created_at DESC
-  `;
-
-  if (!suggestionRows.length) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Nao existem sugestoes para gerar versao ajustada.',
-    });
-  }
-
-  const parseNumber = (value: number | string) => {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number(parsed.toFixed(2));
-  };
-
-  const currentMealCost = parseNumber(imported.meal_cost);
-  const financialGoal = parseNumber(imported.financial_goal);
-  const totalFinancialImpact = Number(
-    suggestionRows
-      .reduce((sum, item) => sum + parseNumber(item.estimated_financial_impact), 0)
-      .toFixed(2),
-  );
-
-  const baseReferenceDate = new Date(imported.reference_date);
-  const shiftedDate = new Date(Date.UTC(
-    baseReferenceDate.getUTCFullYear(),
-    baseReferenceDate.getUTCMonth() + monthsAhead,
-    1,
-  ));
-  const targetMonth = `${shiftedDate.getUTCFullYear()}-${String(shiftedDate.getUTCMonth() + 1).padStart(2, '0')}`;
-
-  const commemorativeRows = await prisma.$queryRaw<Array<{
-    reference_date: Date | string;
-    title: string;
-    noble_dish_hint: string | null;
-  }>>`
-    SELECT reference_date, title, noble_dish_hint
-    FROM menu_commemorative_dates
-    WHERE company_name = ${companyName}
-      AND TO_CHAR(reference_date, 'YYYY-MM') = ${targetMonth}
-    ORDER BY reference_date ASC
-  `;
-
-  const commemorativeContext = {
-    targetMonth,
-    planningMonthsAhead: monthsAhead,
-    prioritizeNobleDishes: commemorativeRows.length > 0,
-    commemorativeDates: commemorativeRows.map((item) => ({
-      referenceDate:
-        item.reference_date instanceof Date
-          ? item.reference_date.toISOString().slice(0, 10)
-          : String(item.reference_date).slice(0, 10),
-      title: item.title,
-      nobleDishHint: item.noble_dish_hint,
-    })),
-  };
-
-  const nobleDishExtraCostFactor = commemorativeContext.prioritizeNobleDishes ? 1.08 : 1;
-  const adjustedMealCost = Number(
-    Math.max((currentMealCost + totalFinancialImpact) * nobleDishExtraCostFactor, financialGoal * 0.85).toFixed(2),
-  );
-
-  const versionCountRows = await prisma.$queryRaw<Array<{ total: number }>>`
-    SELECT COUNT(*)::int AS total
-    FROM menu_adjusted_versions
-    WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
-  `;
-
-  const nextVersionNumber = (versionCountRows[0]?.total ?? 0) + 1;
-  const versionId = randomUUID();
-  const versionLabel = `v${nextVersionNumber}`;
-  const nutritionalImpactSummary = suggestionRows
-    .map((item) => item.estimated_nutritional_impact)
-    .filter((value, index, source) => source.indexOf(value) === index)
-    .join(' | ');
-  const appliedSuggestions = suggestionRows.map((item) => ({
-    id: item.id,
-    suggestionText: item.suggestion_text,
-    estimatedFinancialImpact: parseNumber(item.estimated_financial_impact),
-    estimatedNutritionalImpact: item.estimated_nutritional_impact,
-    priorityLevel: item.priority_level,
-  }));
-
-  await prisma.$executeRaw`
-    INSERT INTO menu_adjusted_versions (
-      id,
-      company_name,
-      menu_import_id,
-      version_label,
-      target_month,
-      planning_months_ahead,
-      adjusted_meal_cost,
-      total_financial_impact,
-      nutritional_impact_summary,
-      commemorative_context_json,
-      applied_suggestions_json
-    )
-    VALUES (
-      ${versionId},
-      ${companyName},
-      ${importId},
-      ${versionLabel},
-      ${targetMonth},
-      ${monthsAhead},
-      ${adjustedMealCost},
-      ${totalFinancialImpact},
-      ${nutritionalImpactSummary || 'Sem alteracoes nutricionais relevantes.'},
-      ${JSON.stringify(commemorativeContext)},
-      ${JSON.stringify(appliedSuggestions)}
-    )
-  `;
-
-  await recordAiPreparationEvent({
-    companyName,
-    moduleKey: 'menus',
-    sourceKind: 'adjusted-version-generation',
-    providerKey: 'structured-ready',
-    data: buildMenuPreparationContext({
-      companyName,
-      importId,
-      unitName: imported.unit_name,
-      serviceName: imported.service_name,
-      referenceDate:
-        typeof imported.reference_date === 'string'
-          ? imported.reference_date.slice(0, 10)
-          : imported.reference_date.toISOString().slice(0, 10),
-      monthsAhead,
-      recipes: (() => {
-        try {
-          return JSON.parse(imported.recipes_json) as string[];
-        } catch {
-          return [];
-        }
-      })(),
-      targetMonth,
-      commemorativeDates: commemorativeContext.commemorativeDates,
-    }),
-  });
-
-  return reply.code(201).send({
-    status: 'ok',
-    adjustedVersion: {
-      id: versionId,
-      versionLabel,
-      targetMonth,
-      planningMonthsAhead: monthsAhead,
-      adjustedMealCost,
-      totalFinancialImpact,
-      nutritionalImpactSummary: nutritionalImpactSummary || 'Sem alteracoes nutricionais relevantes.',
-      commemorativeContext,
-      appliedSuggestions,
-      createdAt: new Date().toISOString(),
-    },
-  });
-});
-
-app.get('/menus/imports/:importId/adjusted-versions', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = menuImportParamsSchema.safeParse(request.params);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Identificador de importacao invalido.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const importId = parsedParams.data.importId;
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    version_label: string;
-    target_month: string | null;
-    planning_months_ahead: number | null;
-    adjusted_meal_cost: number | string;
-    total_financial_impact: number | string;
-    nutritional_impact_summary: string;
-    commemorative_context_json: string | null;
-    applied_suggestions_json: string;
-    created_at: Date;
-  }>>`
-    SELECT
-      id,
-      version_label,
-      target_month,
-      planning_months_ahead,
-      adjusted_meal_cost,
-      total_financial_impact,
-      nutritional_impact_summary,
-      commemorative_context_json,
-      applied_suggestions_json,
-      created_at
-    FROM menu_adjusted_versions
-    WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
-    ORDER BY created_at DESC
-  `;
-
-  const parseNumber = (value: number | string) => {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number(parsed.toFixed(2));
-  };
-
-  return {
-    status: 'ok',
-    versions: rows.map((item) => ({
-      id: item.id,
-      versionLabel: item.version_label,
-      targetMonth: item.target_month,
-      planningMonthsAhead: item.planning_months_ahead ?? 0,
-      adjustedMealCost: parseNumber(item.adjusted_meal_cost),
-      totalFinancialImpact: parseNumber(item.total_financial_impact),
-      nutritionalImpactSummary: item.nutritional_impact_summary,
-      commemorativeContext: item.commemorative_context_json
-        ? JSON.parse(item.commemorative_context_json) as {
-            targetMonth: string;
-            planningMonthsAhead: number;
-            prioritizeNobleDishes: boolean;
-            commemorativeDates: Array<{
-              referenceDate: string;
-              title: string;
-              nobleDishHint: string | null;
-            }>;
-          }
-        : {
-            targetMonth: item.target_month ?? '',
-            planningMonthsAhead: item.planning_months_ahead ?? 0,
-            prioritizeNobleDishes: false,
-            commemorativeDates: [],
-          },
-      appliedSuggestions: JSON.parse(item.applied_suggestions_json) as Array<{
-        id: string;
-        suggestionText: string;
-        estimatedFinancialImpact: number;
-        estimatedNutritionalImpact: string;
-        priorityLevel: 'high' | 'medium';
-      }>,
-      createdAt: item.created_at.toISOString(),
-    })),
-  };
-});
-
-app.post('/menus/commemorative-dates', { preHandler: authenticate }, async (request, reply) => {
-  const parsed = commemorativeDateSchema.safeParse(request.body);
-
-  if (!parsed.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Payload de data comemorativa invalido.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const payload = parsed.data;
-  const dateYear = Number(payload.referenceDate.slice(0, 4));
-  const id = randomUUID();
-
-  await ensureDomainTables();
-
-  await prisma.$executeRaw`
-    INSERT INTO menu_commemorative_dates (
-      id,
-      company_name,
-      reference_date,
-      date_year,
-      title,
-      noble_dish_hint,
-      created_by
-    )
-    VALUES (
-      ${id},
-      ${companyName},
-      ${payload.referenceDate},
-      ${dateYear},
-      ${payload.title.trim()},
-      ${payload.nobleDishHint?.trim() || null},
-      ${actor.name}
-    )
-    ON CONFLICT (company_name, reference_date)
-    DO UPDATE SET
-      title = EXCLUDED.title,
-      noble_dish_hint = EXCLUDED.noble_dish_hint,
-      created_by = EXCLUDED.created_by
-  `;
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    reference_date: Date | string;
-    date_year: number;
-    title: string;
-    noble_dish_hint: string | null;
-    created_by: string;
-    created_at: Date | string;
-  }>>`
-    SELECT id, reference_date, date_year, title, noble_dish_hint, created_by, created_at
-    FROM menu_commemorative_dates
-    WHERE company_name = ${companyName}
-      AND reference_date = ${payload.referenceDate}
-    LIMIT 1
-  `;
-
-  const created = rows[0];
-
-  return reply.code(201).send({
-    status: 'ok',
-    commemorativeDate: {
-      id: created.id,
-      referenceDate:
-        created.reference_date instanceof Date
-          ? created.reference_date.toISOString().slice(0, 10)
-          : String(created.reference_date).slice(0, 10),
-      year: created.date_year,
-      title: created.title,
-      nobleDishHint: created.noble_dish_hint,
-      createdBy: created.created_by,
-      createdAt: created.created_at,
-    },
-  });
-});
-
-app.get('/menus/commemorative-dates', { preHandler: authenticate }, async (request, reply) => {
-  const parsedQuery = commemorativeDateListQuerySchema.safeParse(request.query);
-
-  if (!parsedQuery.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Parametros de consulta invalidos para datas comemorativas.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const { year, limit } = parsedQuery.data;
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    reference_date: Date | string;
-    date_year: number;
-    title: string;
-    noble_dish_hint: string | null;
-    created_by: string;
-    created_at: Date | string;
-  }>>`
-    SELECT id, reference_date, date_year, title, noble_dish_hint, created_by, created_at
-    FROM menu_commemorative_dates
-    WHERE company_name = ${companyName}
-      AND date_year = ${year}
-    ORDER BY reference_date ASC
-    LIMIT ${limit}
-  `;
-
-  return {
-    status: 'ok',
-    year,
-    commemorativeDates: rows.map((item) => ({
-      id: item.id,
-      referenceDate:
-        item.reference_date instanceof Date
-          ? item.reference_date.toISOString().slice(0, 10)
-          : String(item.reference_date).slice(0, 10),
-      year: item.date_year,
-      title: item.title,
-      nobleDishHint: item.noble_dish_hint,
-      createdBy: item.created_by,
-      createdAt: item.created_at,
-    })),
-  };
-});
-
-app.post('/evaluations/imports', { preHandler: authenticate }, async (request, reply) => {
-  const parsed = evaluationImportSchema.safeParse(request.body);
-
-  if (!parsed.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: 'Payload de importacao de avaliacoes invalido.',
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const payload = parsed.data;
-  const evaluationId = randomUUID();
-
-  await ensureDomainTables();
-
-  await prisma.$executeRaw`
-    INSERT INTO menu_evaluation_imports (
-      id,
-      company_name,
-      file_name,
-      unit_name,
-      service_name,
-      reference_date,
-      score,
-      evaluations_count,
-      comments
-    )
-    VALUES (
-      ${evaluationId},
-      ${companyName},
-      ${payload.fileName.trim()},
-      ${payload.unitName.trim()},
-      ${payload.serviceName.trim()},
-      ${payload.referenceDate},
-      ${payload.score},
-      ${payload.evaluationsCount},
-      ${payload.comments?.trim() || null}
-    )
-  `;
-
-  return reply.code(201).send({
-    status: 'ok',
-    evaluation: {
-      id: evaluationId,
-      fileName: payload.fileName.trim(),
-      unitName: payload.unitName.trim(),
-      serviceName: payload.serviceName.trim(),
-      referenceDate: new Date(payload.referenceDate).toISOString(),
-      score: Number(payload.score.toFixed(2)),
-      evaluationsCount: payload.evaluationsCount,
-      comments: payload.comments?.trim() || null,
-      createdAt: new Date().toISOString(),
-    },
-  });
-});
-
-app.get('/evaluations/imports', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const parsedQuery = evaluationImportListQuerySchema.safeParse(request.query);
-  const limit = parsedQuery.success ? parsedQuery.data.limit : 20;
-  const companyName = getCompanyFromJwt(request);
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
+  const pendingMenusDetails = await prisma.$queryRaw<Array<{
     id: string;
     file_name: string;
     unit_name: string;
     service_name: string;
     reference_date: Date;
-    score: number | string;
-    evaluations_count: number;
-    comments: string | null;
     created_at: Date;
   }>>`
     SELECT
-      id,
-      file_name,
-      unit_name,
-      service_name,
-      reference_date,
-      score,
-      evaluations_count,
-      comments,
-      created_at
-    FROM menu_evaluation_imports
-    WHERE company_name = ${companyName}
-    ORDER BY created_at DESC
-    LIMIT ${limit}
-  `;
-
-  const parseNumber = (value: number | string) => {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number(parsed.toFixed(2));
-  };
-
-  return {
-    status: 'ok',
-    evaluations: rows.map((item) => ({
-      id: item.id,
-      fileName: item.file_name,
-      unitName: item.unit_name,
-      serviceName: item.service_name,
-      referenceDate: item.reference_date.toISOString(),
-      score: parseNumber(item.score),
-      evaluationsCount: item.evaluations_count,
-      comments: item.comments,
-      createdAt: item.created_at.toISOString(),
-    })),
-  };
-});
-
-app.post('/evaluations/intelligence/rebuild', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
-    unit_name: string;
-    service_name: string;
-    reference_date: Date;
-    score: number | string;
-    evaluations_count: number;
-    menu_import_id: string | null;
-    recipes_json: string | null;
-  }>>`
-    SELECT
-      eval.unit_name,
-      eval.service_name,
-      eval.reference_date,
-      eval.score,
-      eval.evaluations_count,
-      menu.id AS menu_import_id,
-      menu.recipes_json
-    FROM menu_evaluation_imports eval
-    LEFT JOIN menu_pdf_imports menu
-      ON menu.company_name = eval.company_name
-      AND menu.unit_name = eval.unit_name
-      AND menu.service_name = eval.service_name
-      AND menu.reference_date = eval.reference_date
-    WHERE eval.company_name = ${companyName}
-    ORDER BY eval.reference_date DESC
-  `;
-
-  await prisma.$executeRaw`
-    DELETE FROM menu_combination_intelligence
-    WHERE company_name = ${companyName}
-  `;
-
-  const parseNumber = (value: number | string) => {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number(parsed.toFixed(2));
-  };
-
-  const grouped = new Map<string, {
-    recipesJson: string;
-    unitName: string;
-    serviceName: string;
-    scoreWeightedSum: number;
-    evaluationsCount: number;
-    mappedRecords: number;
-    lastReferenceDate: Date;
-  }>();
-
-  for (const item of rows) {
-    if (!item.menu_import_id || !item.recipes_json) {
-      continue;
-    }
-
-    const key = `${item.unit_name}::${item.service_name}::${item.recipes_json}`;
-    const score = parseNumber(item.score);
-    const evalCount = item.evaluations_count;
-    const current = grouped.get(key);
-
-    if (!current) {
-      grouped.set(key, {
-        recipesJson: item.recipes_json,
-        unitName: item.unit_name,
-        serviceName: item.service_name,
-        scoreWeightedSum: score * evalCount,
-        evaluationsCount: evalCount,
-        mappedRecords: 1,
-        lastReferenceDate: item.reference_date,
-      });
-      continue;
-    }
-
-    current.scoreWeightedSum += score * evalCount;
-    current.evaluationsCount += evalCount;
-    current.mappedRecords += 1;
-    if (item.reference_date > current.lastReferenceDate) {
-      current.lastReferenceDate = item.reference_date;
-    }
-  }
-
-  let generatedCombinations = 0;
-
-  for (const [combinationKey, aggregate] of grouped.entries()) {
-    const averageRating = Number((aggregate.scoreWeightedSum / aggregate.evaluationsCount).toFixed(2));
-    const trend = averageRating >= 8 ? 'positive' : averageRating >= 6 ? 'stable' : 'negative';
-
-    await prisma.$executeRaw`
-      INSERT INTO menu_combination_intelligence (
-        id,
-        company_name,
-        combination_key,
-        recipes_json,
-        unit_name,
-        service_name,
-        average_rating,
-        evaluations_count,
-        mapped_records,
-        last_reference_date,
-        trend
+      menu_import.id,
+      menu_import.file_name,
+      menu_import.unit_name,
+      menu_import.service_name,
+      menu_import.reference_date,
+      menu_import.created_at
+    FROM menu_pdf_imports menu_import
+    WHERE menu_import.company_name = ${companyName}
+      AND NOT EXISTS (
+        SELECT 1
+        FROM menu_next_menu_decisions decision
+        WHERE decision.company_name = menu_import.company_name
+          AND decision.menu_import_id = menu_import.id
       )
-      VALUES (
-        ${randomUUID()},
-        ${companyName},
-        ${combinationKey},
-        ${aggregate.recipesJson},
-        ${aggregate.unitName},
-        ${aggregate.serviceName},
-        ${averageRating},
-        ${aggregate.evaluationsCount},
-        ${aggregate.mappedRecords},
-        ${aggregate.lastReferenceDate.toISOString().slice(0, 10)},
-        ${trend}
-      )
-    `;
-
-    generatedCombinations += 1;
-  }
-
-  return {
-    status: 'ok',
-    summary: {
-      processedEvaluationRows: rows.length,
-      generatedCombinations,
-    },
-  };
-});
-
-app.get('/evaluations/intelligence', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const parsedQuery = intelligenceListQuerySchema.safeParse(request.query);
-  const limit = parsedQuery.success ? parsedQuery.data.limit : 20;
-  const companyName = getCompanyFromJwt(request);
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    combination_key: string;
-    recipes_json: string;
-    unit_name: string;
-    service_name: string;
-    average_rating: number | string;
-    evaluations_count: number;
-    mapped_records: number;
-    last_reference_date: Date;
-    trend: 'positive' | 'stable' | 'negative';
-    created_at: Date;
-  }>>`
-    SELECT
-      id,
-      combination_key,
-      recipes_json,
-      unit_name,
-      service_name,
-      average_rating,
-      evaluations_count,
-      mapped_records,
-      last_reference_date,
-      trend,
-      created_at
-    FROM menu_combination_intelligence
-    WHERE company_name = ${companyName}
-    ORDER BY average_rating DESC, evaluations_count DESC
-    LIMIT ${limit}
+    ORDER BY menu_import.created_at ASC
+    LIMIT 8
   `;
 
-  const parseNumber = (value: number | string) => {
-    const parsed = typeof value === 'number' ? value : Number(value);
-    return Number(parsed.toFixed(2));
+  const frequencyThresholdDays = (frequency: string) => {
+    if (frequency === 'DAILY' || frequency === 'PER_SHIFT') {
+      return 1;
+    }
+
+    if (frequency === 'WEEKLY') {
+      return 7;
+    }
+
+    if (frequency === 'MONTHLY') {
+      return 30;
+    }
+
+    return 7;
   };
 
-  return {
-    status: 'ok',
-    combinations: rows.map((item) => ({
-      id: item.id,
-      combinationKey: item.combination_key,
-      recipes: JSON.parse(item.recipes_json) as string[],
-      unitName: item.unit_name,
-      serviceName: item.service_name,
-      averageRating: parseNumber(item.average_rating),
-      evaluationsCount: item.evaluations_count,
-      mappedRecords: item.mapped_records,
-      lastReferenceDate: item.last_reference_date.toISOString(),
-      trend: item.trend,
-      createdAt: item.created_at.toISOString(),
-    })),
-  };
-});
+  const now = new Date();
 
-app.get('/contracts', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
+  const pendingControls = controls.filter((item) => item.status === 'DRAFT' || item.status === 'PAUSED').length;
 
-  const query = z
-    .object({ limit: z.coerce.number().int().min(1).max(50).default(20) })
-    .safeParse(request.query);
+  const overdueControls = controls.filter((item) => {
+    if (item.status !== 'ACTIVE' && item.status !== 'NON_COMPLIANT') {
+      return false;
+    }
 
-  const limit = query.success ? query.data.limit : 20;
-  const companyName = getCompanyFromJwt(request);
+    if (!item.last_execution_at) {
+      return true;
+    }
 
-  await ensureDomainTables();
-
-  const contracts = await prisma.$queryRaw<Array<{
-    id: string;
-    title: string;
-    source_type: string;
-    status: string;
-    created_at: Date;
-  }>>`
-    SELECT id, title, source_type, status, created_at
-    FROM contracts
-    WHERE company_name = ${companyName}
-    ORDER BY created_at DESC
-    LIMIT ${limit}
-  `;
-
-  return {
-    status: 'ok',
-    contracts: contracts.map((item) => ({
-      id: item.id,
-      title: item.title,
-      sourceType: item.source_type,
-      status: item.status,
-      createdAt: item.created_at.toISOString(),
-    })),
-  };
-});
-
-app.post('/rules', { preHandler: authenticate }, async (request, reply) => {
-  const parsed = ruleSchema.safeParse(request.body);
-
-  if (!parsed.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: apiMessage.auth.invalidCredentials,
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const payload = parsed.data;
-  const ruleId = randomUUID();
-
-  await ensureDomainTables();
-
-  const contractExists = await prisma.$queryRaw<Array<{ id: string }>>`
-    SELECT id
-    FROM contracts
-    WHERE id = ${payload.contractId}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  if (!contractExists.length) {
-    return reply.code(404).send({
-      status: 'error',
-      message: 'Contrato nao encontrado para esta empresa.',
-    });
-  }
-
-  await prisma.$executeRaw`
-    INSERT INTO extracted_rules (id, company_name, contract_id, title, description, category, status)
-    VALUES (
-      ${ruleId},
-      ${companyName},
-      ${payload.contractId},
-      ${payload.title},
-      ${payload.description},
-      ${payload.category},
-      ${payload.status}
-    )
-  `;
-
-  const creationEventId = randomUUID();
-  await prisma.$executeRaw`
-    INSERT INTO rule_validation_events (
-      id,
-      company_name,
-      rule_id,
-      previous_status,
-      next_status,
-      note,
-      actor_id,
-      actor_name
-    )
-    VALUES (
-      ${creationEventId},
-      ${companyName},
-      ${ruleId},
-      ${payload.status},
-      ${payload.status},
-      ${'Regra cadastrada no fluxo operacional.'},
-      ${actor.id},
-      ${actor.name}
-    )
-  `;
-
-  await recordAiPreparationEvent({
-    companyName,
-    moduleKey: 'rules',
-    sourceKind: 'contract-rule-creation',
-    providerKey: 'structured-ready',
-    data: buildRulePreparationContext({
-      companyName,
-      contractId: payload.contractId,
-      title: payload.title,
-      description: payload.description,
-      category: payload.category,
-    }),
+    const threshold = frequencyThresholdDays(item.frequency);
+    const diffDays = Math.floor((now.getTime() - item.last_execution_at.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays >= threshold;
   });
 
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    contract_id: string;
-    title: string;
-    description: string;
-    category: string;
-    status: string;
-    created_at: Date;
-  }>>`
-    SELECT id, contract_id, title, description, category, status, created_at
-    FROM extracted_rules
-    WHERE id = ${ruleId}
-    LIMIT 1
-  `;
+  const dueTodayControls = controls.filter((item) => {
+    if (item.status !== 'ACTIVE' && item.status !== 'NON_COMPLIANT') {
+      return false;
+    }
 
-  return reply.code(201).send({
-    status: 'ok',
-    rule: {
-      id: rows[0]?.id ?? ruleId,
-      contractId: rows[0]?.contract_id ?? payload.contractId,
-      title: rows[0]?.title ?? payload.title,
-      description: rows[0]?.description ?? payload.description,
-      category: rows[0]?.category ?? payload.category,
-      status: rows[0]?.status ?? payload.status,
-      createdAt: (rows[0]?.created_at ?? new Date()).toISOString(),
-    },
-  });
-});
+    if (!item.last_execution_at) {
+      return true;
+    }
 
-app.patch('/rules/:ruleId/status', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = ruleParamsSchema.safeParse(request.params);
-  const parsedBody = ruleStatusUpdateSchema.safeParse(request.body);
+    const threshold = frequencyThresholdDays(item.frequency);
+    const diffDays = Math.floor((now.getTime() - item.last_execution_at.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays === threshold;
+  }).slice(0, 8);
 
-  if (!parsedParams.success || !parsedBody.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: apiMessage.auth.invalidCredentials,
-    });
-  }
+  const openFindings = findingsSummary?.open_total ?? 0;
+  const criticalFindings = findingsSummary?.critical_total ?? 0;
+  const pendingRecommendations = pendingRecommendationsRow?.total ?? 0;
+  const pendingMenus = pendingMenusRow?.total ?? 0;
+  const overdueExecutions = overdueControls.length;
 
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-
-  await ensureDomainTables();
-
-  const existingRows = await prisma.$queryRaw<Array<{ id: string; status: string }>>`
-    SELECT id, status
-    FROM extracted_rules
-    WHERE id = ${parsedParams.data.ruleId}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  const existingRule = existingRows[0];
-
-  if (!existingRule) {
-    return reply.code(404).send({
-      status: 'error',
-      message: 'Regra nao encontrada para esta empresa.',
-    });
-  }
-
-  const previousStatus = existingRule.status;
-  const nextStatus = parsedBody.data.status;
-
-  await prisma.$executeRaw`
-    UPDATE extracted_rules
-    SET status = ${nextStatus}
-    WHERE id = ${parsedParams.data.ruleId}
-      AND company_name = ${companyName}
-  `;
-
-  const eventId = randomUUID();
-  await prisma.$executeRaw`
-    INSERT INTO rule_validation_events (
-      id,
-      company_name,
-      rule_id,
-      previous_status,
-      next_status,
-      note,
-      actor_id,
-      actor_name
-    )
-    VALUES (
-      ${eventId},
-      ${companyName},
-      ${parsedParams.data.ruleId},
-      ${previousStatus},
-      ${nextStatus},
-      ${parsedBody.data.note ?? null},
-      ${actor.id},
-      ${actor.name}
-    )
-  `;
-
-  return {
-    status: 'ok',
-    message: 'Status da regra atualizado com rastreabilidade.',
-  };
-});
-
-app.get('/rules/:ruleId/history', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = ruleParamsSchema.safeParse(request.params);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({
-      status: 'error',
-      message: apiMessage.auth.invalidCredentials,
-    });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-
-  await ensureDomainTables();
-
-  const events = await prisma.$queryRaw<
-    Array<{
-      id: string;
-      previous_status: string;
-      next_status: string;
-      note: string | null;
-      actor_name: string;
-      created_at: Date;
-    }>
-  >`
-    SELECT id, previous_status, next_status, note, actor_name, created_at
-    FROM rule_validation_events
-    WHERE company_name = ${companyName}
-      AND rule_id = ${parsedParams.data.ruleId}
-    ORDER BY created_at DESC
-    LIMIT 50
-  `;
-
-  return {
-    status: 'ok',
-    events: events.map((event) => ({
-      id: event.id,
-      previousStatus: event.previous_status,
-      nextStatus: event.next_status,
-      note: event.note,
-      actorName: event.actor_name,
-      createdAt: event.created_at.toISOString(),
+  const attentionItems = [
+    ...openCriticalFindingsRows.map((item) => ({
+      id: `finding-${item.id}`,
+      type: 'FINDING',
+      severity: (String(item.severity).toUpperCase() === 'CRITICAL' ? 'CRITICAL' : 'HIGH') as 'CRITICAL' | 'HIGH',
+      title: `${String(item.severity).toUpperCase() === 'CRITICAL' ? 'Finding crítico' : 'Finding alto'} em ${item.control_title}`,
+      detail: item.description,
+      ctaLabel: 'Ver controle',
+      ctaPath: `/compliance/${item.control_id}`,
+      occurredAt: item.detected_at.toISOString(),
     })),
+    ...overdueControls.slice(0, 10).map((item) => ({
+      id: `overdue-${item.id}`,
+      type: 'OVERDUE_EXECUTION',
+      severity: 'HIGH' as const,
+      title: `Execução atrasada: ${item.title}`,
+      detail: `Responsável ${item.responsible} · Frequência ${String(item.frequency).toLowerCase()}`,
+      ctaLabel: 'Registrar execução',
+      ctaPath: `/compliance/${item.id}`,
+      occurredAt: item.last_execution_at?.toISOString() ?? now.toISOString(),
+    })),
+    ...pendingMenusDetails.map((item) => ({
+      id: `decision-${item.id}`,
+      type: 'PENDING_MENU_DECISION',
+      severity: 'MEDIUM' as const,
+      title: `Decisão pendente: ${item.unit_name} / ${item.service_name}`,
+      detail: `Cardápio ${item.file_name} sem decisão registrada.`,
+      ctaLabel: 'Ir para cardápios',
+      ctaPath: '/menus',
+      occurredAt: item.created_at.toISOString(),
+    })),
+    ...dueTodayControls.map((item) => ({
+      id: `due-today-${item.id}`,
+      type: 'DUE_TODAY',
+      severity: 'MEDIUM' as const,
+      title: `Controle vence hoje: ${item.title}`,
+      detail: `Responsável ${item.responsible} · Frequência ${String(item.frequency).toLowerCase()}`,
+      ctaLabel: 'Ver controle',
+      ctaPath: `/compliance/${item.id}`,
+      occurredAt: item.last_execution_at?.toISOString() ?? now.toISOString(),
+    })),
+  ];
+
+  const severityRank: Record<string, number> = {
+    CRITICAL: 3,
+    HIGH: 2,
+    MEDIUM: 1,
   };
-});
 
-app.post('/non-conformities', { preHandler: authenticate }, async (request, reply) => {
-  const parsed = nonConformitySchema.safeParse(request.body);
+  const sortedAttentionItems = attentionItems
+    .sort((a, b) => {
+      const bySeverity = (severityRank[b.severity] ?? 0) - (severityRank[a.severity] ?? 0);
 
-  if (!parsed.success) {
-    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
-  }
+      if (bySeverity !== 0) {
+        return bySeverity;
+      }
 
-  if (!prisma) {
-    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
-  }
-
-  await ensureDomainTables();
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const itemId = randomUUID();
-  const payload = parsed.data;
-
-  await prisma.$executeRaw`
-    INSERT INTO non_conformities (
-      id,
-      company_name,
-      title,
-      description,
-      origin,
-      impact,
-      owner,
-      due_date,
-      status,
-      created_by
-    )
-    VALUES (
-      ${itemId},
-      ${companyName},
-      ${payload.title},
-      ${payload.description},
-      ${payload.origin},
-      ${payload.impact},
-      ${payload.owner},
-      ${payload.dueDate},
-      ${payload.status},
-      ${actor.id}
-    )
-  `;
-
-  const eventId = randomUUID();
-  await prisma.$executeRaw`
-    INSERT INTO non_conformity_events (
-      id,
-      company_name,
-      non_conformity_id,
-      previous_status,
-      next_status,
-      actor_id,
-      actor_name
-    )
-    VALUES (
-      ${eventId},
-      ${companyName},
-      ${itemId},
-      ${payload.status},
-      ${payload.status},
-      ${actor.id},
-      ${actor.name}
-    )
-  `;
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    title: string;
-    description: string;
-    origin: string;
-    impact: string;
-    owner: string;
-    due_date: Date;
-    status: string;
-    created_at: Date;
-  }>>`
-    SELECT id, title, description, origin, impact, owner, due_date, status, created_at
-    FROM non_conformities
-    WHERE id = ${itemId}
-    LIMIT 1
-  `;
-
-  return reply.code(201).send({
-    status: 'ok',
-    nonConformity: {
-      id: rows[0]?.id ?? itemId,
-      title: rows[0]?.title ?? payload.title,
-      description: rows[0]?.description ?? payload.description,
-      origin: rows[0]?.origin ?? payload.origin,
-      impact: rows[0]?.impact ?? payload.impact,
-      owner: rows[0]?.owner ?? payload.owner,
-      dueDate: (rows[0]?.due_date ?? new Date(payload.dueDate)).toISOString(),
-      status: rows[0]?.status ?? payload.status,
-      createdAt: (rows[0]?.created_at ?? new Date()).toISOString(),
-    },
-  });
-});
-
-app.get('/non-conformities', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
-  }
-
-  const query = z
-    .object({
-      status: z.enum(['open', 'in_progress', 'resolved', 'cancelled']).optional(),
-      limit: z.coerce.number().int().min(1).max(100).default(30),
+      return new Date(a.occurredAt).getTime() - new Date(b.occurredAt).getTime();
     })
-    .safeParse(request.query);
+    .slice(0, 14);
 
-  await ensureDomainTables();
+  const todayEvents = await prisma.$queryRaw<Array<{
+    id: string;
+    event_type: string;
+    title: string;
+    description: string;
+    occurred_at: Date;
+    cta_path: string;
+  }>>`
+    SELECT *
+    FROM (
+      SELECT
+        execution.id,
+        'execution_failed' AS event_type,
+        CONCAT('Falha de execução: ', control.title) AS title,
+        execution.evidence_summary AS description,
+        execution.executed_at AS occurred_at,
+        CONCAT('/compliance/', execution.control_id) AS cta_path
+      FROM compliance_control_executions execution
+      INNER JOIN compliance_controls control
+        ON control.id = execution.control_id
+       AND control.company_name = execution.company_name
+      WHERE execution.company_name = ${companyName}
+        AND execution.status = 'failed'
+        AND execution.executed_at >= date_trunc('day', NOW())
 
-  const companyName = getCompanyFromJwt(request);
-  const limit = query.success ? query.data.limit : 30;
-  const selectedStatus = query.success ? query.data.status : undefined;
+      UNION ALL
 
-  const rows = selectedStatus
-    ? await prisma.$queryRaw<Array<{
-        id: string;
-        title: string;
-        description: string;
-        origin: string;
-        impact: string;
-        owner: string;
-        due_date: Date;
-        status: string;
-        created_at: Date;
-      }>>`
-        SELECT id, title, description, origin, impact, owner, due_date, status, created_at
-        FROM non_conformities
-        WHERE company_name = ${companyName}
-          AND status = ${selectedStatus}
-        ORDER BY created_at DESC
-        LIMIT ${limit}
-      `
-    : await prisma.$queryRaw<Array<{
-        id: string;
-        title: string;
-        description: string;
-        origin: string;
-        impact: string;
-        owner: string;
-        due_date: Date;
-        status: string;
-        created_at: Date;
-      }>>`
-        SELECT id, title, description, origin, impact, owner, due_date, status, created_at
-        FROM non_conformities
-        WHERE company_name = ${companyName}
-        ORDER BY created_at DESC
-        LIMIT ${limit}
-      `;
+      SELECT
+        finding_event.id,
+        'finding_status' AS event_type,
+        CONCAT('Finding ', finding_event.next_status, ': ', control.title) AS title,
+        finding_event.description,
+        finding_event.created_at AS occurred_at,
+        CONCAT('/compliance/', finding.control_id) AS cta_path
+      FROM compliance_finding_events finding_event
+      INNER JOIN compliance_findings finding
+        ON finding.id = finding_event.finding_id
+       AND finding.company_name = finding_event.company_name
+      INNER JOIN compliance_controls control
+        ON control.id = finding.control_id
+       AND control.company_name = finding.company_name
+      WHERE finding_event.company_name = ${companyName}
+        AND finding_event.created_at >= date_trunc('day', NOW())
 
-  return {
+      UNION ALL
+
+      SELECT
+        decision.id,
+        'menu_decision' AS event_type,
+        CONCAT('Decisão registrada: ', decision.decision_status) AS title,
+        decision.justification AS description,
+        decision.created_at AS occurred_at,
+        '/menus' AS cta_path
+      FROM menu_next_menu_decisions decision
+      WHERE decision.company_name = ${companyName}
+        AND decision.created_at >= date_trunc('day', NOW())
+    ) merged
+    ORDER BY occurred_at DESC
+    LIMIT 12
+  `;
+
+  const criticality = criticalFindings > 0
+    ? 'CRITICAL'
+    : overdueExecutions >= 6 || openFindings >= 10
+      ? 'HIGH'
+      : overdueExecutions > 0 || pendingMenus > 0 || openFindings > 0
+        ? 'MEDIUM'
+        : 'LOW';
+
+  return reply.code(200).send({
     status: 'ok',
-    nonConformities: rows.map((item) => ({
+    criticality,
+    pendingControls,
+    overdueExecutions,
+    openFindings,
+    criticalFindings,
+    pendingRecommendations,
+    pendingMenus,
+    attentionItems: sortedAttentionItems,
+    todayEvents: todayEvents.map((item) => ({
       id: item.id,
+      type: item.event_type,
       title: item.title,
       description: item.description,
-      origin: item.origin,
-      impact: item.impact,
-      owner: item.owner,
-      dueDate: item.due_date.toISOString(),
-      status: item.status,
-      createdAt: item.created_at.toISOString(),
+      occurredAt: item.occurred_at.toISOString(),
+      ctaPath: item.cta_path,
     })),
-  };
-});
-
-app.patch('/non-conformities/:nonConformityId/status', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = nonConformityParamsSchema.safeParse(request.params);
-  const parsedBody = nonConformityStatusSchema.safeParse(request.body);
-
-  if (!parsedParams.success || !parsedBody.success) {
-    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-
-  await ensureDomainTables();
-
-  const existing = await prisma.$queryRaw<Array<{ id: string; status: string }>>`
-    SELECT id, status
-    FROM non_conformities
-    WHERE id = ${parsedParams.data.nonConformityId}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  if (!existing.length) {
-    return reply.code(404).send({ status: 'error', message: 'Nao conformidade nao encontrada.' });
-  }
-
-  await prisma.$executeRaw`
-    UPDATE non_conformities
-    SET status = ${parsedBody.data.status},
-        updated_at = NOW()
-    WHERE id = ${parsedParams.data.nonConformityId}
-      AND company_name = ${companyName}
-  `;
-
-  const eventId = randomUUID();
-  await prisma.$executeRaw`
-    INSERT INTO non_conformity_events (
-      id,
-      company_name,
-      non_conformity_id,
-      previous_status,
-      next_status,
-      actor_id,
-      actor_name
-    )
-    VALUES (
-      ${eventId},
-      ${companyName},
-      ${parsedParams.data.nonConformityId},
-      ${existing[0]?.status ?? parsedBody.data.status},
-      ${parsedBody.data.status},
-      ${actor.id},
-      ${actor.name}
-    )
-  `;
-
-  return { status: 'ok' };
-});
-
-app.get('/non-conformities/:nonConformityId/history', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = nonConformityParamsSchema.safeParse(request.params);
-  const parsedQuery = nonConformityHistoryQuerySchema.safeParse(request.query);
-
-  if (!parsedParams.success || !parsedQuery.success) {
-    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
-  const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
-  const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
-  const offset = (parsedQuery.data.page - 1) * parsedQuery.data.limit;
-
-  await ensureDomainTables();
-
-  const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>`
-    SELECT COUNT(*)::bigint AS total
-    FROM non_conformity_events
-    WHERE company_name = ${companyName}
-      AND non_conformity_id = ${parsedParams.data.nonConformityId}
-      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
-      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
-      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
-  `;
-  const total = Number(countRows[0]?.total ?? 0);
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    previous_status: string;
-    next_status: string;
-    actor_name: string;
-    created_at: Date;
-  }>>`
-    SELECT id, previous_status, next_status, actor_name, created_at
-    FROM non_conformity_events
-    WHERE company_name = ${companyName}
-      AND non_conformity_id = ${parsedParams.data.nonConformityId}
-      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
-      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
-      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
-    ORDER BY created_at DESC
-    LIMIT ${parsedQuery.data.limit}
-    OFFSET ${offset}
-  `;
-
-  return {
-    status: 'ok',
-    events: rows.map((event) => ({
-      id: event.id,
-      previousStatus: event.previous_status,
-      nextStatus: event.next_status,
-      actorName: event.actor_name,
-      createdAt: event.created_at.toISOString(),
-    })),
-    page: parsedQuery.data.page,
-    limit: parsedQuery.data.limit,
-    total,
-    hasNext: offset + rows.length < total,
-  };
-});
-
-app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = nonConformityParamsSchema.safeParse(request.params);
-  const parsedQuery = nonConformityHistoryQuerySchema.safeParse(request.query);
-
-  if (!parsedParams.success || !parsedQuery.success) {
-    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
-  const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
-  const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
-    previous_status: string;
-    next_status: string;
-    actor_name: string;
-    created_at: Date;
-  }>>`
-    SELECT previous_status, next_status, actor_name, created_at
-    FROM non_conformity_events
-    WHERE company_name = ${companyName}
-      AND non_conformity_id = ${parsedParams.data.nonConformityId}
-      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
-      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
-      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
-    ORDER BY created_at DESC
-    LIMIT 5000
-  `;
-
-  const csvEscape = (value: string) => {
-    const escaped = value.replace(/"/g, '""');
-    return `"${escaped}"`;
-  };
-
-  const header = 'created_at,actor_name,previous_status,next_status';
-  const exportId = randomUUID();
-
-  const exportEventId = randomUUID();
-  await prisma.$executeRaw`
-    INSERT INTO compliance_export_events (
-      id,
-      export_id,
-      company_name,
-      export_type,
-      non_conformity_id,
-      filter_actor,
-      filter_from,
-      filter_to,
-      actor_id,
-      actor_name
-    )
-    VALUES (
-      ${exportEventId},
-      ${exportId},
-      ${companyName},
-      ${'non_conformity_history'},
-      ${parsedParams.data.nonConformityId},
-      ${parsedQuery.data.actor?.trim() || null},
-      ${parsedQuery.data.from || null},
-      ${parsedQuery.data.to || null},
-      ${actor.id},
-      ${actor.name}
-    )
-  `;
-
-  const metadata = [
-    '# export_type,non_conformity_history',
-    '# csv_schema_version,2',
-    `# export_id,${csvEscape(exportId)}`,
-    `# generated_at,${new Date().toISOString()}`,
-    `# company_name,${csvEscape(companyName)}`,
-    `# non_conformity_id,${csvEscape(parsedParams.data.nonConformityId)}`,
-    `# filter_actor,${csvEscape(parsedQuery.data.actor?.trim() ?? '')}`,
-    `# filter_from,${csvEscape(parsedQuery.data.from ?? '')}`,
-    `# filter_to,${csvEscape(parsedQuery.data.to ?? '')}`,
-    '# ----',
-  ];
-  const lines = rows.map((row) =>
-    [
-      csvEscape(row.created_at.toISOString()),
-      csvEscape(row.actor_name),
-      csvEscape(row.previous_status),
-      csvEscape(row.next_status),
-    ].join(','),
-  );
-
-  const csv = [...metadata, header, ...lines].join('\n');
-
-  reply.header('Content-Type', 'text/csv; charset=utf-8');
-  reply.header(
-    'Content-Disposition',
-    `attachment; filename="non-conformity-history-${parsedParams.data.nonConformityId}.csv"`,
-  );
-
-  return reply.send(csv);
-});
-
-app.post('/non-conformities/:nonConformityId/actions', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = nonConformityParamsSchema.safeParse(request.params);
-  const parsedBody = actionPlanSchema.safeParse(request.body);
-
-  if (!parsedParams.success || !parsedBody.success) {
-    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const actionId = randomUUID();
-
-  await ensureDomainTables();
-
-  await prisma.$executeRaw`
-    INSERT INTO non_conformity_action_plans (
-      id,
-      company_name,
-      non_conformity_id,
-      description,
-      owner,
-      due_date,
-      status,
-      created_by
-    )
-    VALUES (
-      ${actionId},
-      ${companyName},
-      ${parsedParams.data.nonConformityId},
-      ${parsedBody.data.description},
-      ${parsedBody.data.owner},
-      ${parsedBody.data.dueDate},
-      ${parsedBody.data.status},
-      ${actor.id}
-    )
-  `;
-
-  const creationEventId = randomUUID();
-  await prisma.$executeRaw`
-    INSERT INTO non_conformity_action_events (
-      id,
-      company_name,
-      non_conformity_id,
-      action_plan_id,
-      previous_status,
-      next_status,
-      actor_id,
-      actor_name
-    )
-    VALUES (
-      ${creationEventId},
-      ${companyName},
-      ${parsedParams.data.nonConformityId},
-      ${actionId},
-      ${parsedBody.data.status},
-      ${parsedBody.data.status},
-      ${actor.id},
-      ${actor.name}
-    )
-  `;
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    non_conformity_id: string;
-    description: string;
-    owner: string;
-    due_date: Date;
-    status: string;
-    created_at: Date;
-  }>>`
-    SELECT id, non_conformity_id, description, owner, due_date, status, created_at
-    FROM non_conformity_action_plans
-    WHERE id = ${actionId}
-    LIMIT 1
-  `;
-
-  return reply.code(201).send({
-    status: 'ok',
-    action: {
-      id: rows[0]?.id ?? actionId,
-      nonConformityId: rows[0]?.non_conformity_id ?? parsedParams.data.nonConformityId,
-      description: rows[0]?.description ?? parsedBody.data.description,
-      owner: rows[0]?.owner ?? parsedBody.data.owner,
-      dueDate: (rows[0]?.due_date ?? new Date(parsedBody.data.dueDate)).toISOString(),
-      status: rows[0]?.status ?? parsedBody.data.status,
-      createdAt: (rows[0]?.created_at ?? new Date()).toISOString(),
-    },
   });
-});
-
-app.patch('/non-conformities/:nonConformityId/actions/:actionId/status', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = actionPlanParamsSchema.safeParse(request.params);
-  const parsedBody = actionPlanStatusSchema.safeParse(request.body);
-
-  if (!parsedParams.success || !parsedBody.success) {
-    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-
-  await ensureDomainTables();
-
-  const existing = await prisma.$queryRaw<Array<{ id: string; status: string }>>`
-    SELECT id, status
-    FROM non_conformity_action_plans
-    WHERE id = ${parsedParams.data.actionId}
-      AND non_conformity_id = ${parsedParams.data.nonConformityId}
-      AND company_name = ${companyName}
-    LIMIT 1
-  `;
-
-  if (!existing.length) {
-    return reply.code(404).send({ status: 'error', message: 'Acao nao encontrada.' });
-  }
-
-  await prisma.$executeRaw`
-    UPDATE non_conformity_action_plans
-    SET status = ${parsedBody.data.status}
-    WHERE id = ${parsedParams.data.actionId}
-      AND non_conformity_id = ${parsedParams.data.nonConformityId}
-      AND company_name = ${companyName}
-  `;
-
-  const eventId = randomUUID();
-  await prisma.$executeRaw`
-    INSERT INTO non_conformity_action_events (
-      id,
-      company_name,
-      non_conformity_id,
-      action_plan_id,
-      previous_status,
-      next_status,
-      actor_id,
-      actor_name
-    )
-    VALUES (
-      ${eventId},
-      ${companyName},
-      ${parsedParams.data.nonConformityId},
-      ${parsedParams.data.actionId},
-      ${existing[0]?.status ?? parsedBody.data.status},
-      ${parsedBody.data.status},
-      ${actor.id},
-      ${actor.name}
-    )
-  `;
-
-  return { status: 'ok' };
-});
-
-app.get('/non-conformities/:nonConformityId/actions/:actionId/history', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = actionPlanParamsSchema.safeParse(request.params);
-  const parsedQuery = actionPlanHistoryQuerySchema.safeParse(request.query);
-
-  if (!parsedParams.success || !parsedQuery.success) {
-    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
-  const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
-  const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
-  const offset = (parsedQuery.data.page - 1) * parsedQuery.data.limit;
-
-  await ensureDomainTables();
-
-  const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>`
-    SELECT COUNT(*)::bigint AS total
-    FROM non_conformity_action_events
-    WHERE company_name = ${companyName}
-      AND non_conformity_id = ${parsedParams.data.nonConformityId}
-      AND action_plan_id = ${parsedParams.data.actionId}
-      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
-      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
-      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
-  `;
-  const total = Number(countRows[0]?.total ?? 0);
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    previous_status: string;
-    next_status: string;
-    actor_name: string;
-    created_at: Date;
-  }>>`
-    SELECT id, previous_status, next_status, actor_name, created_at
-    FROM non_conformity_action_events
-    WHERE company_name = ${companyName}
-      AND non_conformity_id = ${parsedParams.data.nonConformityId}
-      AND action_plan_id = ${parsedParams.data.actionId}
-      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
-      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
-      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
-    ORDER BY created_at DESC
-    LIMIT ${parsedQuery.data.limit}
-    OFFSET ${offset}
-  `;
-
-  return {
-    status: 'ok',
-    events: rows.map((event) => ({
-      id: event.id,
-      previousStatus: event.previous_status,
-      nextStatus: event.next_status,
-      actorName: event.actor_name,
-      createdAt: event.created_at.toISOString(),
-    })),
-    page: parsedQuery.data.page,
-    limit: parsedQuery.data.limit,
-    total,
-    hasNext: offset + rows.length < total,
-  };
-});
-
-app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = actionPlanParamsSchema.safeParse(request.params);
-  const parsedQuery = actionPlanHistoryQuerySchema.safeParse(request.query);
-
-  if (!parsedParams.success || !parsedQuery.success) {
-    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
-  const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
-  const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
-    previous_status: string;
-    next_status: string;
-    actor_name: string;
-    created_at: Date;
-  }>>`
-    SELECT previous_status, next_status, actor_name, created_at
-    FROM non_conformity_action_events
-    WHERE company_name = ${companyName}
-      AND non_conformity_id = ${parsedParams.data.nonConformityId}
-      AND action_plan_id = ${parsedParams.data.actionId}
-      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
-      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
-      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
-    ORDER BY created_at DESC
-    LIMIT 5000
-  `;
-
-  const csvEscape = (value: string) => {
-    const escaped = value.replace(/"/g, '""');
-    return `"${escaped}"`;
-  };
-
-  const header = 'created_at,actor_name,previous_status,next_status';
-  const exportId = randomUUID();
-
-  const exportEventId = randomUUID();
-  await prisma.$executeRaw`
-    INSERT INTO compliance_export_events (
-      id,
-      export_id,
-      company_name,
-      export_type,
-      non_conformity_id,
-      action_plan_id,
-      filter_actor,
-      filter_from,
-      filter_to,
-      actor_id,
-      actor_name
-    )
-    VALUES (
-      ${exportEventId},
-      ${exportId},
-      ${companyName},
-      ${'action_plan_history'},
-      ${parsedParams.data.nonConformityId},
-      ${parsedParams.data.actionId},
-      ${parsedQuery.data.actor?.trim() || null},
-      ${parsedQuery.data.from || null},
-      ${parsedQuery.data.to || null},
-      ${actor.id},
-      ${actor.name}
-    )
-  `;
-
-  const metadata = [
-    '# export_type,action_plan_history',
-    '# csv_schema_version,2',
-    `# export_id,${csvEscape(exportId)}`,
-    `# generated_at,${new Date().toISOString()}`,
-    `# company_name,${csvEscape(companyName)}`,
-    `# non_conformity_id,${csvEscape(parsedParams.data.nonConformityId)}`,
-    `# action_plan_id,${csvEscape(parsedParams.data.actionId)}`,
-    `# filter_actor,${csvEscape(parsedQuery.data.actor?.trim() ?? '')}`,
-    `# filter_from,${csvEscape(parsedQuery.data.from ?? '')}`,
-    `# filter_to,${csvEscape(parsedQuery.data.to ?? '')}`,
-    '# ----',
-  ];
-  const lines = rows.map((row) =>
-    [
-      csvEscape(row.created_at.toISOString()),
-      csvEscape(row.actor_name),
-      csvEscape(row.previous_status),
-      csvEscape(row.next_status),
-    ].join(','),
-  );
-
-  const csv = [...metadata, header, ...lines].join('\n');
-
-  reply.header('Content-Type', 'text/csv; charset=utf-8');
-  reply.header(
-    'Content-Disposition',
-    `attachment; filename="action-plan-history-${parsedParams.data.actionId}.csv"`,
-  );
-
-  return reply.send(csv);
-});
-
-app.get('/non-conformities/:nonConformityId/actions', { preHandler: authenticate }, async (request, reply) => {
-  const parsedParams = nonConformityParamsSchema.safeParse(request.params);
-
-  if (!parsedParams.success) {
-    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-
-  await ensureDomainTables();
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    non_conformity_id: string;
-    description: string;
-    owner: string;
-    due_date: Date;
-    status: string;
-    created_at: Date;
-  }>>`
-    SELECT id, non_conformity_id, description, owner, due_date, status, created_at
-    FROM non_conformity_action_plans
-    WHERE non_conformity_id = ${parsedParams.data.nonConformityId}
-      AND company_name = ${companyName}
-    ORDER BY created_at DESC
-    LIMIT 50
-  `;
-
-  return {
-    status: 'ok',
-    actions: rows.map((action) => ({
-      id: action.id,
-      nonConformityId: action.non_conformity_id,
-      description: action.description,
-      owner: action.owner,
-      dueDate: action.due_date.toISOString(),
-      status: action.status,
-      createdAt: action.created_at.toISOString(),
-    })),
-  };
-});
-
-app.get('/compliance/exports/audit', { preHandler: authenticate }, async (request, reply) => {
-  const parsedQuery = complianceExportAuditQuerySchema.safeParse(request.query);
-
-  if (!parsedQuery.success) {
-    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const exportTypeFilter =
-    parsedQuery.data.exportType === 'all' ? null : parsedQuery.data.exportType;
-  const exportIdFilter = parsedQuery.data.exportId?.trim() ? parsedQuery.data.exportId.trim() : null;
-  const nonConformityFilter =
-    parsedQuery.data.nonConformityId?.trim() ? parsedQuery.data.nonConformityId.trim() : null;
-  const actionPlanFilter =
-    parsedQuery.data.actionPlanId?.trim() ? parsedQuery.data.actionPlanId.trim() : null;
-  const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
-  const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
-  const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
-  const sortOrder = parsedQuery.data.sortOrder;
-  const offset = (parsedQuery.data.page - 1) * parsedQuery.data.limit;
-
-  await ensureDomainTables();
-
-  const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>`
-    SELECT COUNT(*)::bigint AS total
-    FROM compliance_export_events
-    WHERE company_name = ${companyName}
-      AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
-      AND (${exportIdFilter}::text IS NULL OR export_id = ${exportIdFilter})
-      AND (${nonConformityFilter}::text IS NULL OR non_conformity_id = ${nonConformityFilter})
-      AND (${actionPlanFilter}::text IS NULL OR action_plan_id = ${actionPlanFilter})
-      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
-      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
-      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
-  `;
-  const total = Number(countRows[0]?.total ?? 0);
-
-  const rows = await prisma.$queryRaw<Array<{
-    id: string;
-    export_id: string;
-    export_type: string;
-    non_conformity_id: string | null;
-    action_plan_id: string | null;
-    filter_export_id: string | null;
-    filter_non_conformity_id: string | null;
-    filter_action_plan_id: string | null;
-    filter_sort_order: string | null;
-    filter_export_scope: string | null;
-    filter_actor: string | null;
-    filter_from: Date | null;
-    filter_to: Date | null;
-    actor_name: string;
-    created_at: Date;
-  }>>`
-    SELECT
-      id,
-      export_id,
-      export_type,
-      non_conformity_id,
-      action_plan_id,
-      filter_export_id,
-      filter_non_conformity_id,
-      filter_action_plan_id,
-      filter_sort_order,
-      filter_export_scope,
-      filter_actor,
-      filter_from,
-      filter_to,
-      actor_name,
-      created_at
-    FROM compliance_export_events
-    WHERE company_name = ${companyName}
-      AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
-      AND (${exportIdFilter}::text IS NULL OR export_id = ${exportIdFilter})
-      AND (${nonConformityFilter}::text IS NULL OR non_conformity_id = ${nonConformityFilter})
-      AND (${actionPlanFilter}::text IS NULL OR action_plan_id = ${actionPlanFilter})
-      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
-      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
-      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
-    ORDER BY
-      CASE WHEN ${sortOrder} = 'asc' THEN created_at END ASC,
-      CASE WHEN ${sortOrder} = 'desc' THEN created_at END DESC
-    LIMIT ${parsedQuery.data.limit}
-    OFFSET ${offset}
-  `;
-
-  return {
-    status: 'ok',
-    events: rows.map((row) => ({
-      id: row.id,
-      exportId: row.export_id,
-      exportType: row.export_type,
-      nonConformityId: row.non_conformity_id,
-      actionPlanId: row.action_plan_id,
-      filterExportId: row.filter_export_id,
-      filterNonConformityId: row.filter_non_conformity_id,
-      filterActionPlanId: row.filter_action_plan_id,
-      filterSortOrder: row.filter_sort_order,
-      filterExportScope: row.filter_export_scope,
-      filterActor: row.filter_actor,
-      filterFrom: row.filter_from ? row.filter_from.toISOString() : null,
-      filterTo: row.filter_to ? row.filter_to.toISOString() : null,
-      actorName: row.actor_name,
-      createdAt: row.created_at.toISOString(),
-    })),
-    page: parsedQuery.data.page,
-    limit: parsedQuery.data.limit,
-    total,
-    hasNext: offset + rows.length < total,
-  };
-});
-
-app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async (request, reply) => {
-  const parsedQuery = complianceExportAuditQuerySchema.safeParse(request.query);
-
-  if (!parsedQuery.success) {
-    return reply.code(400).send({ status: 'error', message: apiMessage.auth.invalidCredentials });
-  }
-
-  if (!prisma) {
-    return reply.code(503).send({ status: 'error', message: apiMessage.health.dbUnavailable });
-  }
-
-  const companyName = getCompanyFromJwt(request);
-  const actor = getUserFromJwt(request);
-  const exportTypeFilter =
-    parsedQuery.data.exportType === 'all' ? null : parsedQuery.data.exportType;
-  const exportIdFilter = parsedQuery.data.exportId?.trim() ? parsedQuery.data.exportId.trim() : null;
-  const nonConformityFilter =
-    parsedQuery.data.nonConformityId?.trim() ? parsedQuery.data.nonConformityId.trim() : null;
-  const actionPlanFilter =
-    parsedQuery.data.actionPlanId?.trim() ? parsedQuery.data.actionPlanId.trim() : null;
-  const actorFilter = parsedQuery.data.actor?.trim() ? `%${parsedQuery.data.actor.trim()}%` : null;
-  const fromDate = parsedQuery.data.from ? new Date(`${parsedQuery.data.from}T00:00:00.000Z`) : null;
-  const toDate = parsedQuery.data.to ? new Date(`${parsedQuery.data.to}T23:59:59.999Z`) : null;
-  const sortOrder = parsedQuery.data.sortOrder;
-  const exportScope = parsedQuery.data.exportScope;
-  const offset = (parsedQuery.data.page - 1) * parsedQuery.data.limit;
-
-  await ensureDomainTables();
-
-  const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>`
-    SELECT COUNT(*)::bigint AS total
-    FROM compliance_export_events
-    WHERE company_name = ${companyName}
-      AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
-      AND (${exportIdFilter}::text IS NULL OR export_id = ${exportIdFilter})
-      AND (${nonConformityFilter}::text IS NULL OR non_conformity_id = ${nonConformityFilter})
-      AND (${actionPlanFilter}::text IS NULL OR action_plan_id = ${actionPlanFilter})
-      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
-      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
-      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
-  `;
-  const total = Number(countRows[0]?.total ?? 0);
-  const effectiveOffset = exportScope === 'all' ? 0 : offset;
-  const effectiveLimit = exportScope === 'all' ? total : parsedQuery.data.limit;
-
-  const rows = await prisma.$queryRaw<Array<{
-    export_id: string;
-    export_type: string;
-    non_conformity_id: string | null;
-    action_plan_id: string | null;
-    filter_export_id: string | null;
-    filter_non_conformity_id: string | null;
-    filter_action_plan_id: string | null;
-    filter_sort_order: string | null;
-    filter_export_scope: string | null;
-    filter_actor: string | null;
-    filter_from: Date | null;
-    filter_to: Date | null;
-    actor_name: string;
-    created_at: Date;
-  }>>`
-    SELECT
-      export_id,
-      export_type,
-      non_conformity_id,
-      action_plan_id,
-      filter_export_id,
-      filter_non_conformity_id,
-      filter_action_plan_id,
-      filter_sort_order,
-      filter_export_scope,
-      filter_actor,
-      filter_from,
-      filter_to,
-      actor_name,
-      created_at
-    FROM compliance_export_events
-    WHERE company_name = ${companyName}
-      AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
-      AND (${exportIdFilter}::text IS NULL OR export_id = ${exportIdFilter})
-      AND (${nonConformityFilter}::text IS NULL OR non_conformity_id = ${nonConformityFilter})
-      AND (${actionPlanFilter}::text IS NULL OR action_plan_id = ${actionPlanFilter})
-      AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
-      AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
-      AND (${toDate}::timestamptz IS NULL OR created_at <= ${toDate})
-    ORDER BY
-      CASE WHEN ${sortOrder} = 'asc' THEN created_at END ASC,
-      CASE WHEN ${sortOrder} = 'desc' THEN created_at END DESC
-    LIMIT ${effectiveLimit}
-    OFFSET ${effectiveOffset}
-  `;
-
-  const csvEscape = (value: string) => {
-    const escaped = value.replace(/"/g, '""');
-    return `"${escaped}"`;
-  };
-
-  const exportId = randomUUID();
-  const exportEventId = randomUUID();
-  await prisma.$executeRaw`
-    INSERT INTO compliance_export_events (
-      id,
-      export_id,
-      company_name,
-      export_type,
-      filter_export_id,
-      filter_non_conformity_id,
-      filter_action_plan_id,
-      filter_sort_order,
-      filter_export_scope,
-      filter_actor,
-      filter_from,
-      filter_to,
-      actor_id,
-      actor_name
-    )
-    VALUES (
-      ${exportEventId},
-      ${exportId},
-      ${companyName},
-      ${'compliance_export_audit'},
-      ${parsedQuery.data.exportId?.trim() || null},
-      ${parsedQuery.data.nonConformityId?.trim() || null},
-      ${parsedQuery.data.actionPlanId?.trim() || null},
-      ${parsedQuery.data.sortOrder},
-      ${parsedQuery.data.exportScope},
-      ${parsedQuery.data.actor?.trim() || null},
-      ${parsedQuery.data.from || null},
-      ${parsedQuery.data.to || null},
-      ${actor.id},
-      ${actor.name}
-    )
-  `;
-
-  const metadata = [
-    '# export_type,compliance_export_audit',
-    '# csv_schema_version,1',
-    `# export_id,${csvEscape(exportId)}`,
-    `# generated_at,${new Date().toISOString()}`,
-    `# company_name,${csvEscape(companyName)}`,
-    `# filter_export_type,${csvEscape(parsedQuery.data.exportType)}`,
-    `# filter_export_id,${csvEscape(parsedQuery.data.exportId?.trim() ?? '')}`,
-    `# filter_non_conformity_id,${csvEscape(parsedQuery.data.nonConformityId?.trim() ?? '')}`,
-    `# filter_action_plan_id,${csvEscape(parsedQuery.data.actionPlanId?.trim() ?? '')}`,
-    `# filter_sort_order,${csvEscape(parsedQuery.data.sortOrder)}`,
-    `# filter_export_scope,${csvEscape(parsedQuery.data.exportScope)}`,
-    `# filter_actor,${csvEscape(parsedQuery.data.actor?.trim() ?? '')}`,
-    `# filter_from,${csvEscape(parsedQuery.data.from ?? '')}`,
-    `# filter_to,${csvEscape(parsedQuery.data.to ?? '')}`,
-    `# page,${parsedQuery.data.page}`,
-    `# limit,${parsedQuery.data.limit}`,
-    `# total,${total}`,
-    `# has_next,${effectiveOffset + rows.length < total ? 'true' : 'false'}`,
-    '# ----',
-  ];
-
-  const header =
-    'created_at,export_id,export_type,actor_name,non_conformity_id,action_plan_id,filter_export_id,filter_non_conformity_id,filter_action_plan_id,filter_sort_order,filter_export_scope,filter_actor,filter_from,filter_to';
-  const lines = rows.map((row) =>
-    [
-      csvEscape(row.created_at.toISOString()),
-      csvEscape(row.export_id),
-      csvEscape(row.export_type),
-      csvEscape(row.actor_name),
-      csvEscape(row.non_conformity_id ?? ''),
-      csvEscape(row.action_plan_id ?? ''),
-      csvEscape(row.filter_export_id ?? ''),
-      csvEscape(row.filter_non_conformity_id ?? ''),
-      csvEscape(row.filter_action_plan_id ?? ''),
-      csvEscape(row.filter_sort_order ?? ''),
-      csvEscape(row.filter_export_scope ?? ''),
-      csvEscape(row.filter_actor ?? ''),
-      csvEscape(row.filter_from ? row.filter_from.toISOString() : ''),
-      csvEscape(row.filter_to ? row.filter_to.toISOString() : ''),
-    ].join(','),
-  );
-
-  const csv = [...metadata, header, ...lines].join('\n');
-
-  reply.header('Content-Type', 'text/csv; charset=utf-8');
-  reply.header('Content-Disposition', 'attachment; filename="compliance-export-audit.csv"');
-
-  return reply.send(csv);
-});
-
-app.get('/rules', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
-  const query = z
-    .object({
-      status: z
-        .enum(['identified', 'under_review', 'approved', 'rejected', 'archived'])
-        .optional(),
-      limit: z.coerce.number().int().min(1).max(100).default(50),
-    })
-    .safeParse(request.query);
-
-  const companyName = getCompanyFromJwt(request);
-  const limit = query.success ? query.data.limit : 50;
-  const status = query.success ? query.data.status : undefined;
-
-  await ensureDomainTables();
-
-  const rules = status
-    ? await prisma.$queryRaw<Array<{
-        id: string;
-        contract_id: string;
-        title: string;
-        description: string;
-        category: string;
-        status: string;
-        created_at: Date;
-      }>>`
-        SELECT id, contract_id, title, description, category, status, created_at
-        FROM extracted_rules
-        WHERE company_name = ${companyName}
-          AND status = ${status}
-        ORDER BY created_at DESC
-        LIMIT ${limit}
-      `
-    : await prisma.$queryRaw<Array<{
-        id: string;
-        contract_id: string;
-        title: string;
-        description: string;
-        category: string;
-        status: string;
-        created_at: Date;
-      }>>`
-        SELECT id, contract_id, title, description, category, status, created_at
-        FROM extracted_rules
-        WHERE company_name = ${companyName}
-        ORDER BY created_at DESC
-        LIMIT ${limit}
-      `;
-
-  return {
-    status: 'ok',
-    rules: rules.map((item) => ({
-      id: item.id,
-      contractId: item.contract_id,
-      title: item.title,
-      description: item.description,
-      category: item.category,
-      status: item.status,
-      createdAt: item.created_at.toISOString(),
-    })),
-  };
 });
 
 app.get('/dashboard/summary', { preHandler: authenticate }, async (request, reply) => {
@@ -6446,6 +2587,41 @@ app.get('/dashboard/summary', { preHandler: authenticate }, async (request, repl
       AND status IN ('identified', 'under_review')
   `;
 
+  const [controlsSummary] = await prisma.$queryRaw<Array<{
+    active_total: number;
+    pending_total: number;
+    paused_total: number;
+    non_compliant_total: number;
+    completed_total: number;
+  }>>`
+    SELECT
+      COUNT(*) FILTER (WHERE UPPER(status) = 'ACTIVE')::int AS active_total,
+      COUNT(*) FILTER (WHERE UPPER(status) IN ('DRAFT', 'PAUSED'))::int AS pending_total,
+      COUNT(*) FILTER (WHERE UPPER(status) = 'PAUSED')::int AS paused_total,
+      COUNT(*) FILTER (WHERE UPPER(status) = 'NON_COMPLIANT')::int AS non_compliant_total,
+      COUNT(*) FILTER (WHERE UPPER(status) = 'COMPLETED')::int AS completed_total
+    FROM compliance_controls
+    WHERE company_name = ${companyName}
+  `;
+
+  const [executionSummary] = await prisma.$queryRaw<Array<{
+    completed_total: number;
+    failed_total: number;
+  }>>`
+    SELECT
+      COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_total,
+      COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_total
+    FROM compliance_control_executions
+    WHERE company_name = ${companyName}
+  `;
+
+  const completedExecutions = executionSummary?.completed_total ?? 0;
+  const failedExecutions = executionSummary?.failed_total ?? 0;
+  const totalMeasuredExecutions = completedExecutions + failedExecutions;
+  const complianceRate = totalMeasuredExecutions > 0
+    ? Number(((completedExecutions / totalMeasuredExecutions) * 100).toFixed(1))
+    : null;
+
   const recentContracts = await prisma.$queryRaw<Array<{
     id: string;
     title: string;
@@ -6465,6 +2641,13 @@ app.get('/dashboard/summary', { preHandler: authenticate }, async (request, repl
       contractsCount: contractsCount?.total ?? 0,
       rulesApprovedCount: rulesApprovedCount?.total ?? 0,
       rulesPendingCount: rulesPendingCount?.total ?? 0,
+      activeControlsCount: controlsSummary?.active_total ?? 0,
+      pendingControlsCount: controlsSummary?.pending_total ?? 0,
+      pausedControlsCount: controlsSummary?.paused_total ?? 0,
+      nonCompliantControlsCount: controlsSummary?.non_compliant_total ?? 0,
+      completedControlsCount: controlsSummary?.completed_total ?? 0,
+      failedExecutionsCount: failedExecutions,
+      complianceRate,
       recentContracts: recentContracts.map((item) => ({
         id: item.id,
         title: item.title,

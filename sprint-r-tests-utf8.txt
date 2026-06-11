@@ -1,0 +1,1060 @@
+﻿
+> menucare@1.0.0 test
+> npm run test:all
+
+
+> menucare@1.0.0 test:all
+> npm run test:api && npm run test:web
+
+
+> menucare@1.0.0 test:api
+> npm run test --workspace apps/api
+
+
+> @menucare/api@1.0.0 test
+> cross-env NODE_ENV=test MENUCARE_DISABLE_LISTEN=1 LOGIN_RATE_LIMIT_MAX_ATTEMPTS=5 LOGIN_RATE_LIMIT_WINDOW_MS=600000 tsx --test src/**/*.test.ts
+
+{"level":30,"time":1781202331786,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1","req":{"method":"GET","url":"/health","host":"127.0.0.1:62268","remoteAddress":"::ffff:127.0.0.1","remotePort":62269},"msg":"incoming request"}
+{"level":30,"time":1781202331789,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1","res":{"statusCode":200},"responseTime":2.3445000052452087,"msg":"request completed"}
+ÔûÂ API integration
+  Ô£ö health endpoint should return service ok (16.2362ms)
+{"level":30,"time":1781202331794,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62270","remoteAddress":"::ffff:127.0.0.1","remotePort":62271},"msg":"incoming request"}
+{"level":30,"time":1781202332164,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2","res":{"statusCode":401},"responseTime":369.48589999973774,"msg":"request completed"}
+  Ô£ö login should reject wrong password (373.486ms)
+{"level":30,"time":1781202332167,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62273","remoteAddress":"::ffff:127.0.0.1","remotePort":62274},"msg":"incoming request"}
+{"level":30,"time":1781202332170,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"f26bd125-871d-4229-a3f6-e4c81cf00842","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332184,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332238,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"3b0dffb6-c084-4613-a9e6-3dbf38f2030d","userId":"demo-admin","authFlowId":"f26bd125-871d-4229-a3f6-e4c81cf00842","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:32.218Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332239,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3","res":{"statusCode":200},"responseTime":71.24729999899864,"msg":"request completed"}
+  Ô£ö login should return token with valid credentials (76.5534ms)
+{"level":30,"time":1781202332247,"pid":48476,"hostname":"HUCN001086914","reqId":"req-4","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62275","remoteAddress":"::ffff:127.0.0.1","remotePort":62276},"msg":"incoming request"}
+{"level":30,"time":1781202332250,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"99cd640f-f0d7-4c5f-b4cd-d6d029b0a5ba","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332253,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332282,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"def6d199-92db-4f02-81f8-4b9ccd8044b8","userId":"demo-admin","authFlowId":"99cd640f-f0d7-4c5f-b4cd-d6d029b0a5ba","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:32.280Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332283,"pid":48476,"hostname":"HUCN001086914","reqId":"req-4","res":{"statusCode":200},"responseTime":35.299199998378754,"msg":"request completed"}
+{"level":30,"time":1781202332285,"pid":48476,"hostname":"HUCN001086914","reqId":"req-5","req":{"method":"POST","url":"/auth/refresh","host":"127.0.0.1:62277","remoteAddress":"::ffff:127.0.0.1","remotePort":62278},"msg":"incoming request"}
+{"level":30,"time":1781202332348,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"99cd640f-f0d7-4c5f-b4cd-d6d029b0a5ba","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332352,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332393,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"fa2757c3-9b5e-43bb-b04a-b4a8478f92ec","userId":"demo-admin","authFlowId":"99cd640f-f0d7-4c5f-b4cd-d6d029b0a5ba","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:32.391Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332395,"pid":48476,"hostname":"HUCN001086914","reqId":"req-5","res":{"statusCode":200},"responseTime":109.23790000379086,"msg":"request completed"}
+{"level":30,"time":1781202332399,"pid":48476,"hostname":"HUCN001086914","reqId":"req-6","req":{"method":"POST","url":"/auth/refresh","host":"127.0.0.1:62279","remoteAddress":"::ffff:127.0.0.1","remotePort":62280},"msg":"incoming request"}
+{"level":30,"time":1781202332401,"pid":48476,"hostname":"HUCN001086914","reqId":"req-6","res":{"statusCode":401},"responseTime":2.3012999892234802,"msg":"request completed"}
+  Ô£ö refresh endpoint should rotate refresh token and reject old cookie (160.4555ms)
+{"level":30,"time":1781202332405,"pid":48476,"hostname":"HUCN001086914","reqId":"req-7","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62281","remoteAddress":"::ffff:127.0.0.1","remotePort":62282},"msg":"incoming request"}
+{"level":30,"time":1781202332406,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"1471ab6c-21a9-4110-b0c6-d96ff2877b71","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332408,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332436,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"e3969be3-f58d-4a2d-81d6-cc545fc5383f","userId":"demo-admin","authFlowId":"1471ab6c-21a9-4110-b0c6-d96ff2877b71","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:32.434Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332436,"pid":48476,"hostname":"HUCN001086914","reqId":"req-7","res":{"statusCode":200},"responseTime":31.60259999334812,"msg":"request completed"}
+{"level":30,"time":1781202332440,"pid":48476,"hostname":"HUCN001086914","reqId":"req-8","req":{"method":"POST","url":"/auth/refresh","host":"127.0.0.1:62283","remoteAddress":"::ffff:127.0.0.1","remotePort":62284},"msg":"incoming request"}
+{"level":30,"time":1781202332469,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"1471ab6c-21a9-4110-b0c6-d96ff2877b71","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332472,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332501,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"3085b36d-38a3-489f-9e0d-b89a6f1659ea","userId":"demo-admin","authFlowId":"1471ab6c-21a9-4110-b0c6-d96ff2877b71","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:32.499Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332502,"pid":48476,"hostname":"HUCN001086914","reqId":"req-8","res":{"statusCode":200},"responseTime":61.869000002741814,"msg":"request completed"}
+{"level":30,"time":1781202332505,"pid":48476,"hostname":"HUCN001086914","reqId":"req-9","req":{"method":"POST","url":"/auth/logout","host":"127.0.0.1:62285","remoteAddress":"::ffff:127.0.0.1","remotePort":62286},"msg":"incoming request"}
+{"level":30,"time":1781202332508,"pid":48476,"hostname":"HUCN001086914","reqId":"req-9","res":{"statusCode":200},"responseTime":3.3627000004053116,"msg":"request completed"}
+  Ô£ö auth flow id should remain consistent across login refresh and logout (106.9109ms)
+{"level":30,"time":1781202332511,"pid":48476,"hostname":"HUCN001086914","reqId":"req-a","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62287","remoteAddress":"::ffff:127.0.0.1","remotePort":62288},"msg":"incoming request"}
+{"level":30,"time":1781202332512,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"1591258b-7237-4e96-8d36-ce94bc634a07","deviceFingerprint":"2f25aefc0f7188701473d387f6f3a282","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332542,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"2e4b914c-132d-45cd-90bb-5e10a6d56158","userId":"demo-admin","authFlowId":"1591258b-7237-4e96-8d36-ce94bc634a07","deviceFingerprint":"2f25aefc0f7188701473d387f6f3a282","expiresAt":"2026-06-18T18:25:32.540Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332542,"pid":48476,"hostname":"HUCN001086914","reqId":"req-a","res":{"statusCode":200},"responseTime":30.92460000514984,"msg":"request completed"}
+{"level":30,"time":1781202332545,"pid":48476,"hostname":"HUCN001086914","reqId":"req-b","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62289","remoteAddress":"::ffff:127.0.0.1","remotePort":62290},"msg":"incoming request"}
+{"level":30,"time":1781202332546,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"cd30064a-0b6a-480e-9653-f60902e49757","deviceFingerprint":"2f25aefc0f7188701473d387f6f3a282","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332547,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"2f25aefc0f7188701473d387f6f3a282","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332575,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"5f7f0949-bf5b-4e47-b08d-65e56e08758f","userId":"demo-admin","authFlowId":"cd30064a-0b6a-480e-9653-f60902e49757","deviceFingerprint":"2f25aefc0f7188701473d387f6f3a282","expiresAt":"2026-06-18T18:25:32.574Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332576,"pid":48476,"hostname":"HUCN001086914","reqId":"req-b","res":{"statusCode":200},"responseTime":30.859399989247322,"msg":"request completed"}
+{"level":30,"time":1781202332578,"pid":48476,"hostname":"HUCN001086914","reqId":"req-c","req":{"method":"POST","url":"/auth/refresh","host":"127.0.0.1:62291","remoteAddress":"::ffff:127.0.0.1","remotePort":62292},"msg":"incoming request"}
+{"level":30,"time":1781202332579,"pid":48476,"hostname":"HUCN001086914","reqId":"req-c","res":{"statusCode":401},"responseTime":1.1051999926567078,"msg":"request completed"}
+{"level":30,"time":1781202332582,"pid":48476,"hostname":"HUCN001086914","reqId":"req-d","req":{"method":"POST","url":"/auth/refresh","host":"127.0.0.1:62293","remoteAddress":"::ffff:127.0.0.1","remotePort":62294},"msg":"incoming request"}
+{"level":30,"time":1781202332613,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"cd30064a-0b6a-480e-9653-f60902e49757","deviceFingerprint":"2f25aefc0f7188701473d387f6f3a282","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332614,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"2f25aefc0f7188701473d387f6f3a282","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332644,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"647eb1f9-40f0-466b-887d-55c3ecda5879","userId":"demo-admin","authFlowId":"cd30064a-0b6a-480e-9653-f60902e49757","deviceFingerprint":"2f25aefc0f7188701473d387f6f3a282","expiresAt":"2026-06-18T18:25:32.642Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332645,"pid":48476,"hostname":"HUCN001086914","reqId":"req-d","res":{"statusCode":200},"responseTime":63.32670000195503,"msg":"request completed"}
+  Ô£ö login should revoke previous refresh session on same device (136.4617ms)
+{"level":30,"time":1781202332648,"pid":48476,"hostname":"HUCN001086914","reqId":"req-e","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62296","remoteAddress":"::ffff:127.0.0.1","remotePort":62297},"msg":"incoming request"}
+{"level":30,"time":1781202332650,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"e7efa6d9-42b4-486e-9e89-85038e790f44","deviceFingerprint":"75c755e490fb3799e7b5891e5913e6e4","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332684,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_limit_enforced","source":"database","userId":"demo-admin","maxActiveSessions":3,"revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332684,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"10056f34-f031-45b8-b52d-a8b16cf4b6db","userId":"demo-admin","authFlowId":"e7efa6d9-42b4-486e-9e89-85038e790f44","deviceFingerprint":"75c755e490fb3799e7b5891e5913e6e4","expiresAt":"2026-06-18T18:25:32.681Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332684,"pid":48476,"hostname":"HUCN001086914","reqId":"req-e","res":{"statusCode":200},"responseTime":36.164100006222725,"msg":"request completed"}
+{"level":30,"time":1781202332688,"pid":48476,"hostname":"HUCN001086914","reqId":"req-f","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62298","remoteAddress":"::ffff:127.0.0.1","remotePort":62299},"msg":"incoming request"}
+{"level":30,"time":1781202332690,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"188b1e74-57a0-4843-b658-a04ac2877c7e","deviceFingerprint":"31316822fdede99cc2e5d5c9d90d0d51","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332722,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_limit_enforced","source":"database","userId":"demo-admin","maxActiveSessions":3,"revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332722,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"0f4db757-cdbe-46d4-9e86-94d51ecd0ce7","userId":"demo-admin","authFlowId":"188b1e74-57a0-4843-b658-a04ac2877c7e","deviceFingerprint":"31316822fdede99cc2e5d5c9d90d0d51","expiresAt":"2026-06-18T18:25:32.719Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332722,"pid":48476,"hostname":"HUCN001086914","reqId":"req-f","res":{"statusCode":200},"responseTime":33.570999994874,"msg":"request completed"}
+{"level":30,"time":1781202332725,"pid":48476,"hostname":"HUCN001086914","reqId":"req-g","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62300","remoteAddress":"::ffff:127.0.0.1","remotePort":62301},"msg":"incoming request"}
+{"level":30,"time":1781202332727,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"513e9071-637e-44ce-b1ee-345c04644bb4","deviceFingerprint":"9541aa06cbada7aade6caa7f43b60d84","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332757,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_limit_enforced","source":"database","userId":"demo-admin","maxActiveSessions":3,"revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332758,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"36c0b60c-8f0e-431e-bc6b-7453a70e6ec6","userId":"demo-admin","authFlowId":"513e9071-637e-44ce-b1ee-345c04644bb4","deviceFingerprint":"9541aa06cbada7aade6caa7f43b60d84","expiresAt":"2026-06-18T18:25:32.755Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332758,"pid":48476,"hostname":"HUCN001086914","reqId":"req-g","res":{"statusCode":200},"responseTime":32.449100002646446,"msg":"request completed"}
+{"level":30,"time":1781202332760,"pid":48476,"hostname":"HUCN001086914","reqId":"req-h","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62302","remoteAddress":"::ffff:127.0.0.1","remotePort":62303},"msg":"incoming request"}
+{"level":30,"time":1781202332761,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"03025c6e-679b-4a3c-9065-0cf33b25ee1b","deviceFingerprint":"a2ca4749fbd4a80a706ffc0ef17fd704","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332792,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_limit_enforced","source":"database","userId":"demo-admin","maxActiveSessions":3,"revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332792,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"d100906a-9689-4580-b6ae-3f4942edcfec","userId":"demo-admin","authFlowId":"03025c6e-679b-4a3c-9065-0cf33b25ee1b","deviceFingerprint":"a2ca4749fbd4a80a706ffc0ef17fd704","expiresAt":"2026-06-18T18:25:32.790Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332792,"pid":48476,"hostname":"HUCN001086914","reqId":"req-h","res":{"statusCode":200},"responseTime":31.692300006747246,"msg":"request completed"}
+{"level":30,"time":1781202332795,"pid":48476,"hostname":"HUCN001086914","reqId":"req-i","req":{"method":"POST","url":"/auth/refresh","host":"127.0.0.1:62304","remoteAddress":"::ffff:127.0.0.1","remotePort":62305},"msg":"incoming request"}
+{"level":30,"time":1781202332796,"pid":48476,"hostname":"HUCN001086914","reqId":"req-i","res":{"statusCode":401},"responseTime":1.0874999910593033,"msg":"request completed"}
+{"level":30,"time":1781202332798,"pid":48476,"hostname":"HUCN001086914","reqId":"req-j","req":{"method":"POST","url":"/auth/refresh","host":"127.0.0.1:62306","remoteAddress":"::ffff:127.0.0.1","remotePort":62307},"msg":"incoming request"}
+{"level":30,"time":1781202332829,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"03025c6e-679b-4a3c-9065-0cf33b25ee1b","deviceFingerprint":"a2ca4749fbd4a80a706ffc0ef17fd704","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332830,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"a2ca4749fbd4a80a706ffc0ef17fd704","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332858,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"83f639bb-3404-4a53-8e49-a16899a06a95","userId":"demo-admin","authFlowId":"03025c6e-679b-4a3c-9065-0cf33b25ee1b","deviceFingerprint":"a2ca4749fbd4a80a706ffc0ef17fd704","expiresAt":"2026-06-18T18:25:32.857Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332859,"pid":48476,"hostname":"HUCN001086914","reqId":"req-j","res":{"statusCode":200},"responseTime":61.47690001130104,"msg":"request completed"}
+  Ô£ö login should enforce maximum active refresh sessions per user (214.2839ms)
+{"level":30,"time":1781202332862,"pid":48476,"hostname":"HUCN001086914","reqId":"req-k","req":{"method":"GET","url":"/compliance/exports/audit","host":"127.0.0.1:62308","remoteAddress":"::ffff:127.0.0.1","remotePort":62309},"msg":"incoming request"}
+{"level":30,"time":1781202332863,"pid":48476,"hostname":"HUCN001086914","reqId":"req-k","res":{"statusCode":401},"responseTime":0.3099000006914139,"msg":"request completed"}
+  Ô£ö protected endpoint should require authentication (3.2185ms)
+{"level":30,"time":1781202332865,"pid":48476,"hostname":"HUCN001086914","reqId":"req-l","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62310","remoteAddress":"::ffff:127.0.0.1","remotePort":62311},"msg":"incoming request"}
+{"level":30,"time":1781202332866,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"1ad61f1d-e856-4da7-b1eb-e9ab987df677","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332899,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_limit_enforced","source":"database","userId":"demo-admin","maxActiveSessions":3,"revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332899,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"456d6b8c-e423-4cb5-bb72-4c43f10b2016","userId":"demo-admin","authFlowId":"1ad61f1d-e856-4da7-b1eb-e9ab987df677","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:32.896Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332899,"pid":48476,"hostname":"HUCN001086914","reqId":"req-l","res":{"statusCode":200},"responseTime":33.99439999461174,"msg":"request completed"}
+{"level":30,"time":1781202332902,"pid":48476,"hostname":"HUCN001086914","reqId":"req-m","req":{"method":"GET","url":"/onboarding/operational-profile","host":"127.0.0.1:62312","remoteAddress":"::ffff:127.0.0.1","remotePort":62313},"msg":"incoming request"}
+{"level":30,"time":1781202332909,"pid":48476,"hostname":"HUCN001086914","reqId":"req-m","res":{"statusCode":200},"responseTime":7.29729999601841,"msg":"request completed"}
+{"level":30,"time":1781202332912,"pid":48476,"hostname":"HUCN001086914","reqId":"req-n","req":{"method":"POST","url":"/onboarding/operational-profile","host":"127.0.0.1:62314","remoteAddress":"::ffff:127.0.0.1","remotePort":62315},"msg":"incoming request"}
+{"level":50,"time":1781202332935,"pid":48476,"hostname":"HUCN001086914","reqId":"req-n","req":{"method":"POST","url":"/onboarding/operational-profile","host":"127.0.0.1:62314","remoteAddress":"::ffff:127.0.0.1","remotePort":62315},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async saveOperationalProfileInDatabase (C:\\MenuCare\\apps\\api\\src\\server.ts:682:3)\n    at async Object.saveOperationalProfile (C:\\MenuCare\\apps\\api\\src\\server.ts:741:3)\n    at async Object.saveOnboardingOperationalProfile (C:\\MenuCare\\apps\\api\\src\\modules\\auth\\service.ts:433:5)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\auth\\routes.ts:58:20)","code":"P2010","meta":{"type":"Object","message":"ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT","stack":"","code":"42P10"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`"}
+{"level":30,"time":1781202332938,"pid":48476,"hostname":"HUCN001086914","reqId":"req-n","res":{"statusCode":500},"responseTime":26.205699995160103,"msg":"request completed"}
+  Ô£û operational onboarding profile should return default and allow update (77.8992ms)
+{"level":30,"time":1781202332944,"pid":48476,"hostname":"HUCN001086914","reqId":"req-o","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62316","remoteAddress":"::ffff:127.0.0.1","remotePort":62317},"msg":"incoming request"}
+{"level":30,"time":1781202332945,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"36aef625-5ffc-412b-a3c7-b0b34da1606d","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332946,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332973,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"34dc32e1-2279-4997-8f57-7d9b91a2fde6","userId":"demo-admin","authFlowId":"36aef625-5ffc-412b-a3c7-b0b34da1606d","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:32.971Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332973,"pid":48476,"hostname":"HUCN001086914","reqId":"req-o","res":{"statusCode":200},"responseTime":28.99600000679493,"msg":"request completed"}
+{"level":30,"time":1781202332975,"pid":48476,"hostname":"HUCN001086914","reqId":"req-p","req":{"method":"POST","url":"/menus/operational-cardapios","host":"127.0.0.1:62318","remoteAddress":"::ffff:127.0.0.1","remotePort":62319},"msg":"incoming request"}
+{"level":50,"time":1781202332981,"pid":48476,"hostname":"HUCN001086914","reqId":"req-p","req":{"method":"POST","url":"/menus/operational-cardapios","host":"127.0.0.1:62318","remoteAddress":"::ffff:127.0.0.1","remotePort":62319},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:352:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781202332982,"pid":48476,"hostname":"HUCN001086914","reqId":"req-p","res":{"statusCode":500},"responseTime":7.1398999989032745,"msg":"request completed"}
+  Ô£û operational cardapio endpoint should create and list manual menu entries (42.0474ms)
+{"level":30,"time":1781202332985,"pid":48476,"hostname":"HUCN001086914","reqId":"req-q","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62320","remoteAddress":"::ffff:127.0.0.1","remotePort":62321},"msg":"incoming request"}
+{"level":30,"time":1781202332986,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"5a94492b-34b6-443a-bf0d-85bacbbb61e2","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202332988,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333016,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"f4d38b74-4bb6-4d16-ab02-651006b7b902","userId":"demo-admin","authFlowId":"5a94492b-34b6-443a-bf0d-85bacbbb61e2","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:33.013Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333016,"pid":48476,"hostname":"HUCN001086914","reqId":"req-q","res":{"statusCode":200},"responseTime":30.484400004148483,"msg":"request completed"}
+{"level":30,"time":1781202333019,"pid":48476,"hostname":"HUCN001086914","reqId":"req-r","req":{"method":"GET","url":"/governance/recommendation-policy","host":"127.0.0.1:62322","remoteAddress":"::ffff:127.0.0.1","remotePort":62323},"msg":"incoming request"}
+{"level":30,"time":1781202333019,"pid":48476,"hostname":"HUCN001086914","reqId":"req-r","res":{"statusCode":200},"responseTime":0.5455999970436096,"msg":"request completed"}
+  Ô£ö recommendation policy endpoint should return contract with authentication (37.1103ms)
+{"level":30,"time":1781202333023,"pid":48476,"hostname":"HUCN001086914","reqId":"req-s","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62324","remoteAddress":"::ffff:127.0.0.1","remotePort":62325},"msg":"incoming request"}
+{"level":30,"time":1781202333024,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"9f0f94c6-d335-4222-b9e9-4957142fb7b1","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333025,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333053,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"8ba0422c-608d-4ddc-897b-d881ff6d8cf6","userId":"demo-admin","authFlowId":"9f0f94c6-d335-4222-b9e9-4957142fb7b1","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:33.051Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333054,"pid":48476,"hostname":"HUCN001086914","reqId":"req-s","res":{"statusCode":200},"responseTime":30.86030000448227,"msg":"request completed"}
+{"level":30,"time":1781202333058,"pid":48476,"hostname":"HUCN001086914","reqId":"req-t","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:62326","remoteAddress":"::ffff:127.0.0.1","remotePort":62327},"msg":"incoming request"}
+{"level":50,"time":1781202333064,"pid":48476,"hostname":"HUCN001086914","reqId":"req-t","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:62326","remoteAddress":"::ffff:127.0.0.1","remotePort":62327},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781202333065,"pid":48476,"hostname":"HUCN001086914","reqId":"req-t","res":{"statusCode":500},"responseTime":6.878000006079674,"msg":"request completed"}
+  Ô£û menu import endpoint should create and list pdf imports (45.0777ms)
+{"level":30,"time":1781202333069,"pid":48476,"hostname":"HUCN001086914","reqId":"req-u","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62328","remoteAddress":"::ffff:127.0.0.1","remotePort":62329},"msg":"incoming request"}
+{"level":30,"time":1781202333071,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"6d16aead-93c8-491a-910d-f36a00427561","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333072,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333103,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"5d7cdf63-2b85-40ae-8821-dab108959189","userId":"demo-admin","authFlowId":"6d16aead-93c8-491a-910d-f36a00427561","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:33.102Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333104,"pid":48476,"hostname":"HUCN001086914","reqId":"req-u","res":{"statusCode":200},"responseTime":34.6739000082016,"msg":"request completed"}
+{"level":30,"time":1781202333107,"pid":48476,"hostname":"HUCN001086914","reqId":"req-v","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:62330","remoteAddress":"::ffff:127.0.0.1","remotePort":62331},"msg":"incoming request"}
+{"level":50,"time":1781202333112,"pid":48476,"hostname":"HUCN001086914","reqId":"req-v","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:62330","remoteAddress":"::ffff:127.0.0.1","remotePort":62331},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781202333112,"pid":48476,"hostname":"HUCN001086914","reqId":"req-v","res":{"statusCode":500},"responseTime":5.335199996829033,"msg":"request completed"}
+  Ô£û menu import endpoint should calculate meal cost from recipe items and enforce service goal (47.7438ms)
+{"level":30,"time":1781202333116,"pid":48476,"hostname":"HUCN001086914","reqId":"req-w","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62332","remoteAddress":"::ffff:127.0.0.1","remotePort":62333},"msg":"incoming request"}
+{"level":30,"time":1781202333118,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"41dd4cf1-a456-4920-89a0-3ea269bbb181","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333120,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333181,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"ca08fd03-0999-47fa-b2b1-38613d55acd5","userId":"demo-admin","authFlowId":"41dd4cf1-a456-4920-89a0-3ea269bbb181","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:33.180Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333182,"pid":48476,"hostname":"HUCN001086914","reqId":"req-w","res":{"statusCode":200},"responseTime":65.15830001235008,"msg":"request completed"}
+{"level":30,"time":1781202333184,"pid":48476,"hostname":"HUCN001086914","reqId":"req-x","req":{"method":"POST","url":"/menus/imports/parse-report","host":"127.0.0.1:62334","remoteAddress":"::ffff:127.0.0.1","remotePort":62335},"msg":"incoming request"}
+{"level":30,"time":1781202333186,"pid":48476,"hostname":"HUCN001086914","reqId":"req-x","res":{"statusCode":200},"responseTime":1.6220000088214874,"msg":"request completed"}
+  Ô£ö menu import parse-report endpoint should parse raw text into daily payloads (73.4627ms)
+{"level":30,"time":1781202333189,"pid":48476,"hostname":"HUCN001086914","reqId":"req-y","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62336","remoteAddress":"::ffff:127.0.0.1","remotePort":62337},"msg":"incoming request"}
+{"level":30,"time":1781202333190,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"54c37d9a-d4be-453a-8c9c-69c0bb4d7050","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333191,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333224,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"e69f1e3d-085d-4d99-a2cf-26402dbe9218","userId":"demo-admin","authFlowId":"54c37d9a-d4be-453a-8c9c-69c0bb4d7050","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:33.221Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333224,"pid":48476,"hostname":"HUCN001086914","reqId":"req-y","res":{"statusCode":200},"responseTime":34.81430000066757,"msg":"request completed"}
+{"level":30,"time":1781202333227,"pid":48476,"hostname":"HUCN001086914","reqId":"req-z","req":{"method":"POST","url":"/menus/imports/parse-report-file","host":"127.0.0.1:62338","remoteAddress":"::ffff:127.0.0.1","remotePort":62339},"msg":"incoming request"}
+{"level":30,"time":1781202333230,"pid":48476,"hostname":"HUCN001086914","reqId":"req-z","res":{"statusCode":400},"responseTime":2.2748000025749207,"msg":"request completed"}
+  Ô£ö menu import parse-report-file endpoint should reject non-pdf upload (43.4215ms)
+{"level":30,"time":1781202333232,"pid":48476,"hostname":"HUCN001086914","reqId":"req-10","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62340","remoteAddress":"::ffff:127.0.0.1","remotePort":62341},"msg":"incoming request"}
+{"level":30,"time":1781202333233,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"72916ad9-91c0-4511-9dc4-c5161eac9454","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333235,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333266,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"bbc4a1d7-5b0a-42c5-8584-95017ca6da8d","userId":"demo-admin","authFlowId":"72916ad9-91c0-4511-9dc4-c5161eac9454","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:33.265Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333267,"pid":48476,"hostname":"HUCN001086914","reqId":"req-10","res":{"statusCode":200},"responseTime":34.32229998707771,"msg":"request completed"}
+{"level":30,"time":1781202333269,"pid":48476,"hostname":"HUCN001086914","reqId":"req-11","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:62342","remoteAddress":"::ffff:127.0.0.1","remotePort":62343},"msg":"incoming request"}
+{"level":30,"time":1781202333270,"pid":48476,"hostname":"HUCN001086914","reqId":"req-11","res":{"statusCode":400},"responseTime":1.281599998474121,"msg":"request completed"}
+  Ô£ö menu import monthly-cycle endpoint should reject non-pdf upload (40.7933ms)
+{"level":30,"time":1781202333273,"pid":48476,"hostname":"HUCN001086914","reqId":"req-12","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62344","remoteAddress":"::ffff:127.0.0.1","remotePort":62345},"msg":"incoming request"}
+{"level":30,"time":1781202333274,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"348f3ccd-34f7-47f7-bfd0-265ba820e3d1","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333275,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333303,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"30195009-ae3b-4e32-9425-52b3915105e3","userId":"demo-admin","authFlowId":"348f3ccd-34f7-47f7-bfd0-265ba820e3d1","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:33.302Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202333304,"pid":48476,"hostname":"HUCN001086914","reqId":"req-12","res":{"statusCode":200},"responseTime":30.663600012660027,"msg":"request completed"}
+{"level":30,"time":1781202333314,"pid":48476,"hostname":"HUCN001086914","reqId":"req-13","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:62346","remoteAddress":"::ffff:127.0.0.1","remotePort":62347},"msg":"incoming request"}
+{"level":30,"time":1781202333988,"pid":48476,"hostname":"HUCN001086914","reqId":"req-13","res":{"statusCode":400},"responseTime":673.8314999938011,"msg":"request completed"}
+  Ô£û menu import monthly-cycle endpoint should process a real monthly pdf or return db fallback (727.0192ms)
+{"level":30,"time":1781202334005,"pid":48476,"hostname":"HUCN001086914","reqId":"req-14","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62348","remoteAddress":"::ffff:127.0.0.1","remotePort":62349},"msg":"incoming request"}
+{"level":30,"time":1781202334006,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"2bc1cce3-1a35-4e53-8c18-be98f6aece7d","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334009,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334043,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"cbd2201f-c99b-42a4-9dbf-4158ba76d8d1","userId":"demo-admin","authFlowId":"2bc1cce3-1a35-4e53-8c18-be98f6aece7d","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:34.041Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334043,"pid":48476,"hostname":"HUCN001086914","reqId":"req-14","res":{"statusCode":200},"responseTime":37.78050000965595,"msg":"request completed"}
+{"level":30,"time":1781202334051,"pid":48476,"hostname":"HUCN001086914","reqId":"req-15","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:62350","remoteAddress":"::ffff:127.0.0.1","remotePort":62351},"msg":"incoming request"}
+{"level":30,"time":1781202334127,"pid":48476,"hostname":"HUCN001086914","reqId":"req-15","res":{"statusCode":400},"responseTime":76.08840000629425,"msg":"request completed"}
+  Ô£û menu import monthly-cycle endpoint should expose per-day audit and suggestion summaries (132.6652ms)
+{"level":30,"time":1781202334135,"pid":48476,"hostname":"HUCN001086914","reqId":"req-16","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62352","remoteAddress":"::ffff:127.0.0.1","remotePort":62353},"msg":"incoming request"}
+{"level":30,"time":1781202334136,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"ce707f50-ca61-456d-b4d3-0aba12ed8344","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334137,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334168,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"c0cb166e-4993-48a0-bd96-d1c746ddcc66","userId":"demo-admin","authFlowId":"ce707f50-ca61-456d-b4d3-0aba12ed8344","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:34.165Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334168,"pid":48476,"hostname":"HUCN001086914","reqId":"req-16","res":{"statusCode":200},"responseTime":33.14479999244213,"msg":"request completed"}
+{"level":30,"time":1781202334176,"pid":48476,"hostname":"HUCN001086914","reqId":"req-17","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:62354","remoteAddress":"::ffff:127.0.0.1","remotePort":62355},"msg":"incoming request"}
+{"level":30,"time":1781202334239,"pid":48476,"hostname":"HUCN001086914","reqId":"req-17","res":{"statusCode":400},"responseTime":62.87060000002384,"msg":"request completed"}
+  Ô£û menu import monthly-cycle endpoint should keep aggregate totals consistent with per-day items (109.0102ms)
+{"level":30,"time":1781202334243,"pid":48476,"hostname":"HUCN001086914","reqId":"req-18","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62356","remoteAddress":"::ffff:127.0.0.1","remotePort":62357},"msg":"incoming request"}
+{"level":30,"time":1781202334244,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"cba513c2-e456-427c-b040-2e06b558ae0e","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334245,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334282,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"958db8fb-82b1-4c56-8283-cc144d3aaec8","userId":"demo-admin","authFlowId":"cba513c2-e456-427c-b040-2e06b558ae0e","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:34.281Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334282,"pid":48476,"hostname":"HUCN001086914","reqId":"req-18","res":{"statusCode":200},"responseTime":39.08879999816418,"msg":"request completed"}
+{"level":30,"time":1781202334292,"pid":48476,"hostname":"HUCN001086914","reqId":"req-19","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:62358","remoteAddress":"::ffff:127.0.0.1","remotePort":62359},"msg":"incoming request"}
+{"level":30,"time":1781202334404,"pid":48476,"hostname":"HUCN001086914","reqId":"req-19","res":{"statusCode":400},"responseTime":112.75040000677109,"msg":"request completed"}
+  Ô£û menu import monthly-cycle endpoint should identify days above goal from the real monthly pdf (165.6508ms)
+{"level":30,"time":1781202334409,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1a","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62360","remoteAddress":"::ffff:127.0.0.1","remotePort":62361},"msg":"incoming request"}
+{"level":30,"time":1781202334410,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"31c71d64-8581-45e4-b05d-08160664d291","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334411,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334440,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"8119723e-8d3a-4be6-8c58-324b9bc5440d","userId":"demo-admin","authFlowId":"31c71d64-8581-45e4-b05d-08160664d291","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:34.438Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334440,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1a","res":{"statusCode":200},"responseTime":31.137199997901917,"msg":"request completed"}
+{"level":30,"time":1781202334448,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1b","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:62362","remoteAddress":"::ffff:127.0.0.1","remotePort":62363},"msg":"incoming request"}
+{"level":30,"time":1781202334522,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1b","res":{"statusCode":400},"responseTime":73.60789999365807,"msg":"request completed"}
+  Ô£û menu import monthly-cycle endpoint should persist monthly summary for later query (117.018ms)
+{"level":30,"time":1781202334526,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1c","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62364","remoteAddress":"::ffff:127.0.0.1","remotePort":62365},"msg":"incoming request"}
+{"level":30,"time":1781202334527,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"6ace1ff5-978e-4425-958c-f88c1f45ac57","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334529,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334582,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"98d5b22c-31be-490b-89e5-53a38ad48374","userId":"demo-admin","authFlowId":"6ace1ff5-978e-4425-958c-f88c1f45ac57","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:34.580Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334582,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1c","res":{"statusCode":200},"responseTime":56.199599996209145,"msg":"request completed"}
+{"level":30,"time":1781202334595,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1d","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:62366","remoteAddress":"::ffff:127.0.0.1","remotePort":62367},"msg":"incoming request"}
+{"level":30,"time":1781202334677,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1d","res":{"statusCode":400},"responseTime":81.8682000041008,"msg":"request completed"}
+{"level":30,"time":1781202334686,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1e","req":{"method":"GET","url":"/menus/imports/monthly-summaries?month=undefined","host":"127.0.0.1:62368","remoteAddress":"::ffff:127.0.0.1","remotePort":62369},"msg":"incoming request"}
+{"level":30,"time":1781202334688,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1e","res":{"statusCode":400},"responseTime":1.3401000052690506,"msg":"request completed"}
+  Ô£û menu import monthly summary should expose persisted per-day processing messages (165.8256ms)
+{"level":30,"time":1781202334692,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1f","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:62370","remoteAddress":"::ffff:127.0.0.1","remotePort":62371},"msg":"incoming request"}
+{"level":30,"time":1781202334693,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"2309f10d-a932-4e9f-a6bc-7abb63549c76","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334696,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334736,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"64d23938-2115-4f08-b5bb-95972788f224","userId":"demo-admin","authFlowId":"2309f10d-a932-4e9f-a6bc-7abb63549c76","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:34.734Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334736,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1f","res":{"statusCode":200},"responseTime":44.54039999842644,"msg":"request completed"}
+{"level":30,"time":1781202334745,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1g","req":{"method":"POST","url":"/menus/imports/monthly-cycle","host":"127.0.0.1:62372","remoteAddress":"::ffff:127.0.0.1","remotePort":62373},"msg":"incoming request"}
+{"level":30,"time":1781202334851,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1g","res":{"statusCode":400},"responseTime":105.83640000224113,"msg":"request completed"}
+  Ô£û menu import monthly summary should support selective reprocess for failed items (163.3565ms)
+{"level":30,"time":1781202334855,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1h","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64208","remoteAddress":"::ffff:127.0.0.1","remotePort":64209},"msg":"incoming request"}
+{"level":30,"time":1781202334856,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"fe3ba155-bbcf-4fc7-b51b-020f8c8cad81","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334856,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334894,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"34ddf819-86f0-4508-8e79-4dfd38d0380d","userId":"demo-admin","authFlowId":"fe3ba155-bbcf-4fc7-b51b-020f8c8cad81","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:34.891Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334895,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1h","res":{"statusCode":200},"responseTime":40.12179999053478,"msg":"request completed"}
+{"level":30,"time":1781202334899,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1i","req":{"method":"POST","url":"/recipes/imports","host":"127.0.0.1:64210","remoteAddress":"::ffff:127.0.0.1","remotePort":64211},"msg":"incoming request"}
+{"level":50,"time":1781202334929,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1i","req":{"method":"POST","url":"/recipes/imports","host":"127.0.0.1:64210","remoteAddress":"::ffff:127.0.0.1","remotePort":64211},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.importRecipes (C:\\MenuCare\\apps\\api\\src\\modules\\recipes\\service.ts:185:7)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\recipes\\routes.ts:18:18)","code":"P2010","meta":{"type":"Object","message":"ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT","stack":"","code":"42P10"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`"}
+{"level":30,"time":1781202334932,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1i","res":{"statusCode":500},"responseTime":32.705799996852875,"msg":"request completed"}
+  Ô£û recipe import endpoint should accept structured recipes or return db fallback (80.9253ms)
+{"level":30,"time":1781202334935,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1j","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64212","remoteAddress":"::ffff:127.0.0.1","remotePort":64213},"msg":"incoming request"}
+{"level":30,"time":1781202334936,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"652b0dbd-8428-4049-bf6d-6d2f1b49f5e2","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334937,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334979,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"c0591cfc-7164-4301-950a-b0dfed17d1ca","userId":"demo-admin","authFlowId":"652b0dbd-8428-4049-bf6d-6d2f1b49f5e2","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:34.978Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202334980,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1j","res":{"statusCode":200},"responseTime":44.49989999830723,"msg":"request completed"}
+{"level":30,"time":1781202334985,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1k","req":{"method":"POST","url":"/recipes/imports","host":"127.0.0.1:64214","remoteAddress":"::ffff:127.0.0.1","remotePort":64215},"msg":"incoming request"}
+{"level":50,"time":1781202334989,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1k","req":{"method":"POST","url":"/recipes/imports","host":"127.0.0.1:64214","remoteAddress":"::ffff:127.0.0.1","remotePort":64215},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.importRecipes (C:\\MenuCare\\apps\\api\\src\\modules\\recipes\\service.ts:185:7)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\recipes\\routes.ts:18:18)","code":"P2010","meta":{"type":"Object","message":"ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT","stack":"","code":"42P10"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42P10`. Message: `ERRO: n├úo h├í nenhuma restri├º├úo de unicidade ou de exclus├úo que corresponda ├á especifica├º├úo ON CONFLICT`"}
+{"level":30,"time":1781202334989,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1k","res":{"statusCode":500},"responseTime":4.669100001454353,"msg":"request completed"}
+  Ô£û recipe manual classification endpoint should reclassify recipe or return db fallback (58.5113ms)
+{"level":30,"time":1781202334998,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1l","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64216","remoteAddress":"::ffff:127.0.0.1","remotePort":64217},"msg":"incoming request"}
+{"level":30,"time":1781202335000,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"862a32e4-1ede-42be-9c13-70b7b889e1c5","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335002,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335067,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"2c283c25-a99d-4f4c-a648-61f22737dcbb","userId":"demo-admin","authFlowId":"862a32e4-1ede-42be-9c13-70b7b889e1c5","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:35.064Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335068,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1l","res":{"statusCode":200},"responseTime":69.63719999790192,"msg":"request completed"}
+{"level":30,"time":1781202335073,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1m","req":{"method":"GET","url":"/recipes/coverage","host":"127.0.0.1:64218","remoteAddress":"::ffff:127.0.0.1","remotePort":64219},"msg":"incoming request"}
+{"level":30,"time":1781202335088,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1m","res":{"statusCode":200},"responseTime":15.05290000140667,"msg":"request completed"}
+  Ô£ö recipe coverage endpoint should return metrics or db fallback (97.4064ms)
+{"level":30,"time":1781202335093,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1n","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64220","remoteAddress":"::ffff:127.0.0.1","remotePort":64221},"msg":"incoming request"}
+{"level":30,"time":1781202335096,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"4c79c68b-5aa3-42f5-a71f-e63015e75db5","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335100,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335164,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"20d1aa91-7f3d-442e-9cee-0210377574c5","userId":"demo-admin","authFlowId":"4c79c68b-5aa3-42f5-a71f-e63015e75db5","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:35.162Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335164,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1n","res":{"statusCode":200},"responseTime":71.02099999785423,"msg":"request completed"}
+{"level":30,"time":1781202335170,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1o","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64222","remoteAddress":"::ffff:127.0.0.1","remotePort":64223},"msg":"incoming request"}
+{"level":30,"time":1781202335187,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1o","res":{"statusCode":201},"responseTime":17.70329999923706,"msg":"request completed"}
+{"level":30,"time":1781202335192,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1p","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64224","remoteAddress":"::ffff:127.0.0.1","remotePort":64225},"msg":"incoming request"}
+{"level":30,"time":1781202335194,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1p","res":{"statusCode":400},"responseTime":2.124099999666214,"msg":"request completed"}
+  Ô£û menu import audit should compare imported recipes against approved rules (106.319ms)
+{"level":30,"time":1781202335199,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1q","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64226","remoteAddress":"::ffff:127.0.0.1","remotePort":64227},"msg":"incoming request"}
+{"level":30,"time":1781202335200,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"3f6a52b7-accc-42cf-bc3b-1b27b4e1c8ce","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335204,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335275,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"2468e273-444b-46b3-90aa-baa32ec56201","userId":"demo-admin","authFlowId":"3f6a52b7-accc-42cf-bc3b-1b27b4e1c8ce","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:35.274Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335276,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1q","res":{"statusCode":200},"responseTime":76.79099999368191,"msg":"request completed"}
+{"level":30,"time":1781202335278,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1r","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64228","remoteAddress":"::ffff:127.0.0.1","remotePort":64229},"msg":"incoming request"}
+{"level":30,"time":1781202335300,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1r","res":{"statusCode":201},"responseTime":22.106899991631508,"msg":"request completed"}
+{"level":30,"time":1781202335303,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1s","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64230","remoteAddress":"::ffff:127.0.0.1","remotePort":64231},"msg":"incoming request"}
+{"level":30,"time":1781202335304,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1s","res":{"statusCode":400},"responseTime":0.6518999934196472,"msg":"request completed"}
+  Ô£û menu import audit should evaluate structured frequency and recurrence rules (109.2258ms)
+{"level":30,"time":1781202335308,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1t","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64232","remoteAddress":"::ffff:127.0.0.1","remotePort":64233},"msg":"incoming request"}
+{"level":30,"time":1781202335311,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"36eebcfb-4352-47dc-9567-5ac900b8b9fe","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335314,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335368,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"fd8f8d23-e5f4-4bb0-a435-4b40234e0c7f","userId":"demo-admin","authFlowId":"36eebcfb-4352-47dc-9567-5ac900b8b9fe","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:35.366Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335368,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1t","res":{"statusCode":200},"responseTime":59.433300003409386,"msg":"request completed"}
+{"level":30,"time":1781202335371,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1u","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64234","remoteAddress":"::ffff:127.0.0.1","remotePort":64235},"msg":"incoming request"}
+{"level":30,"time":1781202335373,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1u","res":{"statusCode":201},"responseTime":2.1756000071763992,"msg":"request completed"}
+{"level":30,"time":1781202335378,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1v","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64236","remoteAddress":"::ffff:127.0.0.1","remotePort":64237},"msg":"incoming request"}
+{"level":30,"time":1781202335380,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1v","res":{"statusCode":400},"responseTime":1.1097999960184097,"msg":"request completed"}
+  Ô£û menu import audit should map contextual lunch synonyms to structured evidence (76.3668ms)
+{"level":30,"time":1781202335383,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1w","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64238","remoteAddress":"::ffff:127.0.0.1","remotePort":64239},"msg":"incoming request"}
+{"level":30,"time":1781202335384,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"b06935d9-c8d0-4de3-8ebf-cec86d3212dc","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335385,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335423,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"558a7545-4e28-43aa-96d9-3a1450529eae","userId":"demo-admin","authFlowId":"b06935d9-c8d0-4de3-8ebf-cec86d3212dc","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:35.421Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335423,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1w","res":{"statusCode":200},"responseTime":39.51909999549389,"msg":"request completed"}
+{"level":30,"time":1781202335426,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1x","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64240","remoteAddress":"::ffff:127.0.0.1","remotePort":64241},"msg":"incoming request"}
+{"level":30,"time":1781202335428,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1x","res":{"statusCode":201},"responseTime":1.9932000041007996,"msg":"request completed"}
+{"level":30,"time":1781202335431,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1y","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64242","remoteAddress":"::ffff:127.0.0.1","remotePort":64243},"msg":"incoming request"}
+{"level":30,"time":1781202335432,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1y","res":{"statusCode":400},"responseTime":0.9610999971628189,"msg":"request completed"}
+  Ô£û menu import audit should map fish commercial aliases to structured evidence (52.6546ms)
+{"level":30,"time":1781202335438,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1z","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64244","remoteAddress":"::ffff:127.0.0.1","remotePort":64245},"msg":"incoming request"}
+{"level":30,"time":1781202335440,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"6eae92b3-0709-49d1-8a2c-4a0b67390405","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335443,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335497,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"4b2972a7-af62-4b6b-842c-89d84fb267ec","userId":"demo-admin","authFlowId":"6eae92b3-0709-49d1-8a2c-4a0b67390405","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:35.495Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335498,"pid":48476,"hostname":"HUCN001086914","reqId":"req-1z","res":{"statusCode":200},"responseTime":59.629199996590614,"msg":"request completed"}
+{"level":30,"time":1781202335502,"pid":48476,"hostname":"HUCN001086914","reqId":"req-20","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64246","remoteAddress":"::ffff:127.0.0.1","remotePort":64247},"msg":"incoming request"}
+{"level":30,"time":1781202335506,"pid":48476,"hostname":"HUCN001086914","reqId":"req-20","res":{"statusCode":201},"responseTime":3.9416999965906143,"msg":"request completed"}
+{"level":30,"time":1781202335511,"pid":48476,"hostname":"HUCN001086914","reqId":"req-21","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64248","remoteAddress":"::ffff:127.0.0.1","remotePort":64249},"msg":"incoming request"}
+{"level":30,"time":1781202335512,"pid":48476,"hostname":"HUCN001086914","reqId":"req-21","res":{"statusCode":400},"responseTime":1.1356000006198883,"msg":"request completed"}
+  Ô£û menu import audit should map breakfast citrus aliases to structured evidence (80.3099ms)
+{"level":30,"time":1781202335522,"pid":48476,"hostname":"HUCN001086914","reqId":"req-22","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64250","remoteAddress":"::ffff:127.0.0.1","remotePort":64251},"msg":"incoming request"}
+{"level":30,"time":1781202335524,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"219037d8-8d7f-46c2-9ff0-d451d44c2c58","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335528,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335596,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"2b1f0228-e386-401f-9a55-fb2e8d311fff","userId":"demo-admin","authFlowId":"219037d8-8d7f-46c2-9ff0-d451d44c2c58","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:35.594Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335597,"pid":48476,"hostname":"HUCN001086914","reqId":"req-22","res":{"statusCode":200},"responseTime":75.13889999687672,"msg":"request completed"}
+{"level":30,"time":1781202335602,"pid":48476,"hostname":"HUCN001086914","reqId":"req-23","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64252","remoteAddress":"::ffff:127.0.0.1","remotePort":64253},"msg":"incoming request"}
+{"level":30,"time":1781202335606,"pid":48476,"hostname":"HUCN001086914","reqId":"req-23","res":{"statusCode":201},"responseTime":3.5,"msg":"request completed"}
+{"level":30,"time":1781202335610,"pid":48476,"hostname":"HUCN001086914","reqId":"req-24","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64254","remoteAddress":"::ffff:127.0.0.1","remotePort":64255},"msg":"incoming request"}
+{"level":30,"time":1781202335612,"pid":48476,"hostname":"HUCN001086914","reqId":"req-24","res":{"statusCode":400},"responseTime":1.6360999941825867,"msg":"request completed"}
+  Ô£û menu import audit should map lunch vegetable aliases to structured evidence (100.4524ms)
+{"level":30,"time":1781202335621,"pid":48476,"hostname":"HUCN001086914","reqId":"req-25","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64256","remoteAddress":"::ffff:127.0.0.1","remotePort":64257},"msg":"incoming request"}
+{"level":30,"time":1781202335622,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"a4a2826a-bc9f-4c0d-a875-169fc9827029","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335623,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335696,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"ed25b1da-02e0-4d6a-a3c6-71b9509c2a47","userId":"demo-admin","authFlowId":"a4a2826a-bc9f-4c0d-a875-169fc9827029","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:35.687Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335696,"pid":48476,"hostname":"HUCN001086914","reqId":"req-25","res":{"statusCode":200},"responseTime":75.2432000041008,"msg":"request completed"}
+{"level":30,"time":1781202335703,"pid":48476,"hostname":"HUCN001086914","reqId":"req-26","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64259","remoteAddress":"::ffff:127.0.0.1","remotePort":64260},"msg":"incoming request"}
+{"level":30,"time":1781202335706,"pid":48476,"hostname":"HUCN001086914","reqId":"req-26","res":{"statusCode":201},"responseTime":2.9218000024557114,"msg":"request completed"}
+{"level":30,"time":1781202335708,"pid":48476,"hostname":"HUCN001086914","reqId":"req-27","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64261","remoteAddress":"::ffff:127.0.0.1","remotePort":64262},"msg":"incoming request"}
+{"level":30,"time":1781202335708,"pid":48476,"hostname":"HUCN001086914","reqId":"req-27","res":{"statusCode":400},"responseTime":0.4538999944925308,"msg":"request completed"}
+  Ô£û menu import audit should map commercial vegetable aliases to structured evidence (94.1198ms)
+{"level":30,"time":1781202335714,"pid":48476,"hostname":"HUCN001086914","reqId":"req-28","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64263","remoteAddress":"::ffff:127.0.0.1","remotePort":64264},"msg":"incoming request"}
+{"level":30,"time":1781202335716,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"37f83ac2-e4af-4dbd-af09-39558ae7d4a1","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335719,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335775,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"c03eeb9d-0a3e-47e9-a714-771aaca039c5","userId":"demo-admin","authFlowId":"37f83ac2-e4af-4dbd-af09-39558ae7d4a1","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:35.774Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335775,"pid":48476,"hostname":"HUCN001086914","reqId":"req-28","res":{"statusCode":200},"responseTime":60.88740000128746,"msg":"request completed"}
+{"level":30,"time":1781202335779,"pid":48476,"hostname":"HUCN001086914","reqId":"req-29","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64265","remoteAddress":"::ffff:127.0.0.1","remotePort":64266},"msg":"incoming request"}
+{"level":30,"time":1781202335781,"pid":48476,"hostname":"HUCN001086914","reqId":"req-29","res":{"statusCode":201},"responseTime":2.059799998998642,"msg":"request completed"}
+{"level":30,"time":1781202335784,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2a","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64267","remoteAddress":"::ffff:127.0.0.1","remotePort":64268},"msg":"incoming request"}
+{"level":30,"time":1781202335784,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2a","res":{"statusCode":400},"responseTime":0.5464999973773956,"msg":"request completed"}
+  Ô£û menu import suggestions should be generated from audit and financial context (76.2104ms)
+{"level":30,"time":1781202335788,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2b","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64269","remoteAddress":"::ffff:127.0.0.1","remotePort":64270},"msg":"incoming request"}
+{"level":30,"time":1781202335789,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"db30f468-c595-403e-bfb2-d48a3514b003","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335790,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335842,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"e103bd19-8e73-4b7c-81d5-479afd69101d","userId":"demo-admin","authFlowId":"db30f468-c595-403e-bfb2-d48a3514b003","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:35.840Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335843,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2b","res":{"statusCode":200},"responseTime":54.22200000286102,"msg":"request completed"}
+{"level":30,"time":1781202335847,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2c","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64271","remoteAddress":"::ffff:127.0.0.1","remotePort":64272},"msg":"incoming request"}
+{"level":30,"time":1781202335851,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2c","res":{"statusCode":201},"responseTime":3.2905000001192093,"msg":"request completed"}
+{"level":30,"time":1781202335853,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2d","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64273","remoteAddress":"::ffff:127.0.0.1","remotePort":64274},"msg":"incoming request"}
+{"level":30,"time":1781202335854,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2d","res":{"statusCode":400},"responseTime":0.8907999992370605,"msg":"request completed"}
+  Ô£û menu import suggestions should expose explicit structured frequency and recurrence subtypes (69.5425ms)
+{"level":30,"time":1781202335857,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2e","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64275","remoteAddress":"::ffff:127.0.0.1","remotePort":64276},"msg":"incoming request"}
+{"level":30,"time":1781202335858,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"ed4ceee4-d2ae-4ce6-979e-8504104429ef","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335859,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335899,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"a6535ebe-9eba-4f89-ba42-a17a5eabc332","userId":"demo-admin","authFlowId":"ed4ceee4-d2ae-4ce6-979e-8504104429ef","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:35.896Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335899,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2e","res":{"statusCode":200},"responseTime":42.26219999790192,"msg":"request completed"}
+{"level":30,"time":1781202335904,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2f","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64277","remoteAddress":"::ffff:127.0.0.1","remotePort":64278},"msg":"incoming request"}
+{"level":30,"time":1781202335905,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2f","res":{"statusCode":201},"responseTime":1.6864000111818314,"msg":"request completed"}
+{"level":30,"time":1781202335908,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2g","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64279","remoteAddress":"::ffff:127.0.0.1","remotePort":64280},"msg":"incoming request"}
+{"level":30,"time":1781202335910,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2g","res":{"statusCode":400},"responseTime":1.0600000023841858,"msg":"request completed"}
+  Ô£û menu adjusted version should track applied suggestions and impacts (55.3797ms)
+{"level":30,"time":1781202335913,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2h","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64281","remoteAddress":"::ffff:127.0.0.1","remotePort":64282},"msg":"incoming request"}
+{"level":30,"time":1781202335914,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"2dcd887a-9c81-4adb-a6f7-86e39b53d9ee","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335916,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335969,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"a2635c87-275f-4064-94e5-db2ba2033009","userId":"demo-admin","authFlowId":"2dcd887a-9c81-4adb-a6f7-86e39b53d9ee","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:35.967Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335969,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2h","res":{"statusCode":200},"responseTime":56.31909999251366,"msg":"request completed"}
+{"level":30,"time":1781202335972,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2i","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:64283","remoteAddress":"::ffff:127.0.0.1","remotePort":64284},"msg":"incoming request"}
+{"level":50,"time":1781202335976,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2i","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:64283","remoteAddress":"::ffff:127.0.0.1","remotePort":64284},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781202335976,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2i","res":{"statusCode":500},"responseTime":3.7638999968767166,"msg":"request completed"}
+{"level":30,"time":1781202335979,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2j","req":{"method":"POST","url":"/menus/commemorative-dates","host":"127.0.0.1:64285","remoteAddress":"::ffff:127.0.0.1","remotePort":64286},"msg":"incoming request"}
+{"level":50,"time":1781202335984,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2j","req":{"method":"POST","url":"/menus/commemorative-dates","host":"127.0.0.1:64285","remoteAddress":"::ffff:127.0.0.1","remotePort":64286},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:2316:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781202335984,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2j","res":{"statusCode":500},"responseTime":5.6253999918699265,"msg":"request completed"}
+  Ô£û commemorative dates should influence adjusted version for future months (75.4826ms)
+{"level":30,"time":1781202335990,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2k","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64287","remoteAddress":"::ffff:127.0.0.1","remotePort":64288},"msg":"incoming request"}
+{"level":30,"time":1781202335992,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"b5233f1b-f53b-46f1-9adf-ba865c72b431","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202335993,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336045,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"a65b4a20-6445-497f-9076-750b086cae78","userId":"demo-admin","authFlowId":"b5233f1b-f53b-46f1-9adf-ba865c72b431","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:36.042Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336046,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2k","res":{"statusCode":200},"responseTime":55.60859999060631,"msg":"request completed"}
+{"level":30,"time":1781202336052,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2l","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:64289","remoteAddress":"::ffff:127.0.0.1","remotePort":64290},"msg":"incoming request"}
+{"level":50,"time":1781202336056,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2l","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:64289","remoteAddress":"::ffff:127.0.0.1","remotePort":64290},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781202336057,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2l","res":{"statusCode":500},"responseTime":4.361200004816055,"msg":"request completed"}
+  Ô£û evaluation import and intelligence rebuild should generate combination insights (72.6814ms)
+{"level":30,"time":1781202336064,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2m","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64291","remoteAddress":"::ffff:127.0.0.1","remotePort":64292},"msg":"incoming request"}
+{"level":30,"time":1781202336065,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"1215a6fb-0da4-4b9b-b7ef-738ce68f8dcf","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336067,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336122,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"2db8857b-96fc-4a4c-b8a6-7fe714b80b44","userId":"demo-admin","authFlowId":"1215a6fb-0da4-4b9b-b7ef-738ce68f8dcf","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:36.119Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336122,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2m","res":{"statusCode":200},"responseTime":57.682099997997284,"msg":"request completed"}
+{"level":30,"time":1781202336126,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2n","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:64293","remoteAddress":"::ffff:127.0.0.1","remotePort":64294},"msg":"incoming request"}
+{"level":50,"time":1781202336130,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2n","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:64293","remoteAddress":"::ffff:127.0.0.1","remotePort":64294},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781202336130,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2n","res":{"statusCode":500},"responseTime":3.8552999943494797,"msg":"request completed"}
+  Ô£û recommendation preview should keep historical layer non-blocking (73.1051ms)
+{"level":30,"time":1781202336136,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2o","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64295","remoteAddress":"::ffff:127.0.0.1","remotePort":64296},"msg":"incoming request"}
+{"level":30,"time":1781202336138,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"138a07d5-697e-4aac-9e28-979c7231c2e1","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336139,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336180,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"8a8b3bf1-da30-4775-93b9-5bad420cc218","userId":"demo-admin","authFlowId":"138a07d5-697e-4aac-9e28-979c7231c2e1","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:36.178Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336180,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2o","res":{"statusCode":200},"responseTime":43.647200003266335,"msg":"request completed"}
+{"level":30,"time":1781202336182,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2p","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:64297","remoteAddress":"::ffff:127.0.0.1","remotePort":64298},"msg":"incoming request"}
+{"level":50,"time":1781202336186,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2p","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:64297","remoteAddress":"::ffff:127.0.0.1","remotePort":64298},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781202336187,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2p","res":{"statusCode":500},"responseTime":4.261199995875359,"msg":"request completed"}
+{"level":30,"time":1781202336189,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2q","req":{"method":"POST","url":"/evaluations/imports","host":"127.0.0.1:64299","remoteAddress":"::ffff:127.0.0.1","remotePort":64300},"msg":"incoming request"}
+{"level":50,"time":1781202336193,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2q","req":{"method":"POST","url":"/evaluations/imports","host":"127.0.0.1:64299","remoteAddress":"::ffff:127.0.0.1","remotePort":64300},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.importEvaluation (C:\\MenuCare\\apps\\api\\src\\modules\\evaluations\\service.ts:69:5)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\evaluations\\routes.ts:18:18)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781202336194,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2q","res":{"statusCode":500},"responseTime":5.07039999961853,"msg":"request completed"}
+{"level":30,"time":1781202336199,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2r","req":{"method":"POST","url":"/evaluations/intelligence/rebuild","host":"127.0.0.1:64301","remoteAddress":"::ffff:127.0.0.1","remotePort":64302},"msg":"incoming request"}
+{"level":30,"time":1781202336224,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2r","res":{"statusCode":200},"responseTime":24.95379999279976,"msg":"request completed"}
+{"level":30,"time":1781202336229,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2s","req":{"method":"POST","url":"/governance/recommendations/undefined/next-menu","host":"127.0.0.1:64303","remoteAddress":"::ffff:127.0.0.1","remotePort":64304},"msg":"incoming request"}
+{"level":30,"time":1781202336232,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2s","res":{"statusCode":404},"responseTime":2.8100999891757965,"msg":"request completed"}
+  Ô£û next menu proposal should use historical layer as recommendation and never as blocker (100.6795ms)
+{"level":30,"time":1781202336235,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2t","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64305","remoteAddress":"::ffff:127.0.0.1","remotePort":64306},"msg":"incoming request"}
+{"level":30,"time":1781202336236,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"f57e3eda-6fdd-4cd1-97d3-22457c69d039","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336237,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336288,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"ae901f8e-fd33-415c-b167-a26a622883f0","userId":"demo-admin","authFlowId":"f57e3eda-6fdd-4cd1-97d3-22457c69d039","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:36.285Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336288,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2t","res":{"statusCode":200},"responseTime":52.90970000624657,"msg":"request completed"}
+{"level":30,"time":1781202336291,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2u","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:64307","remoteAddress":"::ffff:127.0.0.1","remotePort":64308},"msg":"incoming request"}
+{"level":50,"time":1781202336295,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2u","req":{"method":"POST","url":"/menus/imports","host":"127.0.0.1:64307","remoteAddress":"::ffff:127.0.0.1","remotePort":64308},"res":{"statusCode":500},"err":{"type":"PrismaClientKnownRequestError","message":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`","stack":"PrismaClientKnownRequestError: \nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`\n    at ei.handleRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:228:13)\n    at ei.handleAndLogRequestError (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:174:12)\n    at ei.request (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\RequestHandler.ts:143:12)\n    at async a (C:\\MenuCare\\apps\\api\\node_modules\\@prisma\\client\\src\\runtime\\getPrismaClient.ts:833:24)\n    at async Object.<anonymous> (C:\\MenuCare\\apps\\api\\src\\modules\\menus\\service.ts:150:3)","code":"P2010","meta":{"type":"Object","message":"ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.","stack":"","code":"42804"},"clientVersion":"6.19.3","name":"PrismaClientKnownRequestError"},"msg":"\nInvalid `prisma.$executeRaw()` invocation:\n\n\nRaw query failed. Code: `42804`. Message: `ERRO: coluna \"reference_date\" ├® do tipo date mas express├úo ├® do tipo text\nHINT: Voc├¬ precisar├í reescrever ou converter a express├úo.`"}
+{"level":30,"time":1781202336296,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2u","res":{"statusCode":500},"responseTime":5.073400005698204,"msg":"request completed"}
+{"level":30,"time":1781202336302,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2v","req":{"method":"POST","url":"/governance/recommendations/undefined/next-menu/decision","host":"127.0.0.1:64309","remoteAddress":"::ffff:127.0.0.1","remotePort":64310},"msg":"incoming request"}
+{"level":30,"time":1781202336304,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2v","res":{"statusCode":404},"responseTime":2.3474999964237213,"msg":"request completed"}
+  Ô£û next menu decision should persist approval workflow with governance enforcement (72.7659ms)
+{"level":30,"time":1781202336309,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2w","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64311","remoteAddress":"::ffff:127.0.0.1","remotePort":64312},"msg":"incoming request"}
+{"level":30,"time":1781202336310,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2w","res":{"statusCode":401},"responseTime":0.32089999318122864,"msg":"request completed"}
+{"level":30,"time":1781202336312,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2x","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64313","remoteAddress":"::ffff:127.0.0.1","remotePort":64314},"msg":"incoming request"}
+{"level":30,"time":1781202336313,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2x","res":{"statusCode":401},"responseTime":0.6226000040769577,"msg":"request completed"}
+{"level":30,"time":1781202336316,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2y","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64315","remoteAddress":"::ffff:127.0.0.1","remotePort":64316},"msg":"incoming request"}
+{"level":30,"time":1781202336317,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2y","res":{"statusCode":401},"responseTime":0.36420001089572906,"msg":"request completed"}
+{"level":30,"time":1781202336319,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2z","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64317","remoteAddress":"::ffff:127.0.0.1","remotePort":64318},"msg":"incoming request"}
+{"level":30,"time":1781202336319,"pid":48476,"hostname":"HUCN001086914","reqId":"req-2z","res":{"statusCode":401},"responseTime":0.2880999892950058,"msg":"request completed"}
+{"level":30,"time":1781202336322,"pid":48476,"hostname":"HUCN001086914","reqId":"req-30","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64319","remoteAddress":"::ffff:127.0.0.1","remotePort":64320},"msg":"incoming request"}
+{"level":30,"time":1781202336323,"pid":48476,"hostname":"HUCN001086914","reqId":"req-30","res":{"statusCode":429},"responseTime":0.37129999697208405,"msg":"request completed"}
+{"level":30,"time":1781202336325,"pid":48476,"hostname":"HUCN001086914","reqId":"req-31","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64321","remoteAddress":"::ffff:127.0.0.1","remotePort":64322},"msg":"incoming request"}
+{"level":30,"time":1781202336325,"pid":48476,"hostname":"HUCN001086914","reqId":"req-31","res":{"statusCode":429},"responseTime":0.37800000607967377,"msg":"request completed"}
+  Ô£ö login should return 429 after too many failed attempts (20.5704ms)
+{"level":30,"time":1781202336328,"pid":48476,"hostname":"HUCN001086914","reqId":"req-32","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64323","remoteAddress":"::ffff:127.0.0.1","remotePort":64324},"msg":"incoming request"}
+{"level":30,"time":1781202336329,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"d2a4b747-d2fe-4ae4-8641-a5cebd13d581","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336330,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336365,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"1541d450-bf26-4cdd-9d0e-6d8dd0a48f1b","userId":"demo-admin","authFlowId":"d2a4b747-d2fe-4ae4-8641-a5cebd13d581","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:36.363Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336365,"pid":48476,"hostname":"HUCN001086914","reqId":"req-32","res":{"statusCode":200},"responseTime":37.214800000190735,"msg":"request completed"}
+{"level":30,"time":1781202336370,"pid":48476,"hostname":"HUCN001086914","reqId":"req-33","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64325","remoteAddress":"::ffff:127.0.0.1","remotePort":64326},"msg":"incoming request"}
+{"level":30,"time":1781202336373,"pid":48476,"hostname":"HUCN001086914","reqId":"req-33","res":{"statusCode":201},"responseTime":2.664800003170967,"msg":"request completed"}
+{"level":30,"time":1781202336375,"pid":48476,"hostname":"HUCN001086914","reqId":"req-34","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64327","remoteAddress":"::ffff:127.0.0.1","remotePort":64328},"msg":"incoming request"}
+{"level":30,"time":1781202336400,"pid":48476,"hostname":"HUCN001086914","reqId":"req-34","res":{"statusCode":201},"responseTime":24.555899992585182,"msg":"request completed"}
+{"level":30,"time":1781202336405,"pid":48476,"hostname":"HUCN001086914","reqId":"req-35","req":{"method":"POST","url":"/rules/7be73528-2ba2-4742-9676-ca9787823797/promote-control","host":"127.0.0.1:64329","remoteAddress":"::ffff:127.0.0.1","remotePort":64330},"msg":"incoming request"}
+{"level":30,"time":1781202336455,"pid":48476,"hostname":"HUCN001086914","reqId":"req-35","res":{"statusCode":201},"responseTime":49.32610000669956,"msg":"request completed"}
+{"level":30,"time":1781202336457,"pid":48476,"hostname":"HUCN001086914","reqId":"req-36","req":{"method":"GET","url":"/compliance-controls?limit=10","host":"127.0.0.1:64331","remoteAddress":"::ffff:127.0.0.1","remotePort":64332},"msg":"incoming request"}
+{"level":30,"time":1781202336487,"pid":48476,"hostname":"HUCN001086914","reqId":"req-36","res":{"statusCode":200},"responseTime":29.39749999344349,"msg":"request completed"}
+{"level":30,"time":1781202336491,"pid":48476,"hostname":"HUCN001086914","reqId":"req-37","req":{"method":"POST","url":"/compliance-controls/9b2265fa-cd96-4854-a511-97b9541b1a24/executions","host":"127.0.0.1:64333","remoteAddress":"::ffff:127.0.0.1","remotePort":64334},"msg":"incoming request"}
+{"level":30,"time":1781202336504,"pid":48476,"hostname":"HUCN001086914","reqId":"req-37","res":{"statusCode":201},"responseTime":12.930600002408028,"msg":"request completed"}
+{"level":30,"time":1781202336508,"pid":48476,"hostname":"HUCN001086914","reqId":"req-38","req":{"method":"POST","url":"/compliance-controls/9b2265fa-cd96-4854-a511-97b9541b1a24/findings","host":"127.0.0.1:64335","remoteAddress":"::ffff:127.0.0.1","remotePort":64336},"msg":"incoming request"}
+{"level":30,"time":1781202336537,"pid":48476,"hostname":"HUCN001086914","reqId":"req-38","res":{"statusCode":201},"responseTime":28.582599997520447,"msg":"request completed"}
+{"level":30,"time":1781202336540,"pid":48476,"hostname":"HUCN001086914","reqId":"req-39","req":{"method":"PATCH","url":"/compliance-controls/9b2265fa-cd96-4854-a511-97b9541b1a24/findings/a0b4a6f0-261d-4fba-b5ab-5276d2e6eaee/status","host":"127.0.0.1:64337","remoteAddress":"::ffff:127.0.0.1","remotePort":64338},"msg":"incoming request"}
+{"level":30,"time":1781202336545,"pid":48476,"hostname":"HUCN001086914","reqId":"req-39","res":{"statusCode":200},"responseTime":4.368499994277954,"msg":"request completed"}
+{"level":30,"time":1781202336548,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3a","req":{"method":"GET","url":"/compliance-controls/9b2265fa-cd96-4854-a511-97b9541b1a24","host":"127.0.0.1:64339","remoteAddress":"::ffff:127.0.0.1","remotePort":64340},"msg":"incoming request"}
+{"level":30,"time":1781202336583,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3a","res":{"statusCode":200},"responseTime":34.919200003147125,"msg":"request completed"}
+{"level":30,"time":1781202336585,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3b","req":{"method":"GET","url":"/contracts/621717de-00b9-46a2-b05b-d4196480b7ab/controls","host":"127.0.0.1:64341","remoteAddress":"::ffff:127.0.0.1","remotePort":64342},"msg":"incoming request"}
+{"level":30,"time":1781202336589,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3b","res":{"statusCode":200},"responseTime":3.7705000042915344,"msg":"request completed"}
+  Ô£ö approved rule should be promoted to compliance control and preserve full traceability (264.1712ms)
+{"level":30,"time":1781202336593,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3c","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64343","remoteAddress":"::ffff:127.0.0.1","remotePort":64344},"msg":"incoming request"}
+{"level":30,"time":1781202336594,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"76e7be9d-7c55-4f8a-9560-12debd737e35","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336595,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336631,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"c05a8b62-e780-4060-b9c8-e984753cef29","userId":"demo-admin","authFlowId":"76e7be9d-7c55-4f8a-9560-12debd737e35","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:36.629Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336631,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3c","res":{"statusCode":200},"responseTime":38.195699989795685,"msg":"request completed"}
+{"level":30,"time":1781202336635,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3d","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64345","remoteAddress":"::ffff:127.0.0.1","remotePort":64346},"msg":"incoming request"}
+{"level":30,"time":1781202336636,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3d","res":{"statusCode":201},"responseTime":1.7268000096082687,"msg":"request completed"}
+{"level":30,"time":1781202336639,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3e","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64347","remoteAddress":"::ffff:127.0.0.1","remotePort":64348},"msg":"incoming request"}
+{"level":30,"time":1781202336645,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3e","res":{"statusCode":201},"responseTime":6.139499992132187,"msg":"request completed"}
+{"level":30,"time":1781202336650,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3f","req":{"method":"POST","url":"/rules/d129adfc-858f-44ed-a0a7-4498c86c3599/promote-control","host":"127.0.0.1:64349","remoteAddress":"::ffff:127.0.0.1","remotePort":64350},"msg":"incoming request"}
+{"level":30,"time":1781202336657,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3f","res":{"statusCode":201},"responseTime":7.207399994134903,"msg":"request completed"}
+{"level":30,"time":1781202336659,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3g","req":{"method":"GET","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf","host":"127.0.0.1:64351","remoteAddress":"::ffff:127.0.0.1","remotePort":64352},"msg":"incoming request"}
+{"level":30,"time":1781202336663,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3g","res":{"statusCode":200},"responseTime":3.6871000081300735,"msg":"request completed"}
+{"level":30,"time":1781202336668,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3h","req":{"method":"PATCH","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf/status","host":"127.0.0.1:64353","remoteAddress":"::ffff:127.0.0.1","remotePort":64354},"msg":"incoming request"}
+{"level":30,"time":1781202336673,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3h","res":{"statusCode":409},"responseTime":4.635300010442734,"msg":"request completed"}
+{"level":30,"time":1781202336677,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3i","req":{"method":"GET","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf","host":"127.0.0.1:64355","remoteAddress":"::ffff:127.0.0.1","remotePort":64356},"msg":"incoming request"}
+{"level":30,"time":1781202336686,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3i","res":{"statusCode":200},"responseTime":9.340300008654594,"msg":"request completed"}
+{"level":30,"time":1781202336690,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3j","req":{"method":"PATCH","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf/status","host":"127.0.0.1:64357","remoteAddress":"::ffff:127.0.0.1","remotePort":64358},"msg":"incoming request"}
+{"level":30,"time":1781202336694,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3j","res":{"statusCode":200},"responseTime":3.679999992251396,"msg":"request completed"}
+{"level":30,"time":1781202336697,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3k","req":{"method":"GET","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf","host":"127.0.0.1:64359","remoteAddress":"::ffff:127.0.0.1","remotePort":64360},"msg":"incoming request"}
+{"level":30,"time":1781202336705,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3k","res":{"statusCode":200},"responseTime":7.231699988245964,"msg":"request completed"}
+{"level":30,"time":1781202336708,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3l","req":{"method":"PATCH","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf/status","host":"127.0.0.1:64361","remoteAddress":"::ffff:127.0.0.1","remotePort":64362},"msg":"incoming request"}
+{"level":30,"time":1781202336712,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3l","res":{"statusCode":200},"responseTime":3.6686999946832657,"msg":"request completed"}
+{"level":30,"time":1781202336714,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3m","req":{"method":"GET","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf","host":"127.0.0.1:64363","remoteAddress":"::ffff:127.0.0.1","remotePort":64364},"msg":"incoming request"}
+{"level":30,"time":1781202336723,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3m","res":{"statusCode":200},"responseTime":8.63340000808239,"msg":"request completed"}
+{"level":30,"time":1781202336726,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3n","req":{"method":"PATCH","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf/status","host":"127.0.0.1:64365","remoteAddress":"::ffff:127.0.0.1","remotePort":64366},"msg":"incoming request"}
+{"level":30,"time":1781202336727,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3n","res":{"statusCode":409},"responseTime":1.632199987769127,"msg":"request completed"}
+{"level":30,"time":1781202336733,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3o","req":{"method":"GET","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf","host":"127.0.0.1:64367","remoteAddress":"::ffff:127.0.0.1","remotePort":64368},"msg":"incoming request"}
+{"level":30,"time":1781202336740,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3o","res":{"statusCode":200},"responseTime":6.832100003957748,"msg":"request completed"}
+{"level":30,"time":1781202336743,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3p","req":{"method":"PATCH","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf/status","host":"127.0.0.1:64369","remoteAddress":"::ffff:127.0.0.1","remotePort":64370},"msg":"incoming request"}
+{"level":30,"time":1781202336746,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3p","res":{"statusCode":200},"responseTime":2.955600008368492,"msg":"request completed"}
+{"level":30,"time":1781202336750,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3q","req":{"method":"PATCH","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf/status","host":"127.0.0.1:64371","remoteAddress":"::ffff:127.0.0.1","remotePort":64372},"msg":"incoming request"}
+{"level":30,"time":1781202336755,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3q","res":{"statusCode":200},"responseTime":4.892299994826317,"msg":"request completed"}
+{"level":30,"time":1781202336758,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3r","req":{"method":"PATCH","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf/status","host":"127.0.0.1:64373","remoteAddress":"::ffff:127.0.0.1","remotePort":64374},"msg":"incoming request"}
+{"level":30,"time":1781202336760,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3r","res":{"statusCode":200},"responseTime":2.6598000079393387,"msg":"request completed"}
+{"level":30,"time":1781202336763,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3s","req":{"method":"GET","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf","host":"127.0.0.1:64375","remoteAddress":"::ffff:127.0.0.1","remotePort":64376},"msg":"incoming request"}
+{"level":30,"time":1781202336767,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3s","res":{"statusCode":200},"responseTime":4.00560000538826,"msg":"request completed"}
+{"level":30,"time":1781202336770,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3t","req":{"method":"PATCH","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf/status","host":"127.0.0.1:64377","remoteAddress":"::ffff:127.0.0.1","remotePort":64378},"msg":"incoming request"}
+{"level":30,"time":1781202336772,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3t","res":{"statusCode":409},"responseTime":1.8038000017404556,"msg":"request completed"}
+{"level":30,"time":1781202336774,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3u","req":{"method":"GET","url":"/compliance-controls/c8219239-e21a-482e-a397-502a548b6fdf","host":"127.0.0.1:64379","remoteAddress":"::ffff:127.0.0.1","remotePort":64380},"msg":"incoming request"}
+{"level":30,"time":1781202336778,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3u","res":{"statusCode":200},"responseTime":3.2339999973773956,"msg":"request completed"}
+  Ô£ö control state machine should accept valid transitions and reject invalid ones without events (188.2166ms)
+{"level":30,"time":1781202336781,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3v","req":{"method":"POST","url":"/auth/login","host":"127.0.0.1:64381","remoteAddress":"::ffff:127.0.0.1","remotePort":64382},"msg":"incoming request"}
+{"level":30,"time":1781202336782,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issuance_started","userId":"demo-admin","authFlowId":"c6266136-2c33-4875-972a-ee9bb5890139","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","hasIpAddress":true,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336783,"pid":48476,"hostname":"HUCN001086914","event":"refresh_sessions_device_revoked","source":"database","userId":"demo-admin","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","revokedCount":1,"msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336823,"pid":48476,"hostname":"HUCN001086914","event":"refresh_session_issued","source":"database","sessionId":"c8e56152-d2d8-4d04-a622-209d40505ccf","userId":"demo-admin","authFlowId":"c6266136-2c33-4875-972a-ee9bb5890139","deviceFingerprint":"b23a6a8439c0dde5515893e7c90c1e32","expiresAt":"2026-06-18T18:25:36.822Z","msg":"Evento de seguranca de refresh session."}
+{"level":30,"time":1781202336823,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3v","res":{"statusCode":200},"responseTime":42.14300000667572,"msg":"request completed"}
+{"level":30,"time":1781202336826,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3w","req":{"method":"POST","url":"/contracts","host":"127.0.0.1:64383","remoteAddress":"::ffff:127.0.0.1","remotePort":64384},"msg":"incoming request"}
+{"level":30,"time":1781202336828,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3w","res":{"statusCode":201},"responseTime":1.7206999957561493,"msg":"request completed"}
+{"level":30,"time":1781202336830,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3x","req":{"method":"POST","url":"/rules","host":"127.0.0.1:64385","remoteAddress":"::ffff:127.0.0.1","remotePort":64386},"msg":"incoming request"}
+{"level":30,"time":1781202336836,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3x","res":{"statusCode":201},"responseTime":5.418200001120567,"msg":"request completed"}
+{"level":30,"time":1781202336839,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3y","req":{"method":"POST","url":"/rules/01868590-42fb-4787-85c6-62a2372f0b5a/promote-control","host":"127.0.0.1:64387","remoteAddress":"::ffff:127.0.0.1","remotePort":64388},"msg":"incoming request"}
+{"level":30,"time":1781202336844,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3y","res":{"statusCode":201},"responseTime":4.997000008821487,"msg":"request completed"}
+{"level":30,"time":1781202336848,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3z","req":{"method":"POST","url":"/compliance-controls/acb8ceec-3634-48cc-854e-e39a04fbee22/findings","host":"127.0.0.1:64389","remoteAddress":"::ffff:127.0.0.1","remotePort":64390},"msg":"incoming request"}
+{"level":30,"time":1781202336851,"pid":48476,"hostname":"HUCN001086914","reqId":"req-3z","res":{"statusCode":201},"responseTime":3.7017000019550323,"msg":"request completed"}
+{"level":30,"time":1781202336855,"pid":48476,"hostname":"HUCN001086914","reqId":"req-40","req":{"method":"GET","url":"/compliance-controls/acb8ceec-3634-48cc-854e-e39a04fbee22","host":"127.0.0.1:64391","remoteAddress":"::ffff:127.0.0.1","remotePort":64392},"msg":"incoming request"}
+{"level":30,"time":1781202336858,"pid":48476,"hostname":"HUCN001086914","reqId":"req-40","res":{"statusCode":200},"responseTime":3.759800001978874,"msg":"request completed"}
+{"level":30,"time":1781202336862,"pid":48476,"hostname":"HUCN001086914","reqId":"req-41","req":{"method":"PATCH","url":"/compliance-controls/acb8ceec-3634-48cc-854e-e39a04fbee22/findings/bf7dc721-6e9f-4ed6-9169-449b1c277a68/status","host":"127.0.0.1:64393","remoteAddress":"::ffff:127.0.0.1","remotePort":64394},"msg":"incoming request"}
+{"level":30,"time":1781202336866,"pid":48476,"hostname":"HUCN001086914","reqId":"req-41","res":{"statusCode":200},"responseTime":4.1146000027656555,"msg":"request completed"}
+{"level":30,"time":1781202336869,"pid":48476,"hostname":"HUCN001086914","reqId":"req-42","req":{"method":"GET","url":"/compliance-controls/acb8ceec-3634-48cc-854e-e39a04fbee22","host":"127.0.0.1:64395","remoteAddress":"::ffff:127.0.0.1","remotePort":64396},"msg":"incoming request"}
+{"level":30,"time":1781202336873,"pid":48476,"hostname":"HUCN001086914","reqId":"req-42","res":{"statusCode":200},"responseTime":3.9333999902009964,"msg":"request completed"}
+{"level":30,"time":1781202336878,"pid":48476,"hostname":"HUCN001086914","reqId":"req-43","req":{"method":"PATCH","url":"/compliance-controls/acb8ceec-3634-48cc-854e-e39a04fbee22/findings/bf7dc721-6e9f-4ed6-9169-449b1c277a68/status","host":"127.0.0.1:64397","remoteAddress":"::ffff:127.0.0.1","remotePort":64398},"msg":"incoming request"}
+{"level":30,"time":1781202336882,"pid":48476,"hostname":"HUCN001086914","reqId":"req-43","res":{"statusCode":200},"responseTime":3.602300003170967,"msg":"request completed"}
+{"level":30,"time":1781202336885,"pid":48476,"hostname":"HUCN001086914","reqId":"req-44","req":{"method":"GET","url":"/compliance-controls/acb8ceec-3634-48cc-854e-e39a04fbee22","host":"127.0.0.1:64399","remoteAddress":"::ffff:127.0.0.1","remotePort":64401},"msg":"incoming request"}
+{"level":30,"time":1781202336890,"pid":48476,"hostname":"HUCN001086914","reqId":"req-44","res":{"statusCode":200},"responseTime":4.648800000548363,"msg":"request completed"}
+{"level":30,"time":1781202336893,"pid":48476,"hostname":"HUCN001086914","reqId":"req-45","req":{"method":"PATCH","url":"/compliance-controls/acb8ceec-3634-48cc-854e-e39a04fbee22/findings/bf7dc721-6e9f-4ed6-9169-449b1c277a68/status","host":"127.0.0.1:64402","remoteAddress":"::ffff:127.0.0.1","remotePort":64403},"msg":"incoming request"}
+{"level":30,"time":1781202336895,"pid":48476,"hostname":"HUCN001086914","reqId":"req-45","res":{"statusCode":409},"responseTime":1.9395000040531158,"msg":"request completed"}
+{"level":30,"time":1781202336898,"pid":48476,"hostname":"HUCN001086914","reqId":"req-46","req":{"method":"GET","url":"/compliance-controls/acb8ceec-3634-48cc-854e-e39a04fbee22","host":"127.0.0.1:64404","remoteAddress":"::ffff:127.0.0.1","remotePort":64405},"msg":"incoming request"}
+{"level":30,"time":1781202336902,"pid":48476,"hostname":"HUCN001086914","reqId":"req-46","res":{"statusCode":200},"responseTime":3.8665000051259995,"msg":"request completed"}
+{"level":30,"time":1781202336906,"pid":48476,"hostname":"HUCN001086914","reqId":"req-47","req":{"method":"POST","url":"/compliance-controls/acb8ceec-3634-48cc-854e-e39a04fbee22/findings","host":"127.0.0.1:64406","remoteAddress":"::ffff:127.0.0.1","remotePort":64407},"msg":"incoming request"}
+{"level":30,"time":1781202336910,"pid":48476,"hostname":"HUCN001086914","reqId":"req-47","res":{"statusCode":201},"responseTime":3.62389999628067,"msg":"request completed"}
+{"level":30,"time":1781202336913,"pid":48476,"hostname":"HUCN001086914","reqId":"req-48","req":{"method":"PATCH","url":"/compliance-controls/acb8ceec-3634-48cc-854e-e39a04fbee22/findings/3c13a508-61fb-4d51-bb2a-5718d43a9c65/status","host":"127.0.0.1:64408","remoteAddress":"::ffff:127.0.0.1","remotePort":64409},"msg":"incoming request"}
+{"level":30,"time":1781202336917,"pid":48476,"hostname":"HUCN001086914","reqId":"req-48","res":{"statusCode":200},"responseTime":3.6551999896764755,"msg":"request completed"}
+{"level":30,"time":1781202336920,"pid":48476,"hostname":"HUCN001086914","reqId":"req-49","req":{"method":"PATCH","url":"/compliance-controls/acb8ceec-3634-48cc-854e-e39a04fbee22/findings/3c13a508-61fb-4d51-bb2a-5718d43a9c65/status","host":"127.0.0.1:64410","remoteAddress":"::ffff:127.0.0.1","remotePort":64411},"msg":"incoming request"}
+{"level":30,"time":1781202336924,"pid":48476,"hostname":"HUCN001086914","reqId":"req-49","res":{"statusCode":409},"responseTime":4.117600008845329,"msg":"request completed"}
+{"level":30,"time":1781202336927,"pid":48476,"hostname":"HUCN001086914","reqId":"req-4a","req":{"method":"GET","url":"/compliance-controls/acb8ceec-3634-48cc-854e-e39a04fbee22","host":"127.0.0.1:64412","remoteAddress":"::ffff:127.0.0.1","remotePort":64413},"msg":"incoming request"}
+{"level":30,"time":1781202336931,"pid":48476,"hostname":"HUCN001086914","reqId":"req-4a","res":{"statusCode":200},"responseTime":3.743599995970726,"msg":"request completed"}
+  Ô£ö finding lifecycle should create events and block invalid regressions (153.6104ms)
+Ô£û API integration (5163.5567ms)
+Ôä╣ tests 45
+Ôä╣ suites 1
+Ôä╣ pass 17
+Ôä╣ fail 28
+Ôä╣ cancelled 0
+Ôä╣ skipped 0
+Ôä╣ todo 0
+Ôä╣ duration_ms 12820.8905
+
+Ô£û failing tests:
+
+test at src\server.test.ts:1:8253
+Ô£û operational onboarding profile should return default and allow update (77.8992ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:315:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:10244
+Ô£û operational cardapio endpoint should create and list manual menu entries (42.0474ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:362:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:12492
+Ô£û menu import endpoint should create and list pdf imports (45.0777ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:435:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:13815
+Ô£û menu import endpoint should calculate meal cost from recipe items and enforce service goal (47.7438ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:482:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:18216
+Ô£û menu import monthly-cycle endpoint should process a real monthly pdf or return db fallback (727.0192ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:618:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:19288
+Ô£û menu import monthly-cycle endpoint should expose per-day audit and suggestion summaries (132.6652ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:650:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:22022
+Ô£û menu import monthly-cycle endpoint should keep aggregate totals consistent with per-day items (109.0102ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:751:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:24424
+Ô£û menu import monthly-cycle endpoint should identify days above goal from the real monthly pdf (165.6508ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:831:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:26117
+Ô£û menu import monthly-cycle endpoint should persist monthly summary for later query (117.018ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:886:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:28444
+Ô£û menu import monthly summary should expose persisted per-day processing messages (165.8256ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:969:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:30518
+Ô£û menu import monthly summary should support selective reprocess for failed items (163.3565ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1045:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:32062
+Ô£û recipe import endpoint should accept structured recipes or return db fallback (80.9253ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1101:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:33026
+Ô£û recipe manual classification endpoint should reclassify recipe or return db fallback (58.5113ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1139:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:35987
+Ô£û menu import audit should compare imported recipes against approved rules (106.319ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1247:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:38689
+Ô£û menu import audit should evaluate structured frequency and recurrence rules (109.2258ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1349:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:42194
+Ô£û menu import audit should map contextual lunch synonyms to structured evidence (76.3668ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1495:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:44434
+Ô£û menu import audit should map fish commercial aliases to structured evidence (52.6546ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1586:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:46726
+Ô£û menu import audit should map breakfast citrus aliases to structured evidence (80.3099ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1677:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:49019
+Ô£û menu import audit should map lunch vegetable aliases to structured evidence (100.4524ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1768:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:51278
+Ô£û menu import audit should map commercial vegetable aliases to structured evidence (94.1198ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1859:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:53597
+Ô£û menu import suggestions should be generated from audit and financial context (76.2104ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:1948:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:57743
+Ô£û menu import suggestions should expose explicit structured frequency and recurrence subtypes (69.5425ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2094:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:62083
+Ô£û menu adjusted version should track applied suggestions and impacts (55.3797ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  400 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2274:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 400,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:64663
+Ô£û commemorative dates should influence adjusted version for future months (75.4826ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2367:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:66778
+Ô£û evaluation import and intelligence rebuild should generate combination insights (72.6814ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2425:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:68679
+Ô£û recommendation preview should keep historical layer non-blocking (73.1051ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  500 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2491:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 500,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:70324
+Ô£û next menu proposal should use historical layer as recommendation and never as blocker (100.6795ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  404 !== 200
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2569:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 404,
+    expected: 200,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at src\server.test.ts:1:71924
+Ô£û next menu decision should persist approval workflow with governance enforcement (72.7659ms)
+  AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+  
+  404 !== 201
+  
+      at TestContext.<anonymous> (C:\MenuCare\apps\api\src\server.test.ts:2615:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1208:7)
+      at async Suite.processPendingSubtests (node:internal/test_runner/test:831:7) {
+    generatedMessage: true,
+    code: 'ERR_ASSERTION',
+    actual: 404,
+    expected: 201,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+node.exe : npm error Lifecycle script `test` failed with error:
+No linha:1 caractere:1
++ & "C:\Program Files\nodejs/node.exe" "C:\Program Files\nodejs/node_mo ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (npm error Lifec...led with error: 
+   :String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+npm error code 1
+npm error path C:\MenuCare\apps\api
+npm error workspace @menucare/api@1.0.0
+npm error location C:\MenuCare\apps\api
+npm error command failed
+npm error command C:\WINDOWS\system32\cmd.exe /d /s /c cross-env NODE_ENV=test 
+MENUCARE_DISABLE_LISTEN=1 LOGIN_RATE_LIMIT_MAX_ATTEMPTS=5 
+LOGIN_RATE_LIMIT_WINDOW_MS=600000 tsx --test src/**/*.test.ts
