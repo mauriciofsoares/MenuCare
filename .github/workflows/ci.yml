@@ -12,6 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      DATABASE_URL: postgresql://menucare:menucare@localhost:5432/menucare_test
 
     steps:
       - name: Checkout
@@ -67,9 +68,43 @@ jobs:
           node-version: 22
           cache: npm
 
+      - name: Start PostgreSQL
+        if: steps.changes.outputs.docs_only != 'true'
+        run: |
+          docker run \
+            --detach \
+            --name menucare-postgres \
+            --env POSTGRES_USER=menucare \
+            --env POSTGRES_PASSWORD=menucare \
+            --env POSTGRES_DB=menucare_test \
+            --publish 5432:5432 \
+            postgres:16
+
+          for attempt in {1..30}; do
+            if docker exec menucare-postgres pg_isready -U menucare -d menucare_test; then
+              exit 0
+            fi
+            sleep 2
+          done
+
+          docker logs menucare-postgres
+          exit 1
+
       - name: Install dependencies
         if: steps.changes.outputs.docs_only != 'true'
         run: npm ci
+
+      - name: Prepare test database
+        if: steps.changes.outputs.docs_only != 'true'
+        run: |
+          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/baseline/migration.sql
+          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/20260611_sprint_p_contracts_status/migration.sql
+          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/20260611_sprint_p_source_excerpt/migration.sql
+          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/20260611_sprint_p_evidence_metadata/migration.sql
+          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/20260611_sprint_p_compliance_controls/migration.sql
+          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/20260611_sprint_q_control_state_machine_and_finding_events/migration.sql
+          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/prisma/migrations/20260611_sprint_q_operational_governance/migration.sql
+          npx prisma db execute --schema apps/api/prisma/schema.prisma --file apps/api/seed-demo.sql
 
       - name: Run tests (API + Web)
         if: steps.changes.outputs.docs_only != 'true'
