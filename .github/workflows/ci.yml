@@ -98,6 +98,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Generate Prisma Client
+        run: npm run prisma:generate --workspace apps/api
+
       - name: Prepare test database
         run: |
           npm exec --workspace apps/api -- prisma db execute --schema prisma/schema.prisma --file prisma/migrations/baseline/migration.sql
