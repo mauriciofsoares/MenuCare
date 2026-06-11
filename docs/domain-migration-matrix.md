@@ -48,9 +48,21 @@ Campos textuais como `company_name`, `unit_name` e `service_name` devem permanec
 
 A presenca de `site_id` deve ser avaliada por ownership, nao aplicada automaticamente em todas as tabelas.
 
-- `site_id` obrigatorio direto: entidades raiz ou de contexto local cujo ownership primario e Site, especialmente `contracts` e futuras tabelas de Site.
-- `site_id` derivado por relacionamento: entidades que ja pertencem a um Contract, Control, Execution, MenuImport ou outro agregado que permita chegar ao Site por FK. Nesses casos, manter apenas a FK mais forte do agregado pode reduzir duplicacao e risco de inconsistencia.
-- `site_id` opcional/futuro: entidades hibridas ou polimorficas, como evidencias e auditorias, quando o alvo operacional ainda nao estiver normalizado.
+Categorias obrigatorias:
+
+1. `site_id` obrigatorio direto:
+- entidades raiz ou de contexto local cujo ownership primario e Site.
+- exemplos: `contracts`, futura tabela `sites`, configuracoes locais e calendario local quando aplicavel.
+
+2. `site_id` derivado por `contract_id`:
+- entidades Contract-owned ou eventos contratuais que ja pertencem a Contract, Rule ou Control.
+- exemplos: `extracted_rules`, `rule_validation_events`, `compliance_controls`, `compliance_control_events`.
+
+3. `site_id` derivado por `service_id`:
+- entidades Service-owned que representam operacao diaria.
+- exemplos: `menu_pdf_imports`, `menu_operational_cardapios`, `menu_evaluation_imports`, `menu_combination_intelligence`, `compliance_control_executions`, operational `compliance_findings`, `menu_next_menu_decisions`, `recommendation_previews` e `recommendations`.
+
+Entidades hibridas ou polimorficas, como `evidence_references` e `audit_records`, devem derivar escopo pelo alvo referenciado sempre que possivel. Nao devem receber `site_id` direto sem justificativa especifica.
 
 ---
 
@@ -74,7 +86,7 @@ A presenca de `site_id` deve ser avaliada por ownership, nao aplicada automatica
 | ComplianceControlEvent | compliance_control_events | Contract-owned | `tenant_id` + `company_name` + `control_id` | Tenant -> Site -> Contract -> Control | `company_name` | `tenant_id`, `control_id`; `contract_id`/`site_id` derivados pelo Control | Medio | P1 | Fase 2 |
 | **ComplianceFinding** | **compliance_findings** | **Service-owned quando operacional** | `tenant_id` + `company_name` + `control_id` + `execution_id` | Tenant -> Site -> Contract -> Service -> Finding quando houver execucao | `company_name` | `tenant_id`, `control_id`, `execution_id`; futuro `service_id` quando vinculado a execucao operacional | Alto | P0 | Fase 3 |
 | ComplianceFindingEvent | compliance_finding_events | Service-owned quando operacional | `tenant_id` + `company_name` + `finding_id` | Tenant -> Site -> Contract -> Service -> Finding quando houver execucao | `company_name` | `tenant_id`, `finding_id`; escopo derivado pelo Finding | Medio | P1 | Fase 3 |
-| EvidenceReference | evidence_references | Ownership hibrido | `tenant_id` + `company_name` + `entity_type/entity_id` + FKs opcionais | Rule/Control/Execution/Finding/outro alvo | `company_name` | `tenant_id`, FKs especificas; `service_id` opcional/futuro quando evidencia for operacional | Alto | P0 | Fase 4 |
+| EvidenceReference | evidence_references | Ownership hibrido | `tenant_id` + `company_name` + `entity_type/entity_id` + FKs opcionais | Rule/Control/Execution/Finding/MenuImport/Recommendation/outro alvo | `company_name` | `tenant_id`, FKs especificas; `service_id` opcional/futuro apenas quando evidencia for operacional | Alto | P0 | Fase 4 |
 | NonConformity | non_conformities | Service-owned | `tenant_id` + `company_name` | Tenant -> Site -> Contract -> Service -> NonConformity | `company_name` | `tenant_id`, futuro `service_id`; `contract_id`/`site_id` derivados via Service | Alto | P1 | Fase 3 |
 | ActionPlan | non_conformity_action_plans | Service-owned | `tenant_id` + `company_name` + `non_conformity_id` | Tenant -> Site -> Contract -> Service -> ActionPlan | `company_name` | `tenant_id`, `non_conformity_id`; futuro `service_id` derivado pela NC ou direto se necessario | Alto | P1 | Fase 3 |
 | NonConformityEvent | non_conformity_events | Service-owned | `tenant_id` + `company_name` + `non_conformity_id` | Tenant -> Site -> Contract -> Service -> NonConformity | `company_name` | `tenant_id`, `non_conformity_id`; escopo derivado pela NC | Medio | P2 | Fase 3 |
@@ -136,13 +148,17 @@ Alvo:
 - futuras entidades de Site, como cadastro de Site, calendario local e configuracoes locais.
 - `menu_commemorative_dates`, se o calendario comemorativo for gerido por unidade local.
 
-#### `site_id` derivado por relacionamento
+#### `site_id` derivado por `contract_id`
 
 - `extracted_rules`: deriva Site por `contract_id`.
 - `rule_validation_events`: deriva Site pela Rule e seu Contract.
 - `compliance_controls`: deriva Site por `contract_id`.
 - `compliance_control_events`: deriva Site pelo Control.
-- `compliance_control_executions`: quando tiver `service_id`, deriva Site pelo Service; antes disso deriva pelo Control/Contract.
+
+#### `site_id` derivado por `service_id`
+
+- `menu_pdf_imports`, `menu_operational_cardapios`, `menu_evaluation_imports` e `menu_combination_intelligence`: derivam Site pelo futuro Service.
+- `compliance_control_executions`: deriva Site pelo futuro Service; antes disso pode derivar pelo Control/Contract apenas como compatibilidade.
 - `compliance_findings`: quando operacional, deriva Site por Execution/Service; se contratual, deriva por Control/Contract.
 - `menu_import_rule_audits`, `menu_import_adjustment_suggestions`, `menu_adjusted_versions`, `menu_next_menu_decisions`, `recommendation_previews` e `recommendations`: devem derivar Site pelo MenuImport ou pelo futuro Service.
 - `audit_records` e `compliance_export_events`: devem derivar Site pelo alvo auditado/exportado quando aplicavel.
@@ -159,7 +175,9 @@ Alvo:
 - `ComplianceControl` permanece Contract-owned.
 - `ComplianceControlExecution` e Service-owned porque representa execucao operacional.
 - `ComplianceFinding` e Service-owned quando estiver relacionado a uma execucao operacional; findings puramente contratuais podem derivar escopo pelo Control.
-- `EvidenceReference` tem ownership hibrido e pode apontar para Rule, Control, Execution, Finding ou outro alvo.
+- `ComplianceFinding` pode manter `control_id` para rastreabilidade mesmo quando o escopo operacional futuro vier de Execution/Service.
+- `ComplianceControl` nao deve virar Service-owned por padrao.
+- `EvidenceReference` tem ownership hibrido e pode apontar para Rule, Control, Execution, Finding, MenuImport, Recommendation ou outro alvo.
 - `EvidenceReference` nao deve receber `service_id` obrigatorio na primeira fase; `service_id` deve ser opcional/futuro quando a evidencia estiver ligada a execucao operacional.
 - evidencia deve apontar para a entidade correta sem depender de `entity_type/entity_id` como unica fonte de ownership no estado final.
 - a rastreabilidade nao pode ser reduzida durante a transicao.
@@ -199,11 +217,12 @@ Regras preservadas:
 2. Fase 1 - Site minimo
 - Criar Site.
 - Vincular Contract a Site.
-- Manter compatibilidade com `company_name`.
+- Fazer backfill inicial usando `company_name` e `unit_name` quando aplicavel.
+- Manter compatibilidade com campos textuais legados.
 - Nao alterar Service ainda.
 - Nao alterar menus ainda.
 - Nao alterar compliance ainda.
-- Nao trocar filtros de seguranca ainda.
+- Nao trocar definitivamente filtros de seguranca ainda.
 
 3. Fase 2 - Contratos e regras
 - Manter `ContractRule` e `ComplianceControl` como Contract-owned.
@@ -230,9 +249,9 @@ Regras preservadas:
 
 ### Objetivo
 
-Estabelecer a primeira fronteira relacional abaixo de Tenant sem alterar o fluxo operacional. A Fase 1 deve apenas criar o conceito de Site e vincular Contract a Site, mantendo `company_name` como compatibilidade historica e operacional.
+Estabelecer a primeira fronteira relacional abaixo de Tenant sem alterar o fluxo operacional. A Fase 1 deve apenas criar o conceito de Site e vincular Contract a Site, mantendo `company_name`, `unit_name` e demais campos textuais como compatibilidade historica e operacional.
 
-Esta fase nao deve introduzir Service, nao deve migrar menus, nao deve alterar compliance e nao deve trocar filtros de seguranca ainda.
+Esta fase nao deve introduzir Service, nao deve migrar menus, nao deve alterar compliance e nao deve trocar definitivamente filtros de seguranca ainda.
 
 ### Tabelas afetadas
 
@@ -267,8 +286,9 @@ Nao propor nesta fase:
 ### Dados legados usados para backfill
 
 - `contracts.company_name`: fonte inicial para sugerir ou associar Site.
+- `unit_name`, quando existir em dados operacionais ja importados, pode apoiar reconciliacao humana do Site canonico.
 - `tenants.id` / `contracts.tenant_id`: fronteira obrigatoria para impedir cruzamento multi-tenant.
-- nomes de unidade existentes em dados operacionais podem informar reconciliacao futura, mas nao devem dirigir alteracao de menus nesta fase.
+- dados operacionais existentes podem informar a reconciliacao, mas nao devem dirigir alteracao de menus nesta fase.
 
 ### Riscos
 
@@ -310,3 +330,54 @@ Qualquer mudanca derivada desta matriz deve responder antes da implementacao:
 9. Usa `tenant_id`, `site_id`, `contract_id` e `service_id` como base futura de seguranca?
 
 Se qualquer resposta for "nao", o desenho deve ser reavaliado antes de qualquer alteracao de codigo, schema ou migration.
+
+---
+
+## 8) Decisoes arquiteturais corrigidas
+
+### Por que Contract nao recebe `contract_id`
+
+`Contract` e a propria raiz contratual dentro de um Site. Na tabela `contracts`, o identificador do contrato ja e o proprio `id`; adicionar `contract_id` criaria duplicidade semantica e risco de inconsistencia. Entidades filhas como `extracted_rules` e `compliance_controls` devem apontar para `contracts.id` por meio de `contract_id`.
+
+### Por que Site vem antes de Service
+
+`Site` resolve primeiro a fronteira local dentro do Tenant e permite posicionar Contract no lugar correto da hierarquia:
+
+```text
+Tenant -> Site -> Contract
+```
+
+Sem essa base, criar `Service` antecipadamente forçaria mapeamentos operacionais baseados em `unit_name` e `service_name` ainda nao reconciliados. A ordem correta reduz ambiguidade, preserva compatibilidade com `company_name` e evita migrar menus/compliance antes de existir uma raiz local confiavel.
+
+### Por que ComplianceControl continua Contract-owned
+
+`ComplianceControl` nasce de uma regra contratual aprovada e representa o controle esperado para cumprir o contrato. Portanto, seu ownership funcional e contratual:
+
+```text
+Contract -> ContractRule -> ComplianceControl
+```
+
+Transformar `ComplianceControl` em Service-owned por padrao misturaria definicao contratual com execucao operacional. A execucao do controle acontece em Service, mas o controle em si continua pertencendo ao Contract.
+
+### Por que Execution e Finding sao Service-owned
+
+`ComplianceControlExecution` representa a execucao operacional de um controle em contexto de dia a dia. Por isso, no modelo alvo, deve pertencer ao Service.
+
+`ComplianceFinding` tambem e Service-owned quando nasce de uma execucao operacional, pois o achado reflete uma ocorrencia concreta em um contexto operacional. Ainda assim, deve manter `control_id` e, quando aplicavel, `execution_id` para preservar rastreabilidade:
+
+```text
+Control -> Execution -> Finding
+```
+
+Findings que nao nascem de execucao operacional podem derivar escopo pelo Control/Contract ate uma normalizacao posterior.
+
+### Por que EvidenceReference nao sera migrado totalmente na primeira fase
+
+`EvidenceReference` possui ownership hibrido: pode estar vinculada a Rule, Control, Execution, Finding, MenuImport, Recommendation ou outro alvo. Como a Fase 1 minima introduz apenas Site e vincula Contract a Site, ainda nao existe Service normalizado nem migracao de menus/compliance.
+
+Obrigar `service_id` em EvidenceReference na primeira fase quebraria evidencias contratuais e polimorficas que nao pertencem a uma execucao operacional. Por isso, a decisao corrigida e:
+
+- manter `EvidenceReference` com `tenant_id` e FKs/alvos especificos;
+- derivar Site/Contract/Service pelo alvo quando possivel;
+- tratar `service_id` como opcional/futuro apenas para evidencias operacionais;
+- adiar a migracao completa de EvidenceReference para uma fase posterior de governanca e historico.
