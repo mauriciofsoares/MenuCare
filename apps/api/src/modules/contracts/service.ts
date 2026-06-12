@@ -1,4 +1,4 @@
-﻿import { createContractsRepository } from './repository.js';
+import { createContractsRepository } from './repository.js';
 import type { FastifyRequest } from 'fastify';
 import { createHash } from 'node:crypto';
 
@@ -86,6 +86,7 @@ export interface Deps {
     destroy: () => Promise<void>;
   };
   recordAiPreparationEvent: (payload: {
+    tenantId: string;
     companyName: string;
     moduleKey: 'rules' | 'menus' | 'recipes' | 'contracts';
     sourceKind: string;
@@ -221,8 +222,26 @@ type ContractSegment = {
   text: string;
 };
 
+export type MemoryContract = {
+  id: string;
+  tenantId: string;
+  siteId: string;
+  siteName: string;
+  companyName: string;
+  title: string;
+  sourceType: string;
+  status: string;
+  extractedText: string | null;
+  inactivationReason: string | null;
+  inactivatedAt: Date | null;
+  createdAt: Date;
+  createdBy: string;
+};
+
+export const contractMemory = new Map<string, MemoryContract>();
+
 const splitByClauses = (fullText: string): ContractSegment[] => {
-  const clauseRegex = /(?:^|\n)\s*cl[aÃ¡]usula\s+[^\n]*/gim;
+  const clauseRegex = /(?:^|\n)\s*cl[aÃƒÂ¡]usula\s+[^\n]*/gim;
   const matches = Array.from(fullText.matchAll(clauseRegex));
 
   if (!matches.length) {
@@ -614,6 +633,7 @@ export const extractRulesFromPdf = async (
     SELECT id
     FROM contracts
     WHERE id = ${contractId}
+      AND tenant_id = ${site.tenantId}
       AND company_name = ${companyName}
       AND site_id = ${site.id}
     LIMIT 1
@@ -729,6 +749,7 @@ Responda apenas JSON no formato:
 
   const persistDiagnostics = async () => {
     await deps.recordAiPreparationEvent({
+      tenantId: site.tenantId,
       companyName,
       moduleKey: 'contracts',
       sourceKind: 'contract-rule-extraction-diagnostic',
@@ -1094,6 +1115,7 @@ export const createContractsService = (deps: Deps) => {
 
   const updateContractStatus = async (
     contractId: string,
+    tenantId: string,
     companyName: string,
     status: 'processing' | 'rules_extracted' | 'active' | 'inactive' | 'extraction_failed',
     inactivationReason?: string | null,
@@ -1109,7 +1131,9 @@ export const createContractsService = (deps: Deps) => {
             inactivation_reason = ${inactivationReason ?? null},
             inactivated_at = NOW()
         WHERE id = ${contractId}
-          AND company_name = ${companyName}
+          AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       `;
       return;
     }
@@ -1120,7 +1144,9 @@ export const createContractsService = (deps: Deps) => {
           inactivation_reason = NULL,
           inactivated_at = NULL
       WHERE id = ${contractId}
-        AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
     `;
   };
 
@@ -1128,16 +1154,6 @@ export const createContractsService = (deps: Deps) => {
     request: FastifyRequest,
     payload: { title: string; sourceType: string; siteId?: string; fileBuffer?: Buffer | null },
   ): Promise<RouteResult> => {
-    if (!deps.prisma) {
-      return {
-        statusCode: 503,
-        body: {
-          status: 'error',
-          message: deps.apiMessage.health.dbUnavailable,
-        },
-      };
-    }
-
     const companyName = deps.getCompanyFromJwt(request);
     const tenantId = deps.getTenantIdFromJwt(request);
     const actor = deps.getUserFromJwt(request);
@@ -1182,6 +1198,46 @@ export const createContractsService = (deps: Deps) => {
       }
     }
 
+    if (!deps.prisma) {
+      const createdAt = new Date();
+      const contract: MemoryContract = {
+        id: contractId,
+        tenantId,
+        siteId: siteAccess.site.id,
+        siteName: siteAccess.site.name,
+        companyName,
+        title: payload.title,
+        sourceType: payload.sourceType,
+        status: extractedText ? 'rules_extracted' : 'processing',
+        extractedText,
+        inactivationReason: null,
+        inactivatedAt: null,
+        createdAt,
+        createdBy: actor.name,
+      };
+      contractMemory.set(contractId, contract);
+
+      return {
+        statusCode: 201,
+        body: {
+          status: 'ok',
+          contract: {
+            id: contract.id,
+            siteId: contract.siteId,
+            siteName: contract.siteName,
+            title: contract.title,
+            sourceType: contract.sourceType,
+            status: contract.status,
+            extractedText: contract.extractedText,
+            inactivationReason: contract.inactivationReason,
+            inactivatedAt: contract.inactivatedAt?.toISOString() ?? null,
+            createdAt: contract.createdAt.toISOString(),
+            createdBy: contract.createdBy,
+          },
+        },
+      };
+    }
+
     await deps.ensureDomainTables();
 
     await deps.prisma.$executeRaw`
@@ -1212,13 +1268,13 @@ export const createContractsService = (deps: Deps) => {
           );
 
           if (ruleResult.statusCode >= 400) {
-            await updateContractStatus(contractId, companyName, 'extraction_failed');
+            await updateContractStatus(contractId, tenantId, companyName, 'extraction_failed');
             return;
           }
 
-          await updateContractStatus(contractId, companyName, 'rules_extracted');
+          await updateContractStatus(contractId, tenantId, companyName, 'rules_extracted');
         } catch {
-          await updateContractStatus(contractId, companyName, 'extraction_failed');
+          await updateContractStatus(contractId, tenantId, companyName, 'extraction_failed');
         }
       })();
     }
@@ -1269,11 +1325,41 @@ export const createContractsService = (deps: Deps) => {
 
   const getContractById = async (request: FastifyRequest, contractId: string): Promise<RouteResult> => {
     if (!deps.prisma) {
+      const companyName = deps.getCompanyFromJwt(request);
+      const tenantId = deps.getTenantIdFromJwt(request);
+      const contract = contractMemory.get(contractId);
+
+      if (!contract || contract.companyName !== companyName || contract.tenantId !== tenantId) {
+        return {
+          statusCode: 404,
+          body: {
+            status: 'error',
+            message: 'Contrato nao encontrado para esta empresa.',
+          },
+        };
+      }
+
+      const siteAccess = await deps.resolveAuthorizedSite(request, contract.siteId);
+      if (!siteAccess.allowed) {
+        return siteAccess;
+      }
+
       return {
-        statusCode: 503,
+        statusCode: 200,
         body: {
-          status: 'error',
-          message: deps.apiMessage.health.dbUnavailable,
+          status: 'ok',
+          contract: {
+            id: contract.id,
+            siteId: contract.siteId,
+            siteName: contract.siteName,
+            title: contract.title,
+            sourceType: contract.sourceType,
+            status: contract.status,
+            extractedText: contract.extractedText,
+            inactivationReason: contract.inactivationReason,
+            inactivatedAt: contract.inactivatedAt?.toISOString() ?? null,
+            createdAt: contract.createdAt.toISOString(),
+          },
         },
       };
     }
@@ -1303,7 +1389,8 @@ export const createContractsService = (deps: Deps) => {
       FROM contracts contract
       JOIN sites site ON site.id = contract.site_id
       WHERE contract.id = ${contractId}
-        AND contract.company_name = ${companyName}
+ AND contract.tenant_id = ${tenantId}
+ AND contract.company_name = ${companyName}
         AND contract.tenant_id = ${tenantId}
       LIMIT 1
     `;
@@ -1349,11 +1436,41 @@ export const createContractsService = (deps: Deps) => {
     query: { limit: number; siteId?: string },
   ): Promise<RouteResult> => {
     if (!deps.prisma) {
+      const companyName = deps.getCompanyFromJwt(request);
+      const tenantId = deps.getTenantIdFromJwt(request);
+      const authorizedSites = query.siteId ? [] : await deps.listAuthorizedSites(request);
+
+      if (query.siteId) {
+        const siteAccess = await deps.resolveAuthorizedSite(request, query.siteId);
+        if (!siteAccess.allowed) {
+          return siteAccess;
+        }
+      }
+
+      const siteIds = query.siteId ? [query.siteId] : authorizedSites.map((site) => site.id);
+      const contracts = Array.from(contractMemory.values())
+        .filter((item) => item.companyName === companyName)
+        .filter((item) => item.tenantId === tenantId)
+        .filter((item) => siteIds.length === 0 || siteIds.includes(item.siteId))
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, query.limit);
+
       return {
-        statusCode: 503,
+        statusCode: 200,
         body: {
-          status: 'error',
-          message: deps.apiMessage.health.dbUnavailable,
+          status: 'ok',
+          contracts: contracts.map((item) => ({
+            id: item.id,
+            siteId: item.siteId,
+            siteName: item.siteName,
+            title: item.title,
+            sourceType: item.sourceType,
+            status: item.status,
+            extractedText: item.extractedText,
+            inactivationReason: item.inactivationReason,
+            inactivatedAt: item.inactivatedAt?.toISOString() ?? null,
+            createdAt: item.createdAt.toISOString(),
+          })),
         },
       };
     }
@@ -1401,7 +1518,8 @@ export const createContractsService = (deps: Deps) => {
              contract.inactivated_at, contract.created_at
       FROM contracts contract
       JOIN sites site ON site.id = contract.site_id
-      WHERE contract.company_name = ${companyName}
+ AND contract.tenant_id = ${tenantId}
+        AND contract.company_name = ${companyName}
         AND contract.tenant_id = ${tenantId}
         AND contract.site_id = ANY(${siteIds}::text[])
       ORDER BY contract.created_at DESC
@@ -1436,13 +1554,37 @@ export const createContractsService = (deps: Deps) => {
     const tenantId = deps.getTenantIdFromJwt(request);
 
     if (!deps.prisma) {
-      return {
-        statusCode: 503,
-        body: {
-          status: 'error',
-          message: deps.apiMessage.health.dbUnavailable,
-        },
-      };
+      const contract = contractMemory.get(payload.contractId);
+      if (!contract || contract.companyName !== companyName || contract.tenantId !== tenantId) {
+        return {
+          statusCode: 404,
+          body: {
+            status: 'error',
+            message: 'Contrato nao encontrado para esta empresa.',
+          },
+        };
+      }
+
+      const siteAccess = await deps.resolveAuthorizedSite(request, contract.siteId);
+      if (!siteAccess.allowed) {
+        return siteAccess;
+      }
+
+      if (payload.status === 'inactive' && !payload.inactivationReason?.trim()) {
+        return {
+          statusCode: 400,
+          body: {
+            status: 'error',
+            message: 'Motivo de inativacao e obrigatorio.',
+          },
+        };
+      }
+
+      contract.status = payload.status;
+      contract.inactivationReason = payload.status === 'inactive' ? payload.inactivationReason?.trim() ?? null : null;
+      contract.inactivatedAt = payload.status === 'inactive' ? new Date() : null;
+      contractMemory.set(contract.id, contract);
+      return getContractById(request, payload.contractId);
     }
 
     await deps.ensureDomainTables();
@@ -1451,7 +1593,8 @@ export const createContractsService = (deps: Deps) => {
       SELECT id, site_id
       FROM contracts
       WHERE id = ${payload.contractId}
-        AND company_name = ${companyName}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
         AND tenant_id = ${tenantId}
       LIMIT 1
     `;
@@ -1483,6 +1626,7 @@ export const createContractsService = (deps: Deps) => {
 
     await updateContractStatus(
       payload.contractId,
+      tenantId,
       companyName,
       payload.status,
       payload.status === 'inactive' ? payload.inactivationReason?.trim() ?? null : null,

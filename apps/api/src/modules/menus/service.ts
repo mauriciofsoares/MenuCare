@@ -5,6 +5,26 @@ export interface Deps {
   [key: string]: any;
 }
 
+export type MemoryMenuImport = {
+  id: string;
+  tenantId: string;
+  companyName: string;
+  fileName: string;
+  unitName: string;
+  serviceName: string;
+  referenceDate: string;
+  mealType: string;
+  financialGoal: number;
+  mealCost: number;
+  exceededValue: number;
+  exceededPercent: number;
+  validationStatus: string;
+  recipes: string[];
+  createdAt: Date;
+};
+
+export const menuImportMemory = new Map<string, MemoryMenuImport>();
+
 export const createMenusService = (deps: Deps) => {
   const repository = createMenusRepository(deps);
 
@@ -122,14 +142,8 @@ app.post('/menus/imports', { preHandler: authenticate }, async (request, reply) 
     });
   }
 
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
   const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId;
   const actor = getUserFromJwt(request);
   const payload = parsed.data;
   const importId = randomUUID();
@@ -145,11 +159,54 @@ app.post('/menus/imports', { preHandler: authenticate }, async (request, reply) 
       : 0;
   const status = exceededValue > 0 ? 'above_goal' : 'within_goal';
 
+  if (!prisma) {
+    const createdAt = new Date();
+    const memoryImport: MemoryMenuImport = {
+      id: importId,
+      tenantId,
+      companyName,
+      fileName: payload.fileName.trim(),
+      unitName: payload.unitName.trim(),
+      serviceName: payload.serviceName.trim(),
+      referenceDate: payload.referenceDate,
+      mealType: payload.mealType.trim(),
+      financialGoal: payload.financialGoal,
+      mealCost: computedMealCost,
+      exceededValue: Number(exceededValue.toFixed(2)),
+      exceededPercent: Number(exceededPercent.toFixed(2)),
+      validationStatus: status,
+      recipes: effectiveRecipes,
+      createdAt,
+    };
+    menuImportMemory.set(importId, memoryImport);
+    void actor;
+
+    return reply.code(201).send({
+      status: 'ok',
+      import: {
+        id: memoryImport.id,
+        fileName: memoryImport.fileName,
+        unitName: memoryImport.unitName,
+        serviceName: memoryImport.serviceName,
+        referenceDate: new Date(memoryImport.referenceDate).toISOString(),
+        mealType: memoryImport.mealType,
+        financialGoal: memoryImport.financialGoal,
+        mealCost: memoryImport.mealCost,
+        exceededValue: memoryImport.exceededValue,
+        exceededPercent: memoryImport.exceededPercent,
+        validationStatus: memoryImport.validationStatus,
+        recipes: memoryImport.recipes,
+        createdAt: memoryImport.createdAt.toISOString(),
+      },
+    });
+  }
+
   await ensureDomainTables();
 
   await prisma.$executeRaw`
     INSERT INTO menu_pdf_imports (
       id,
+      tenant_id,
       company_name,
       file_name,
       unit_name,
@@ -166,11 +223,12 @@ app.post('/menus/imports', { preHandler: authenticate }, async (request, reply) 
     )
     VALUES (
       ${importId},
+      ${tenantId},
       ${companyName},
       ${payload.fileName.trim()},
       ${payload.unitName.trim()},
       ${payload.serviceName.trim()},
-      ${payload.referenceDate},
+      CAST(${payload.referenceDate} AS date),
       ${payload.mealType.trim()},
       ${payload.financialGoal},
       ${computedMealCost},
@@ -213,6 +271,7 @@ app.post('/menus/imports', { preHandler: authenticate }, async (request, reply) 
       created_at
     FROM menu_pdf_imports
     WHERE id = ${importId}
+      AND tenant_id = ${tenantId}
     LIMIT 1
   `;
 
@@ -352,6 +411,7 @@ app.post('/menus/operational-cardapios', { preHandler: authenticate }, async (re
   await prisma.$executeRaw`
     INSERT INTO menu_operational_cardapios (
       id,
+      tenant_id,
       company_name,
       entry_label,
       unit_name,
@@ -368,11 +428,12 @@ app.post('/menus/operational-cardapios', { preHandler: authenticate }, async (re
     )
     VALUES (
       ${cardapioId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${payload.entryLabel.trim()},
       ${payload.unitName.trim()},
       ${payload.serviceName.trim()},
-      ${payload.referenceDate},
+      CAST(${payload.referenceDate} AS date),
       ${payload.mealType.trim()},
       ${payload.financialGoal},
       ${payload.mealCost},
@@ -512,6 +573,11 @@ app.post('/menus/imports/monthly-cycle', { preHandler: authenticate }, async (re
 
   const { continueOnItemError, maxAutoRetries } = parsedQuery.data
 
+  const companyName = getCompanyFromJwt(request)
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId ?? 'demo-tenant'
+  const summaryReferenceDate = parsedPayload.days[0]?.referenceDate ?? new Date().toISOString().slice(0, 10)
+  const summaryMonth = getMonthKeyFromDate(summaryReferenceDate)
+
   if (!authorization) {
     return reply.code(401).send({
       status: 'error',
@@ -527,13 +593,134 @@ app.post('/menus/imports/monthly-cycle', { preHandler: authenticate }, async (re
     }
   }
 
+  const parseNumber = (value: number | string) => {
+    const parsed = typeof value === 'number' ? value : Number(value)
+    return Number(parsed.toFixed(2))
+  }
+
+  const parseProcessedImports = (rawValue: string | unknown) => {
+    if (Array.isArray(rawValue)) {
+      return rawValue
+    }
+
+    if (typeof rawValue !== 'string') {
+      return []
+    }
+
+    try {
+      const parsed = JSON.parse(rawValue) as unknown
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+
+  const cachedSummaryRows = await prisma.$queryRaw<Array<{
+    summary_month: string
+    unit_name: string
+    service_name: string
+    meal_type: string
+    source_file_name: string
+    financial_goal: number | string
+    days_parsed: number
+    imports_processed: number
+    above_goal_days: number
+    within_goal_days: number
+    total_meal_cost: number | string
+    total_goal: number | string
+    total_suggestions: number
+    total_estimated_financial_impact: number | string
+    total_contractual_estimated_financial_impact: number | string
+    total_goal_estimated_financial_impact: number | string
+    processed_imports_json: string | unknown
+  }>>`
+    SELECT
+      summary_month,
+      unit_name,
+      service_name,
+      meal_type,
+      source_file_name,
+      financial_goal,
+      days_parsed,
+      imports_processed,
+      above_goal_days,
+      within_goal_days,
+      total_meal_cost,
+      total_goal,
+      total_suggestions,
+      total_estimated_financial_impact,
+      total_contractual_estimated_financial_impact,
+      total_goal_estimated_financial_impact,
+      processed_imports_json
+    FROM menu_monthly_cycle_summaries
+    WHERE tenant_id = ${tenantId}
+      AND company_name = ${companyName}
+      AND summary_month = ${summaryMonth}
+      AND unit_name = ${parsedPayload.unitName}
+      AND service_name = ${parsedPayload.serviceName}
+      AND source_file_name = ${fileName}
+    LIMIT 1
+  `
+
+  const cachedSummary = cachedSummaryRows[0]
+
+  if (cachedSummary) {
+    const cachedImports = parseProcessedImports(cachedSummary.processed_imports_json)
+    const totalRecipesCrosschecked = cachedImports.reduce(
+      (sum: number, item: any) => sum + Number(item.recipeCrosscheck?.totalRecipes ?? 0),
+      0,
+    )
+    const totalRecipesMatched = cachedImports.reduce(
+      (sum: number, item: any) => sum + Number(item.recipeCrosscheck?.matchedRecipes ?? 0),
+      0,
+    )
+    const totalRecipesUnmatched = cachedImports.reduce(
+      (sum: number, item: any) => sum + Number(item.recipeCrosscheck?.unmatchedRecipes ?? 0),
+      0,
+    )
+
+    return {
+      status: 'ok',
+      cycle: {
+        fileName,
+        unitName: cachedSummary.unit_name,
+        serviceName: cachedSummary.service_name,
+        mealType: cachedSummary.meal_type,
+        financialGoal: parseNumber(cachedSummary.financial_goal),
+        daysParsed: cachedSummary.days_parsed,
+        importsProcessed: cachedSummary.imports_processed,
+        summaryMonth: cachedSummary.summary_month,
+        aboveGoalDays: cachedSummary.above_goal_days,
+        withinGoalDays: cachedSummary.within_goal_days,
+        failedItems: cachedImports.filter((item: any) => item.processingStatus === 'failed').length,
+        totalMealCost: parseNumber(cachedSummary.total_meal_cost),
+        totalGoal: parseNumber(cachedSummary.total_goal),
+        totalSuggestions: cachedSummary.total_suggestions,
+        totalEstimatedFinancialImpact: parseNumber(cachedSummary.total_estimated_financial_impact),
+        totalContractualEstimatedFinancialImpact: parseNumber(cachedSummary.total_contractual_estimated_financial_impact),
+        totalGoalEstimatedFinancialImpact: parseNumber(cachedSummary.total_goal_estimated_financial_impact),
+        recipeCrosscheck: {
+          totalRecipesCrosschecked,
+          totalRecipesMatched,
+          totalRecipesUnmatched,
+          coveragePercent: totalRecipesCrosschecked
+            ? Number(((totalRecipesMatched / totalRecipesCrosschecked) * 100).toFixed(2))
+            : 100,
+        },
+      },
+      imports: cachedImports,
+    }
+  }
+
   const structuredRecipeRows = await prisma.$queryRaw<Array<{
     name: string
     normalized_name: string
   }>>`
     SELECT name, normalized_name
     FROM recipe_library_items
-    WHERE company_name = ${getCompanyFromJwt(request)}
+    WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       AND is_active = TRUE
   `
 
@@ -1007,12 +1194,12 @@ app.post('/menus/imports/monthly-cycle', { preHandler: authenticate }, async (re
     .sort()
   const periodStartDate = sortedReferenceDates[0] ?? parsedPayload.days[0]?.referenceDate ?? new Date().toISOString().slice(0, 10)
   const periodEndDate = sortedReferenceDates[sortedReferenceDates.length - 1] ?? periodStartDate
-  const summaryMonth = getMonthKeyFromDate(periodStartDate)
 
   const summaryIdRows = await prisma.$queryRaw<Array<{ id: string }>>`
     SELECT id
     FROM menu_monthly_cycle_summaries
-    WHERE company_name = ${getCompanyFromJwt(request)}
+    WHERE tenant_id = ${tenantId}
+      AND company_name = ${companyName}
       AND summary_month = ${summaryMonth}
       AND unit_name = ${parsedPayload.unitName}
       AND service_name = ${parsedPayload.serviceName}
@@ -1024,6 +1211,7 @@ app.post('/menus/imports/monthly-cycle', { preHandler: authenticate }, async (re
   await prisma.$executeRaw`
     INSERT INTO menu_monthly_cycle_summaries (
       id,
+      tenant_id,
       company_name,
       summary_month,
       unit_name,
@@ -1048,7 +1236,8 @@ app.post('/menus/imports/monthly-cycle', { preHandler: authenticate }, async (re
     )
     VALUES (
       ${summaryId},
-      ${getCompanyFromJwt(request)},
+      ${tenantId},
+      ${companyName},
       ${summaryMonth},
       ${parsedPayload.unitName},
       ${parsedPayload.serviceName},
@@ -1066,12 +1255,13 @@ app.post('/menus/imports/monthly-cycle', { preHandler: authenticate }, async (re
       ${totalContractualEstimatedFinancialImpact},
       ${totalGoalEstimatedFinancialImpact},
       ${JSON.stringify(processedImports)},
-      ${periodStartDate},
-      ${periodEndDate},
+      CAST(${periodStartDate} AS date),
+      CAST(${periodEndDate} AS date),
       NOW()
     )
     ON CONFLICT (company_name, summary_month, unit_name, service_name)
     DO UPDATE SET
+      tenant_id = EXCLUDED.tenant_id,
       meal_type = EXCLUDED.meal_type,
       source_file_name = EXCLUDED.source_file_name,
       financial_goal = EXCLUDED.financial_goal,
@@ -1140,6 +1330,7 @@ app.get('/menus/imports/monthly-summaries', { preHandler: authenticate }, async 
   }
 
   const companyName = getCompanyFromJwt(request)
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId
   const { month, unitName, serviceName, limit } = parsedQuery.data
 
   const rows = await prisma.$queryRaw<Array<{
@@ -1190,10 +1381,11 @@ app.get('/menus/imports/monthly-summaries', { preHandler: authenticate }, async 
       created_at,
       updated_at
     FROM menu_monthly_cycle_summaries
-    WHERE company_name = ${companyName}
-      AND (${month ?? null} IS NULL OR summary_month = ${month ?? null})
-      AND (${unitName ?? null} IS NULL OR unit_name = ${unitName ?? null})
-      AND (${serviceName ?? null} IS NULL OR service_name = ${serviceName ?? null})
+    WHERE tenant_id = ${tenantId}
+      AND company_name = ${companyName}
+      AND summary_month = COALESCE(CAST(${month ?? null} AS text), summary_month)
+      AND unit_name = COALESCE(CAST(${unitName ?? null} AS text), unit_name)
+      AND service_name = COALESCE(CAST(${serviceName ?? null} AS text), service_name)
     ORDER BY summary_month DESC, updated_at DESC
     LIMIT ${limit}
   `
@@ -1412,6 +1604,7 @@ app.post('/menus/imports/monthly-summaries/reprocess-failed', { preHandler: auth
   }
 
   const companyName = getCompanyFromJwt(request)
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId
   const rows = await prisma.$queryRaw<Array<{
     id: string
     summary_month: string
@@ -1434,7 +1627,9 @@ app.post('/menus/imports/monthly-summaries/reprocess-failed', { preHandler: auth
       days_parsed,
       processed_imports_json
     FROM menu_monthly_cycle_summaries
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       AND summary_month = ${parsedBody.data.summaryMonth}
       AND unit_name = ${parsedBody.data.unitName}
       AND service_name = ${parsedBody.data.serviceName}
@@ -1815,16 +2010,36 @@ app.post('/menus/imports/monthly-summaries/reprocess-failed', { preHandler: auth
 })
 
 app.get('/menus/imports', { preHandler: authenticate }, async (request, reply) => {
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
   const parsedQuery = menuImportListQuerySchema.safeParse(request.query);
   const limit = parsedQuery.success ? parsedQuery.data.limit : 20;
   const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId
+
+  if (!prisma) {
+    const imports = Array.from(menuImportMemory.values())
+      .filter((item) => item.companyName === companyName && item.tenantId === tenantId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit);
+
+    return {
+      status: 'ok',
+      imports: imports.map((item) => ({
+        id: item.id,
+        fileName: item.fileName,
+        unitName: item.unitName,
+        serviceName: item.serviceName,
+        referenceDate: new Date(item.referenceDate).toISOString(),
+        mealType: item.mealType,
+        financialGoal: item.financialGoal,
+        mealCost: item.mealCost,
+        exceededValue: item.exceededValue,
+        exceededPercent: item.exceededPercent,
+        validationStatus: item.validationStatus,
+        recipes: item.recipes,
+        createdAt: item.createdAt.toISOString(),
+      })),
+    };
+  }
 
   await ensureDomainTables();
 
@@ -1858,7 +2073,9 @@ app.get('/menus/imports', { preHandler: authenticate }, async (request, reply) =
       recipes_json,
       created_at
     FROM menu_pdf_imports
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
     ORDER BY created_at DESC
     LIMIT ${limit}
   `;
@@ -1902,6 +2119,7 @@ app.get('/menus/operational-cardapios', { preHandler: authenticate }, async (req
 
   const limit = parsedQuery.success ? parsedQuery.data.limit : 12
   const companyName = getCompanyFromJwt(request)
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId
 
   await ensureDomainTables()
 
@@ -1935,7 +2153,9 @@ app.get('/menus/operational-cardapios', { preHandler: authenticate }, async (req
       recipes_json,
       created_at
     FROM menu_operational_cardapios
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
     ORDER BY created_at DESC
     LIMIT ${limit}
   `
@@ -1991,6 +2211,7 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
   }
 
   const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId
   const importId = parsedParams.data.importId;
   const { monthsAhead } = parsedBody.data;
 
@@ -2007,7 +2228,9 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
     SELECT unit_name, service_name, meal_cost, financial_goal, reference_date, recipes_json
     FROM menu_pdf_imports
     WHERE id = ${importId}
-      AND company_name = ${companyName}
+      AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
     LIMIT 1
   `;
 
@@ -2035,7 +2258,9 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
       priority_level
     FROM menu_import_adjustment_suggestions
     WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
+      AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
     ORDER BY created_at DESC
   `;
 
@@ -2074,7 +2299,9 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
   }>>`
     SELECT reference_date, title, noble_dish_hint
     FROM menu_commemorative_dates
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       AND TO_CHAR(reference_date, 'YYYY-MM') = ${targetMonth}
     ORDER BY reference_date ASC
   `;
@@ -2102,7 +2329,9 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
     SELECT COUNT(*)::int AS total
     FROM menu_adjusted_versions
     WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
+      AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
   `;
 
   const nextVersionNumber = (versionCountRows[0]?.total ?? 0) + 1;
@@ -2123,6 +2352,7 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
   await prisma.$executeRaw`
     INSERT INTO menu_adjusted_versions (
       id,
+      tenant_id,
       company_name,
       menu_import_id,
       version_label,
@@ -2136,6 +2366,7 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
     )
     VALUES (
       ${versionId},
+      ${tenantId},
       ${companyName},
       ${importId},
       ${versionLabel},
@@ -2150,6 +2381,7 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
   `;
 
   await recordAiPreparationEvent({
+    tenantId,
     companyName,
     moduleKey: 'menus',
     sourceKind: 'adjusted-version-generation',
@@ -2211,6 +2443,7 @@ app.get('/menus/imports/:importId/adjusted-versions', { preHandler: authenticate
   }
 
   const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId
   const importId = parsedParams.data.importId;
 
   await ensureDomainTables();
@@ -2240,7 +2473,9 @@ app.get('/menus/imports/:importId/adjusted-versions', { preHandler: authenticate
       created_at
     FROM menu_adjusted_versions
     WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
+      AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
     ORDER BY created_at DESC
   `;
 
@@ -2306,6 +2541,7 @@ app.post('/menus/commemorative-dates', { preHandler: authenticate }, async (requ
   }
 
   const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId
   const actor = getUserFromJwt(request);
   const payload = parsed.data;
   const dateYear = Number(payload.referenceDate.slice(0, 4));
@@ -2313,9 +2549,10 @@ app.post('/menus/commemorative-dates', { preHandler: authenticate }, async (requ
 
   await ensureDomainTables();
 
-  await prisma.$executeRaw`
+  const upsertedRows = await prisma.$queryRaw<Array<{ id: string }>>`
     INSERT INTO menu_commemorative_dates (
       id,
+      tenant_id,
       company_name,
       reference_date,
       date_year,
@@ -2325,8 +2562,9 @@ app.post('/menus/commemorative-dates', { preHandler: authenticate }, async (requ
     )
     VALUES (
       ${id},
+      ${tenantId},
       ${companyName},
-      ${payload.referenceDate},
+      CAST(${payload.referenceDate} AS date),
       ${dateYear},
       ${payload.title.trim()},
       ${payload.nobleDishHint?.trim() || null},
@@ -2334,10 +2572,15 @@ app.post('/menus/commemorative-dates', { preHandler: authenticate }, async (requ
     )
     ON CONFLICT (company_name, reference_date)
     DO UPDATE SET
+      tenant_id = EXCLUDED.tenant_id,
+      date_year = EXCLUDED.date_year,
       title = EXCLUDED.title,
       noble_dish_hint = EXCLUDED.noble_dish_hint,
       created_by = EXCLUDED.created_by
+    RETURNING id
   `;
+
+  const persistedId = upsertedRows[0]?.id ?? id;
 
   const rows = await prisma.$queryRaw<Array<{
     id: string;
@@ -2350,8 +2593,9 @@ app.post('/menus/commemorative-dates', { preHandler: authenticate }, async (requ
   }>>`
     SELECT id, reference_date, date_year, title, noble_dish_hint, created_by, created_at
     FROM menu_commemorative_dates
-    WHERE company_name = ${companyName}
-      AND reference_date = ${payload.referenceDate}
+    WHERE id = ${persistedId}
+      AND tenant_id = ${tenantId}
+      AND company_name = ${companyName}
     LIMIT 1
   `;
 
@@ -2392,6 +2636,7 @@ app.get('/menus/commemorative-dates', { preHandler: authenticate }, async (reque
   }
 
   const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId
   const { year, limit } = parsedQuery.data;
 
   await ensureDomainTables();
@@ -2407,7 +2652,9 @@ app.get('/menus/commemorative-dates', { preHandler: authenticate }, async (reque
   }>>`
     SELECT id, reference_date, date_year, title, noble_dish_hint, created_by, created_at
     FROM menu_commemorative_dates
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       AND date_year = ${year}
     ORDER BY reference_date ASC
     LIMIT ${limit}

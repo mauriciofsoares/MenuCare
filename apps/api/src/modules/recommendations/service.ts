@@ -23,9 +23,10 @@ export interface Deps {
     $executeRaw: (query: TemplateStringsArray, ...params: unknown[]) => Promise<unknown>;
   } | null;
   getCompanyFromJwt: (request: FastifyRequest) => string;
+  getTenantIdFromJwt: (request: FastifyRequest) => string;
   ensureDomainTables: () => Promise<void>;
   recommendationPolicyContract: unknown;
-  buildNextMenuProposal: (payload: { companyName: string; importId: string }) => Promise<any | null>;
+  buildNextMenuProposal: (payload: { companyName: string; tenantId: string; importId: string }) => Promise<any | null>;
   recordAiPreparationEvent: (...args: any[]) => Promise<void>;
   buildMenuPreparationContext: (payload: Record<string, unknown>) => unknown;
   nextMenuDecisionSchema: SchemaLike<{ decision: 'approved' | 'rejected'; justification: string }>;
@@ -51,6 +52,7 @@ export const createRecommendationsService = (deps: Deps) => {
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = deps.getTenantIdFromJwt(request);
     const importId = params.importId;
 
     await deps.ensureDomainTables();
@@ -68,7 +70,9 @@ export const createRecommendationsService = (deps: Deps) => {
       SELECT id, unit_name, service_name, financial_goal, meal_cost, recipes_json
       FROM menu_pdf_imports
       WHERE id = ${importId}
-        AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       LIMIT 1
     `;
 
@@ -96,7 +100,9 @@ export const createRecommendationsService = (deps: Deps) => {
       SELECT result_status
       FROM menu_import_rule_audits
       WHERE menu_import_id = ${importId}
-        AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
     `;
 
     const hasRuleViolation = ruleAuditRows.some((item) => item.result_status === 'non_compliant');
@@ -142,7 +148,8 @@ export const createRecommendationsService = (deps: Deps) => {
     >`
       SELECT id, recipes_json, average_rating, evaluations_count, trend
       FROM menu_combination_intelligence
-      WHERE company_name = ${companyName}
+      WHERE tenant_id = ${tenantId}
+        AND company_name = ${companyName}
         AND unit_name = ${imported.unit_name}
         AND service_name = ${imported.service_name}
       ORDER BY average_rating DESC, evaluations_count DESC
@@ -194,6 +201,7 @@ export const createRecommendationsService = (deps: Deps) => {
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = deps.getTenantIdFromJwt(request);
     const importId = params.importId;
 
     const importedRows = await deps.prisma.$queryRaw<
@@ -207,12 +215,14 @@ export const createRecommendationsService = (deps: Deps) => {
       SELECT unit_name, service_name, reference_date, recipes_json
       FROM menu_pdf_imports
       WHERE id = ${importId}
-        AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       LIMIT 1
     `;
 
     const imported = importedRows[0];
-    const nextMenuProposal = await deps.buildNextMenuProposal({ companyName, importId });
+    const nextMenuProposal = await deps.buildNextMenuProposal({ companyName, tenantId, importId });
 
     if (!nextMenuProposal) {
       return {
@@ -225,6 +235,7 @@ export const createRecommendationsService = (deps: Deps) => {
     }
 
     await deps.recordAiPreparationEvent({
+      tenantId,
       companyName,
       moduleKey: 'menus',
       sourceKind: 'next-menu-proposal',
@@ -278,9 +289,10 @@ export const createRecommendationsService = (deps: Deps) => {
 
     const companyName = deps.getCompanyFromJwt(request);
     const actor = deps.getUserFromJwt(request);
+    const tenantId = deps.getTenantIdFromJwt(request);
     const importId = params.importId;
 
-    const nextMenuProposal = await deps.buildNextMenuProposal({ companyName, importId });
+    const nextMenuProposal = await deps.buildNextMenuProposal({ companyName, tenantId, importId });
 
     if (!nextMenuProposal) {
       return {
@@ -307,6 +319,7 @@ export const createRecommendationsService = (deps: Deps) => {
     await deps.prisma.$executeRaw`
       INSERT INTO menu_next_menu_decisions (
         id,
+        tenant_id,
         company_name,
         menu_import_id,
         decision_status,
@@ -319,6 +332,7 @@ export const createRecommendationsService = (deps: Deps) => {
       )
       VALUES (
         ${decisionId},
+        ${tenantId},
         ${companyName},
         ${importId},
         ${payload.decision},
@@ -389,6 +403,7 @@ export const createRecommendationsService = (deps: Deps) => {
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = deps.getTenantIdFromJwt(request);
     const importId = params.importId;
 
     await deps.ensureDomainTables();
@@ -418,7 +433,9 @@ export const createRecommendationsService = (deps: Deps) => {
         created_at
       FROM menu_next_menu_decisions
       WHERE menu_import_id = ${importId}
-        AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       ORDER BY created_at DESC
       LIMIT ${query.limit}
     `;

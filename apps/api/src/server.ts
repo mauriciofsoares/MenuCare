@@ -26,7 +26,9 @@ import { registerEvaluationsRoutes } from './modules/evaluations/routes.js';
 import { registerRecommendationsRoutes } from './modules/recommendations/routes.js';
 import { registerGovernanceRoutes } from './modules/governance/routes.js';
 
-export const app = Fastify({ logger: true });
+export const app = Fastify({
+  logger: process.env.NODE_ENV !== 'test' || process.env.MENUCARE_TEST_LOGGER === '1',
+});
 const apiMessage = getApiMessage(process.env.API_LOCALE);
 
 const authSchema = z.object({
@@ -366,6 +368,13 @@ const demoContext = {
   roleKey: 'menucare_admin',
 } as const;
 
+const demoSite = {
+  id: 'demo-site',
+  name: 'Unidade Demo',
+  city: 'Sao Paulo',
+  state: 'SP',
+} as const;
+
 const recommendationPolicyContract = {
   priorityOrder: [
     'contract_rules',
@@ -473,17 +482,34 @@ let operationalProfileTableReady = false;
 let domainTablesReady = false;
 let authTablesReady = false;
 
-try {
-  const prismaModule = (await import('@prisma/client')) as {
-    PrismaClient?: new () => PrismaLike;
-  };
+const isTestDatabaseFallbackEnabled = process.env.NODE_ENV === 'test' && !process.env.DATABASE_URL;
 
-  if (prismaModule.PrismaClient) {
-    prisma = new prismaModule.PrismaClient();
-  }
-} catch {
-  app.log.warn('Prisma Client indisponivel. Rode `npm run prisma:generate --workspace apps/api`.');
+if (!process.env.DATABASE_URL && process.env.NODE_ENV !== 'test') {
+  throw new Error('DATABASE_URL e obrigatoria fora do ambiente de teste.');
 }
+
+if (process.env.DATABASE_URL) {
+  try {
+    const prismaModule = (await import('@prisma/client')) as {
+      PrismaClient?: new () => PrismaLike;
+    };
+
+    if (prismaModule.PrismaClient) {
+      prisma = new prismaModule.PrismaClient();
+    }
+  } catch (error) {
+    throw new Error(
+      'Prisma Client indisponivel com DATABASE_URL configurada. Rode `npm run prisma:generate --workspace apps/api`.',
+      { cause: error },
+    );
+  }
+}
+
+const assertTestDatabaseFallback = () => {
+  if (!isTestDatabaseFallbackEnabled) {
+    throw new Error('Fallback em memoria indisponivel fora de NODE_ENV=test sem DATABASE_URL.');
+  }
+};
 
 await app.register(cors, {
   origin: true,
@@ -528,9 +554,19 @@ const getRoleKeyFromJwt = (request: FastifyRequest): string => {
   return payload.roleKey ?? demoContext.roleKey;
 };
 
+const demoAuthorizedSite: AuthorizedSite = {
+  id: demoSite.id,
+  tenantId: demoContext.tenantId,
+  name: demoSite.name,
+  city: demoSite.city,
+  state: demoSite.state,
+  role: demoContext.roleKey,
+};
+
 const listAuthorizedSites = async (request: FastifyRequest): Promise<AuthorizedSite[]> => {
   if (!prisma) {
-    return [];
+    assertTestDatabaseFallback();
+    return [{ ...demoAuthorizedSite, role: getRoleKeyFromJwt(request) }];
   }
 
   const tenantId = getTenantIdFromJwt(request);
@@ -595,10 +631,18 @@ const resolveAuthorizedSite = async (
   siteId: string,
 ): Promise<SiteAccessResult> => {
   if (!prisma) {
+    assertTestDatabaseFallback();
+    if (siteId === demoSite.id) {
+      return {
+        allowed: true,
+        site: { ...demoAuthorizedSite, role: getRoleKeyFromJwt(request) },
+      };
+    }
+
     return {
       allowed: false,
-      statusCode: 503,
-      body: { status: 'error', message: apiMessage.health.dbUnavailable },
+      statusCode: 404,
+      body: { status: 'error', message: 'Unidade nao encontrada para este cliente.' },
     };
   }
 
@@ -706,8 +750,8 @@ const ensureAuthTables = async () => {
   }
 
   await prisma.$executeRaw`
-    INSERT INTO first_access_invites (id, token, email, company_name, is_active)
-    VALUES (${randomUUID()}, ${demoInviteToken}, ${demoUser.email}, ${demoUser.companyName}, TRUE)
+    INSERT INTO first_access_invites (id, tenant_id, token, email, company_name, is_active)
+    VALUES (${randomUUID()}, ${demoContext.tenantId}, ${demoInviteToken}, ${demoUser.email}, ${demoUser.companyName}, TRUE)
     ON CONFLICT (token)
     DO NOTHING
   `;
@@ -738,7 +782,7 @@ const verifyPassword = async (password: string, storedHash: string): Promise<boo
   return timingSafeEqual(derivedKey, expectedKey);
 };
 
-const readPasswordOverride = async (email: string, companyName: string): Promise<string | null> => {
+const readPasswordOverride = async (email: string, companyName: string, tenantId: string): Promise<string | null> => {
   if (!prisma) {
     return null;
   }
@@ -749,14 +793,16 @@ const readPasswordOverride = async (email: string, companyName: string): Promise
     SELECT password_hash
     FROM auth_password_overrides
     WHERE email = ${email}
-      AND company_name = ${companyName}
+      AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
     LIMIT 1
   `;
 
   return rows[0]?.password_hash ?? null;
 };
 
-const readLocaleFromDatabase = async (companyName: string): Promise<SupportedLocale | null> => {
+const readLocaleFromDatabase = async (companyName: string, tenantId: string): Promise<SupportedLocale | null> => {
   if (!prisma) {
     return null;
   }
@@ -766,7 +812,9 @@ const readLocaleFromDatabase = async (companyName: string): Promise<SupportedLoc
   const rows = await prisma.$queryRaw<Array<{ locale: string }>>`
     SELECT locale
     FROM company_locale_preferences
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
     LIMIT 1
   `;
 
@@ -777,7 +825,7 @@ const readLocaleFromDatabase = async (companyName: string): Promise<SupportedLoc
   return normalizeLocale(rows[0].locale);
 };
 
-const saveLocaleInDatabase = async (companyName: string, locale: SupportedLocale) => {
+const saveLocaleInDatabase = async (companyName: string, tenantId: string, locale: SupportedLocale) => {
   if (!prisma) {
     return;
   }
@@ -785,9 +833,9 @@ const saveLocaleInDatabase = async (companyName: string, locale: SupportedLocale
   await ensureLocalePreferencesTable();
 
   await prisma.$executeRaw`
-    INSERT INTO company_locale_preferences (company_name, locale)
-    VALUES (${companyName}, ${locale})
-    ON CONFLICT (company_name)
+    INSERT INTO company_locale_preferences (tenant_id, company_name, locale)
+    VALUES (${tenantId}, ${companyName}, ${locale})
+    ON CONFLICT (tenant_id, company_name)
     DO UPDATE SET
       locale = EXCLUDED.locale,
       updated_at = NOW()
@@ -800,7 +848,7 @@ const getDefaultOperationalProfile = () => ({
   complianceMode: 'contractual' as const,
 });
 
-const readOperationalProfileFromDatabase = async (companyName: string) => {
+const readOperationalProfileFromDatabase = async (companyName: string, tenantId: string) => {
   if (!prisma) {
     return null;
   }
@@ -815,7 +863,9 @@ const readOperationalProfileFromDatabase = async (companyName: string) => {
   }>>`
     SELECT source_profile, contract_mode, compliance_mode, updated_at
     FROM company_operational_profiles
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+      AND company_name = ${companyName}
+    ORDER BY updated_at DESC
     LIMIT 1
   `;
 
@@ -843,39 +893,62 @@ const readOperationalProfileFromDatabase = async (companyName: string) => {
 
 const saveOperationalProfileInDatabase = async (
   companyName: string,
+  tenantId: string,
   profile: z.infer<typeof operationalProfileSchema>,
 ) => {
   if (!prisma) {
     return;
   }
 
+  const profileId = randomUUID();
+
   await ensureOperationalProfileTable();
+
+  const existingRows = await prisma.$queryRaw<Array<{ id: string }>>`
+    SELECT id
+    FROM company_operational_profiles
+    WHERE tenant_id = ${tenantId}
+      AND company_name = ${companyName}
+    LIMIT 1
+  `;
+
+  const existingProfileId = existingRows[0]?.id ?? null;
+
+  if (existingProfileId) {
+    await prisma.$executeRaw`
+      UPDATE company_operational_profiles
+      SET source_profile = ${profile.sourceProfile},
+          contract_mode = ${profile.contractMode},
+          compliance_mode = ${profile.complianceMode},
+          updated_at = NOW()
+      WHERE id = ${existingProfileId}
+    `;
+    return;
+  }
 
   await prisma.$executeRaw`
     INSERT INTO company_operational_profiles (
+      id,
+      tenant_id,
       company_name,
       source_profile,
       contract_mode,
       compliance_mode
     )
     VALUES (
+      ${profileId},
+      ${tenantId},
       ${companyName},
       ${profile.sourceProfile},
       ${profile.contractMode},
       ${profile.complianceMode}
     )
-    ON CONFLICT (company_name)
-    DO UPDATE SET
-      source_profile = EXCLUDED.source_profile,
-      contract_mode = EXCLUDED.contract_mode,
-      compliance_mode = EXCLUDED.compliance_mode,
-      updated_at = NOW()
   `;
 };
 
-const readOperationalProfile = async (companyName: string) => {
+const readOperationalProfile = async (companyName: string, tenantId: string) => {
   if (prisma) {
-    const persisted = await readOperationalProfileFromDatabase(companyName);
+    const persisted = await readOperationalProfileFromDatabase(companyName, tenantId);
 
     if (persisted) {
       return persisted;
@@ -901,6 +974,7 @@ const readOperationalProfile = async (companyName: string) => {
 
 const saveOperationalProfile = async (
   companyName: string,
+  tenantId: string,
   profile: z.infer<typeof operationalProfileSchema>,
 ) => {
   operationalProfileByCompany.set(companyName, {
@@ -910,7 +984,7 @@ const saveOperationalProfile = async (
     updated_at: new Date(),
   });
 
-  await saveOperationalProfileInDatabase(companyName, profile);
+  await saveOperationalProfileInDatabase(companyName, tenantId, profile);
 };
 
 const getUserFromJwt = (request: FastifyRequest) => {
@@ -1501,10 +1575,23 @@ const parseMenuPreCostReport = (rawText: string) => {
       continue
     }
 
-    const serviceMetaMatch = line.match(/^Servi[cÃ§]o:\s*(.+?)\s+Meta:\s*([\d.,]+)$/i)
+    const serviceMetaMatch = line.match(/^Servi(?:c|\u00e7|ÃƒÂ§|ÃƒÆ’Ã‚Â§)o:\s*(.+?)\s+Meta:\s*([\d.,]+)$/i)
     if (serviceMetaMatch) {
       serviceName = serviceMetaMatch[1].trim()
       financialGoal = parseCurrencyPtBr(serviceMetaMatch[2])
+      continue
+    }
+
+    const trailingUnitMatch = line.match(/^(.+?)\s+Unidade:\s*$/i)
+    if (trailingUnitMatch) {
+      unitName = trailingUnitMatch[1].trim()
+      continue
+    }
+
+    const leadingServiceMetaMatch = line.match(/^(.+?)\s+Servi(?:c|\u00e7|ÃƒÂ§|ÃƒÆ’Ã‚Â§|ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â§)o:\s*Meta:\s*([\d.,]+)$/i)
+    if (leadingServiceMetaMatch) {
+      serviceName = leadingServiceMetaMatch[1].trim()
+      financialGoal = parseCurrencyPtBr(leadingServiceMetaMatch[2])
       continue
     }
 
@@ -1529,7 +1616,7 @@ const parseMenuPreCostReport = (rawText: string) => {
       continue
     }
 
-    if (/^observa[cÃ§][aÃ£]o:?$/i.test(line)) {
+    if (/^observa(?:cao|ÃƒÂ§ÃƒÂ£o|c[aÃƒÂ£]o|cÃƒÆ’Ã‚Â§[aÃƒÆ’Ã‚Â£]o):?$/i.test(line)) {
       continue
     }
 
@@ -1991,8 +2078,9 @@ const extractRecurrenceDays = (normalizedRuleText: string) => {
 }
 
 const recordAiPreparationEvent = async (payload: {
+  tenantId: string;
   companyName: string;
-  moduleKey: 'rules' | 'menus' | 'recipes';
+  moduleKey: 'contracts' | 'rules' | 'menus' | 'recipes';
   sourceKind: string;
   providerKey: string;
   data: unknown;
@@ -2006,6 +2094,7 @@ const recordAiPreparationEvent = async (payload: {
   await prisma.$executeRaw`
     INSERT INTO ai_preparation_events (
       id,
+      tenant_id,
       company_name,
       module_key,
       source_kind,
@@ -2014,6 +2103,7 @@ const recordAiPreparationEvent = async (payload: {
     )
     VALUES (
       ${randomUUID()},
+      ${payload.tenantId},
       ${payload.companyName},
       ${payload.moduleKey},
       ${payload.sourceKind},
@@ -2049,6 +2139,7 @@ type NextMenuProposalData = {
 
 const buildNextMenuProposal = async (payload: {
   companyName: string;
+  tenantId: string;
   importId: string;
 }): Promise<NextMenuProposalData | null> => {
   if (!prisma) {
@@ -2069,6 +2160,7 @@ const buildNextMenuProposal = async (payload: {
     FROM menu_pdf_imports
     WHERE id = ${payload.importId}
       AND company_name = ${payload.companyName}
+      AND tenant_id = ${payload.tenantId}
     LIMIT 1
   `;
 
@@ -2091,6 +2183,7 @@ const buildNextMenuProposal = async (payload: {
     FROM menu_import_rule_audits
     WHERE menu_import_id = ${payload.importId}
       AND company_name = ${payload.companyName}
+      AND tenant_id = ${payload.tenantId}
   `;
 
   const hasMandatoryRuleViolation = ruleAuditRows.some((item) => item.result_status === 'non_compliant');
@@ -2106,6 +2199,7 @@ const buildNextMenuProposal = async (payload: {
     SELECT id, recipes_json, average_rating, evaluations_count
     FROM menu_combination_intelligence
     WHERE company_name = ${payload.companyName}
+      AND tenant_id = ${payload.tenantId}
       AND unit_name = ${imported.unit_name}
       AND service_name = ${imported.service_name}
     ORDER BY average_rating DESC, evaluations_count DESC
@@ -2157,6 +2251,7 @@ const buildNextMenuProposal = async (payload: {
 };
 
 const registerInviteAuditEvent = async (payload: {
+  tenantId: string;
   companyName: string;
   inviteToken: string;
   inviteEmail: string;
@@ -2175,6 +2270,7 @@ const registerInviteAuditEvent = async (payload: {
   await prisma.$executeRaw`
     INSERT INTO invite_audit_events (
       id,
+      tenant_id,
       company_name,
       invite_token,
       invite_email,
@@ -2185,6 +2281,7 @@ const registerInviteAuditEvent = async (payload: {
     )
     VALUES (
       ${eventId},
+      ${payload.tenantId},
       ${payload.companyName},
       ${payload.inviteToken},
       ${payload.inviteEmail},
@@ -2358,6 +2455,7 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
   }
 
   const companyName = getCompanyFromJwt(request);
+  const tenantId = getTenantIdFromJwt(request);
 
   await ensureDomainTables();
 
@@ -2387,6 +2485,7 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
       SELECT status, executed_at
       FROM compliance_control_executions execution
       WHERE execution.control_id = control.id
+        AND execution.tenant_id = control.tenant_id
         AND execution.company_name = control.company_name
       ORDER BY execution.executed_at DESC
       LIMIT 1
@@ -2395,6 +2494,7 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
       SELECT COUNT(*)::int AS total
       FROM compliance_findings finding
       WHERE finding.control_id = control.id
+        AND finding.tenant_id = control.tenant_id
         AND finding.company_name = control.company_name
         AND finding.status IN ('OPEN', 'IN_ANALYSIS')
     ) AS open_findings ON TRUE
@@ -2402,11 +2502,14 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
       SELECT COUNT(*)::int AS total
       FROM compliance_findings finding
       WHERE finding.control_id = control.id
+        AND finding.tenant_id = control.tenant_id
         AND finding.company_name = control.company_name
         AND finding.status IN ('OPEN', 'IN_ANALYSIS')
         AND finding.severity = 'CRITICAL'
     ) AS critical_findings ON TRUE
-    WHERE control.company_name = ${companyName}
+    WHERE control.tenant_id = ${tenantId}
+ AND control.tenant_id = ${tenantId}
+ AND control.company_name = ${companyName}
     ORDER BY control.created_at DESC
     LIMIT 160
   `;
@@ -2416,17 +2519,22 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
       COUNT(*) FILTER (WHERE status IN ('OPEN', 'IN_ANALYSIS'))::int AS open_total,
       COUNT(*) FILTER (WHERE status IN ('OPEN', 'IN_ANALYSIS') AND severity = 'CRITICAL')::int AS critical_total
     FROM compliance_findings
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
   `;
 
   const [pendingRecommendationsRow] = await prisma.$queryRaw<Array<{ total: number }>>`
     SELECT COUNT(DISTINCT suggestion.menu_import_id)::int AS total
     FROM menu_import_adjustment_suggestions suggestion
-    WHERE suggestion.company_name = ${companyName}
+ AND suggestion.tenant_id = ${tenantId}
+      AND suggestion.company_name = ${companyName}
+      AND suggestion.tenant_id = ${tenantId}
       AND NOT EXISTS (
         SELECT 1
         FROM menu_next_menu_decisions decision
         WHERE decision.company_name = suggestion.company_name
+          AND decision.tenant_id = ${tenantId}
           AND decision.menu_import_id = suggestion.menu_import_id
       )
   `;
@@ -2434,11 +2542,14 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
   const [pendingMenusRow] = await prisma.$queryRaw<Array<{ total: number }>>`
     SELECT COUNT(*)::int AS total
     FROM menu_pdf_imports menu_import
-    WHERE menu_import.company_name = ${companyName}
+ AND menu_import.tenant_id = ${tenantId}
+      AND menu_import.company_name = ${companyName}
+      AND menu_import.tenant_id = ${tenantId}
       AND NOT EXISTS (
         SELECT 1
         FROM menu_next_menu_decisions decision
         WHERE decision.company_name = menu_import.company_name
+          AND decision.tenant_id = ${tenantId}
           AND decision.menu_import_id = menu_import.id
       )
   `;
@@ -2459,8 +2570,11 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
     FROM compliance_control_executions execution
     INNER JOIN compliance_controls control
       ON control.id = execution.control_id
+     AND control.tenant_id = execution.tenant_id
      AND control.company_name = execution.company_name
-    WHERE execution.company_name = ${companyName}
+    WHERE execution.tenant_id = ${tenantId}
+ AND execution.tenant_id = ${tenantId}
+ AND execution.company_name = ${companyName}
       AND execution.status = 'failed'
     ORDER BY execution.executed_at DESC
     LIMIT 8
@@ -2484,8 +2598,11 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
     FROM compliance_findings finding
     INNER JOIN compliance_controls control
       ON control.id = finding.control_id
+     AND control.tenant_id = finding.tenant_id
      AND control.company_name = finding.company_name
-    WHERE finding.company_name = ${companyName}
+    WHERE finding.tenant_id = ${tenantId}
+ AND finding.tenant_id = ${tenantId}
+ AND finding.company_name = ${companyName}
       AND finding.status IN ('OPEN', 'IN_ANALYSIS')
       AND finding.severity IN ('CRITICAL', 'HIGH')
     ORDER BY
@@ -2514,11 +2631,14 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
       menu_import.reference_date,
       menu_import.created_at
     FROM menu_pdf_imports menu_import
-    WHERE menu_import.company_name = ${companyName}
+ AND menu_import.tenant_id = ${tenantId}
+      AND menu_import.company_name = ${companyName}
+      AND menu_import.tenant_id = ${tenantId}
       AND NOT EXISTS (
         SELECT 1
         FROM menu_next_menu_decisions decision
         WHERE decision.company_name = menu_import.company_name
+          AND decision.tenant_id = ${tenantId}
           AND decision.menu_import_id = menu_import.id
       )
     ORDER BY menu_import.created_at ASC
@@ -2584,7 +2704,7 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
       id: `finding-${item.id}`,
       type: 'FINDING',
       severity: (String(item.severity).toUpperCase() === 'CRITICAL' ? 'CRITICAL' : 'HIGH') as 'CRITICAL' | 'HIGH',
-      title: `${String(item.severity).toUpperCase() === 'CRITICAL' ? 'Finding crítico' : 'Finding alto'} em ${item.control_title}`,
+      title: `${String(item.severity).toUpperCase() === 'CRITICAL' ? 'Finding crÃƒÂ­tico' : 'Finding alto'} em ${item.control_title}`,
       detail: item.description,
       ctaLabel: 'Ver controle',
       ctaPath: `/compliance/${item.control_id}`,
@@ -2594,9 +2714,9 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
       id: `overdue-${item.id}`,
       type: 'OVERDUE_EXECUTION',
       severity: 'HIGH' as const,
-      title: `Execução atrasada: ${item.title}`,
-      detail: `Responsável ${item.responsible} · Frequência ${String(item.frequency).toLowerCase()}`,
-      ctaLabel: 'Registrar execução',
+      title: `ExecuÃƒÂ§ÃƒÂ£o atrasada: ${item.title}`,
+      detail: `ResponsÃƒÂ¡vel ${item.responsible} Ã‚Â· FrequÃƒÂªncia ${String(item.frequency).toLowerCase()}`,
+      ctaLabel: 'Registrar execuÃƒÂ§ÃƒÂ£o',
       ctaPath: `/compliance/${item.id}`,
       occurredAt: item.last_execution_at?.toISOString() ?? now.toISOString(),
     })),
@@ -2604,9 +2724,9 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
       id: `decision-${item.id}`,
       type: 'PENDING_MENU_DECISION',
       severity: 'MEDIUM' as const,
-      title: `Decisão pendente: ${item.unit_name} / ${item.service_name}`,
-      detail: `Cardápio ${item.file_name} sem decisão registrada.`,
-      ctaLabel: 'Ir para cardápios',
+      title: `DecisÃƒÂ£o pendente: ${item.unit_name} / ${item.service_name}`,
+      detail: `CardÃƒÂ¡pio ${item.file_name} sem decisÃƒÂ£o registrada.`,
+      ctaLabel: 'Ir para cardÃƒÂ¡pios',
       ctaPath: '/menus',
       occurredAt: item.created_at.toISOString(),
     })),
@@ -2615,7 +2735,7 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
       type: 'DUE_TODAY',
       severity: 'MEDIUM' as const,
       title: `Controle vence hoje: ${item.title}`,
-      detail: `Responsável ${item.responsible} · Frequência ${String(item.frequency).toLowerCase()}`,
+      detail: `ResponsÃƒÂ¡vel ${item.responsible} Ã‚Â· FrequÃƒÂªncia ${String(item.frequency).toLowerCase()}`,
       ctaLabel: 'Ver controle',
       ctaPath: `/compliance/${item.id}`,
       occurredAt: item.last_execution_at?.toISOString() ?? now.toISOString(),
@@ -2653,15 +2773,18 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
       SELECT
         execution.id,
         'execution_failed' AS event_type,
-        CONCAT('Falha de execução: ', control.title) AS title,
+        CONCAT('Falha de execuÃƒÂ§ÃƒÂ£o: ', control.title) AS title,
         execution.evidence_summary AS description,
         execution.executed_at AS occurred_at,
         CONCAT('/compliance/', execution.control_id) AS cta_path
       FROM compliance_control_executions execution
       INNER JOIN compliance_controls control
         ON control.id = execution.control_id
+       AND control.tenant_id = execution.tenant_id
        AND control.company_name = execution.company_name
-      WHERE execution.company_name = ${companyName}
+      WHERE execution.tenant_id = ${tenantId}
+ AND execution.tenant_id = ${tenantId}
+ AND execution.company_name = ${companyName}
         AND execution.status = 'failed'
         AND execution.executed_at >= date_trunc('day', NOW())
 
@@ -2677,11 +2800,15 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
       FROM compliance_finding_events finding_event
       INNER JOIN compliance_findings finding
         ON finding.id = finding_event.finding_id
+       AND finding.tenant_id = finding_event.tenant_id
        AND finding.company_name = finding_event.company_name
       INNER JOIN compliance_controls control
         ON control.id = finding.control_id
+       AND control.tenant_id = finding.tenant_id
        AND control.company_name = finding.company_name
-      WHERE finding_event.company_name = ${companyName}
+      WHERE finding_event.tenant_id = ${tenantId}
+ AND finding_event.tenant_id = ${tenantId}
+ AND finding_event.company_name = ${companyName}
         AND finding_event.created_at >= date_trunc('day', NOW())
 
       UNION ALL
@@ -2689,12 +2816,14 @@ app.get('/dashboard/cockpit', { preHandler: authenticate }, async (request, repl
       SELECT
         decision.id,
         'menu_decision' AS event_type,
-        CONCAT('Decisão registrada: ', decision.decision_status) AS title,
+        CONCAT('DecisÃƒÂ£o registrada: ', decision.decision_status) AS title,
         decision.justification AS description,
         decision.created_at AS occurred_at,
         '/menus' AS cta_path
       FROM menu_next_menu_decisions decision
-      WHERE decision.company_name = ${companyName}
+      WHERE decision.tenant_id = ${tenantId}
+ AND decision.tenant_id = ${tenantId}
+ AND decision.company_name = ${companyName}
         AND decision.created_at >= date_trunc('day', NOW())
     ) merged
     ORDER BY occurred_at DESC
@@ -2739,26 +2868,30 @@ app.get('/dashboard/summary', { preHandler: authenticate }, async (request, repl
   }
 
   const companyName = getCompanyFromJwt(request);
+  const tenantId = getTenantIdFromJwt(request);
 
   await ensureDomainTables();
 
   const [contractsCount] = await prisma.$queryRaw<Array<{ total: number }>>`
     SELECT COUNT(*)::int AS total
     FROM contracts
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+      AND company_name = ${companyName}
   `;
 
   const [rulesApprovedCount] = await prisma.$queryRaw<Array<{ total: number }>>`
     SELECT COUNT(*)::int AS total
     FROM extracted_rules
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+      AND company_name = ${companyName}
       AND status = 'approved'
   `;
 
   const [rulesPendingCount] = await prisma.$queryRaw<Array<{ total: number }>>`
     SELECT COUNT(*)::int AS total
     FROM extracted_rules
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+      AND company_name = ${companyName}
       AND status IN ('identified', 'under_review')
   `;
 
@@ -2776,7 +2909,9 @@ app.get('/dashboard/summary', { preHandler: authenticate }, async (request, repl
       COUNT(*) FILTER (WHERE UPPER(status) = 'NON_COMPLIANT')::int AS non_compliant_total,
       COUNT(*) FILTER (WHERE UPPER(status) = 'COMPLETED')::int AS completed_total
     FROM compliance_controls
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
   `;
 
   const [executionSummary] = await prisma.$queryRaw<Array<{
@@ -2787,7 +2922,9 @@ app.get('/dashboard/summary', { preHandler: authenticate }, async (request, repl
       COUNT(*) FILTER (WHERE status = 'completed')::int AS completed_total,
       COUNT(*) FILTER (WHERE status = 'failed')::int AS failed_total
     FROM compliance_control_executions
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
   `;
 
   const completedExecutions = executionSummary?.completed_total ?? 0;
@@ -2805,7 +2942,9 @@ app.get('/dashboard/summary', { preHandler: authenticate }, async (request, repl
   }>>`
     SELECT id, title, status, created_at
     FROM contracts
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
     ORDER BY created_at DESC
     LIMIT 5
   `;

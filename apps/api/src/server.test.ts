@@ -54,6 +54,19 @@ const ruleEvidence = (label: string) => ({
   evidenceConfidence: 0.95,
 })
 
+const approveRule = async (token: string, ruleId: string) => {
+  const response = await request(app.server)
+    .patch(`/rules/${ruleId}/status`)
+    .set('Authorization', `Bearer ${token}`)
+    .send({
+      status: 'approved',
+      note: 'Aprovacao humana registrada para fixture de teste.',
+    })
+
+  assert.equal(response.status, 200)
+  assert.equal(response.body.status, 'ok')
+}
+
 const createOperationalControl = async (token: string, controlStatus: 'DRAFT' | 'ACTIVE' = 'DRAFT') => {
   const suffix = buildUniqueLabel('controle-operacional')
 
@@ -62,6 +75,7 @@ const createOperationalControl = async (token: string, controlStatus: 'DRAFT' | 
     .set('Authorization', `Bearer ${token}`)
     .field('title', `Contrato ${suffix}`)
     .field('sourceType', 'contract')
+    .field('siteId', await getDefaultSiteId(token))
 
   assert.equal(contractResponse.status, 201)
 
@@ -80,6 +94,7 @@ const createOperationalControl = async (token: string, controlStatus: 'DRAFT' | 
     })
 
   assert.equal(ruleResponse.status, 201)
+  await approveRule(token, ruleResponse.body.rule?.id as string)
 
   const promoteResponse = await request(app.server)
     .post(`/rules/${ruleResponse.body.rule?.id as string}/promote-control`)
@@ -426,6 +441,17 @@ describe('API integration', () => {
     assert.equal(typeof loginResponse.body.token, 'string')
 
     const token = loginResponse.body.token as string
+
+    const resetProfileResponse = await request(app.server)
+      .post('/onboarding/operational-profile')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        sourceProfile: 'genial_integrated',
+        contractMode: 'with_contract',
+        complianceMode: 'contractual',
+      })
+
+    assert.equal(resetProfileResponse.status, 201)
 
     const defaultProfileResponse = await request(app.server)
       .get('/onboarding/operational-profile')
@@ -1359,6 +1385,7 @@ describe('API integration', () => {
       .set('Authorization', `Bearer ${token}`)
       .field('title', 'Contrato Auditoria Cardapio')
       .field('sourceType', 'contract')
+      .field('siteId', await getDefaultSiteId(token))
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -1374,11 +1401,13 @@ describe('API integration', () => {
         contractId: contractResponse.body.contract?.id as string,
         title: 'Frango grelhado obrigatorio no almoco',
         description: 'Cardapio deve conter frango grelhado no almoco',
-        category: 'proteina',
+        category: 'nutrition',
+        ...ruleEvidence('frango grelhado obrigatorio no almoco'),
         status: 'approved',
       })
 
     assert.equal(ruleResponse.status, 201)
+    await approveRule(token, ruleResponse.body.rule?.id as string)
 
     const recipeImportResponse = await request(app.server)
       .post('/recipes/imports')
@@ -1461,6 +1490,7 @@ describe('API integration', () => {
       .set('Authorization', `Bearer ${token}`)
       .field('title', 'Contrato Frequencia e Recorrencia')
       .field('sourceType', 'contract')
+      .field('siteId', await getDefaultSiteId(token))
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -1476,11 +1506,13 @@ describe('API integration', () => {
         contractId,
         title: 'Fruta citrica 3x por semana',
         description: 'Cardapio deve contemplar fruta citrica ao menos 3 vezes por semana.',
-        category: 'fruta',
+        category: 'nutrition',
+        ...ruleEvidence('fruta citrica semanal'),
         status: 'approved',
       })
 
     assert.equal(citrusRuleResponse.status, 201)
+    await approveRule(token, citrusRuleResponse.body.rule?.id as string)
 
     const recurrenceRuleResponse = await request(app.server)
       .post('/rules')
@@ -1489,11 +1521,13 @@ describe('API integration', () => {
         contractId,
         title: 'Nao repetir peixe em menos de 7 dias',
         description: 'Peixe nao pode reaparecer em menos de 7 dias no mesmo servico.',
-        category: 'proteina',
+        category: 'nutrition',
+        ...ruleEvidence('recorrencia minima de peixe'),
         status: 'approved',
       })
 
     assert.equal(recurrenceRuleResponse.status, 201)
+    await approveRule(token, recurrenceRuleResponse.body.rule?.id as string)
 
     const recipeImportResponse = await request(app.server)
       .post('/recipes/imports')
@@ -1607,6 +1641,7 @@ describe('API integration', () => {
       .set('Authorization', `Bearer ${token}`)
       .field('title', 'Contrato Sinonimos Controlados')
       .field('sourceType', 'contract')
+      .field('siteId', await getDefaultSiteId(token))
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -1622,11 +1657,13 @@ describe('API integration', () => {
         contractId,
         title: 'Peixe no almoco',
         description: 'Cardapio deve conter peixe no almoco.',
-        category: 'proteina',
+        category: 'nutrition',
+        ...ruleEvidence('peixe no almoco'),
         status: 'approved',
       })
 
     assert.equal(ruleResponse.status, 201)
+    await approveRule(token, ruleResponse.body.rule?.id as string)
 
     const recipeImportResponse = await request(app.server)
       .post('/recipes/imports')
@@ -1698,6 +1735,7 @@ describe('API integration', () => {
       .set('Authorization', `Bearer ${token}`)
       .field('title', 'Contrato Alias Comercial Peixe')
       .field('sourceType', 'contract')
+      .field('siteId', await getDefaultSiteId(token))
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -1713,11 +1751,13 @@ describe('API integration', () => {
         contractId,
         title: 'Peixe no almoco com alias comercial',
         description: 'Cardapio deve conter peixe no almoco.',
-        category: 'proteina',
+        category: 'nutrition',
+        ...ruleEvidence('peixe no almoco com alias comercial'),
         status: 'approved',
       })
 
     assert.equal(ruleResponse.status, 201)
+    await approveRule(token, ruleResponse.body.rule?.id as string)
 
     const recipeImportResponse = await request(app.server)
       .post('/recipes/imports')
@@ -1789,6 +1829,7 @@ describe('API integration', () => {
       .set('Authorization', `Bearer ${token}`)
       .field('title', 'Contrato Alias Contextual Cafe')
       .field('sourceType', 'contract')
+      .field('siteId', await getDefaultSiteId(token))
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -1804,11 +1845,13 @@ describe('API integration', () => {
         contractId,
         title: 'Fruta citrica no cafe da manha',
         description: 'Cardapio deve contemplar fruta citrica no cafe da manha.',
-        category: 'fruta',
+        category: 'nutrition',
+        ...ruleEvidence('fruta citrica no cafe da manha'),
         status: 'approved',
       })
 
     assert.equal(ruleResponse.status, 201)
+    await approveRule(token, ruleResponse.body.rule?.id as string)
 
     const recipeImportResponse = await request(app.server)
       .post('/recipes/imports')
@@ -1880,6 +1923,7 @@ describe('API integration', () => {
       .set('Authorization', `Bearer ${token}`)
       .field('title', 'Contrato Alias Contextual Vegetais')
       .field('sourceType', 'contract')
+      .field('siteId', await getDefaultSiteId(token))
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -1895,11 +1939,13 @@ describe('API integration', () => {
         contractId,
         title: 'Verdura no almoco',
         description: 'Cardapio deve conter verdura no almoco.',
-        category: 'verdura',
+        category: 'nutrition',
+        ...ruleEvidence('verdura no almoco'),
         status: 'approved',
       })
 
     assert.equal(ruleResponse.status, 201)
+    await approveRule(token, ruleResponse.body.rule?.id as string)
 
     const recipeImportResponse = await request(app.server)
       .post('/recipes/imports')
@@ -1971,6 +2017,7 @@ describe('API integration', () => {
       .set('Authorization', `Bearer ${token}`)
       .field('title', 'Contrato Alias Comercial Vegetais')
       .field('sourceType', 'contract')
+      .field('siteId', await getDefaultSiteId(token))
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -1986,11 +2033,13 @@ describe('API integration', () => {
         contractId,
         title: 'Verdura no almoco com alias comercial',
         description: 'Cardapio deve conter verdura no almoco.',
-        category: 'verdura',
+        category: 'nutrition',
+        ...ruleEvidence('verdura no almoco com alias comercial'),
         status: 'approved',
       })
 
     assert.equal(ruleResponse.status, 201)
+    await approveRule(token, ruleResponse.body.rule?.id as string)
 
     const recipeImportResponse = await request(app.server)
       .post('/recipes/imports')
@@ -2062,6 +2111,7 @@ describe('API integration', () => {
       .set('Authorization', `Bearer ${token}`)
       .field('title', 'Contrato Sugestoes de Ajuste')
       .field('sourceType', 'contract')
+      .field('siteId', await getDefaultSiteId(token))
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -2075,11 +2125,13 @@ describe('API integration', () => {
         contractId: contractResponse.body.contract?.id as string,
         title: 'Peixe no almoco',
         description: 'Cardapio deve conter peixe no almoco de sexta',
-        category: 'proteina',
+        category: 'nutrition',
+        ...ruleEvidence('peixe no almoco de sexta'),
         status: 'approved',
       })
 
     assert.equal(ruleResponse.status, 201)
+    await approveRule(token, ruleResponse.body.rule?.id as string)
 
     const recipeImportResponse = await request(app.server)
       .post('/recipes/imports')
@@ -2206,6 +2258,7 @@ describe('API integration', () => {
       .set('Authorization', `Bearer ${token}`)
       .field('title', 'Contrato Sugestoes Estruturadas R4')
       .field('sourceType', 'contract')
+      .field('siteId', await getDefaultSiteId(token))
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -2221,11 +2274,13 @@ describe('API integration', () => {
         contractId,
         title: 'Fruta citrica 3x por semana',
         description: 'Cardapio deve contemplar fruta citrica ao menos 3 vezes por semana.',
-        category: 'fruta',
+        category: 'nutrition',
+        ...ruleEvidence('fruta citrica semanal estruturada'),
         status: 'approved',
       })
 
     assert.equal(citrusRuleResponse.status, 201)
+    await approveRule(token, citrusRuleResponse.body.rule?.id as string)
 
     const recurrenceRuleResponse = await request(app.server)
       .post('/rules')
@@ -2234,11 +2289,13 @@ describe('API integration', () => {
         contractId,
         title: 'Nao repetir peixe em menos de 7 dias',
         description: 'Peixe nao pode reaparecer em menos de 7 dias no mesmo servico.',
-        category: 'proteina',
+        category: 'nutrition',
+        ...ruleEvidence('recorrencia minima estruturada de peixe'),
         status: 'approved',
       })
 
     assert.equal(recurrenceRuleResponse.status, 201)
+    await approveRule(token, recurrenceRuleResponse.body.rule?.id as string)
 
     const recipeImportResponse = await request(app.server)
       .post('/recipes/imports')
@@ -2388,6 +2445,7 @@ describe('API integration', () => {
       .set('Authorization', `Bearer ${token}`)
       .field('title', 'Contrato Versao Ajustada')
       .field('sourceType', 'contract')
+      .field('siteId', await getDefaultSiteId(token))
 
     if (contractResponse.status === 503) {
       assert.equal(contractResponse.body.status, 'error')
@@ -2401,11 +2459,13 @@ describe('API integration', () => {
         contractId: contractResponse.body.contract?.id as string,
         title: 'Fruta citrica obrigatoria no almoco',
         description: 'Cardapio de almoco deve conter fruta citrica',
-        category: 'fruta',
+        category: 'nutrition',
+        ...ruleEvidence('fruta citrica obrigatoria no almoco'),
         status: 'approved',
       })
 
     assert.equal(ruleResponse.status, 201)
+    await approveRule(token, ruleResponse.body.rule?.id as string)
 
     const importResponse = await request(app.server)
       .post('/menus/imports')
