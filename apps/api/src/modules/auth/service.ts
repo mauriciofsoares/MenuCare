@@ -123,6 +123,14 @@ export interface Deps {
   clearRefreshTokenCookie: (reply: FastifyReply) => void;
   touchRefreshSession: (sessionId: string) => Promise<void>;
   getCompanyFromJwt: (request: FastifyRequest) => string;
+  listAuthorizedSites: (request: FastifyRequest) => Promise<Array<{
+    id: string;
+    tenantId: string;
+    name: string;
+    city: string | null;
+    state: string | null;
+    role: string;
+  }>>;
   readOperationalProfile: (companyName: string) => Promise<unknown>;
   operationalProfileSchema: SchemaLike<Record<string, unknown>>;
   saveOperationalProfile: (companyName: string, profile: Record<string, unknown>) => Promise<void>;
@@ -395,6 +403,7 @@ export const createAuthService = (deps: Deps) => {
     const operationalProfile = await deps.readOperationalProfile(
       payload.companyName ?? deps.demoUser.companyName,
     );
+    const authorizedSites = await deps.listAuthorizedSites(request);
 
     return {
       statusCode: 200,
@@ -407,6 +416,7 @@ export const createAuthService = (deps: Deps) => {
           companyName: payload.companyName ?? deps.demoUser.companyName,
           accessProfile: payload.accessProfile ?? deps.demoUser.accessProfile,
         },
+        authorizedSites,
         operationalProfile,
       },
     };

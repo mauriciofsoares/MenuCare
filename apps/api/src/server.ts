@@ -81,6 +81,7 @@ const operationalProfileSchema = z.object({
 const contractSchema = z.object({
   title: z.string().min(3),
   sourceType: z.enum(['contract', 'bid_notice', 'reference_term', 'regulation']),
+  siteId: z.string().trim().min(1).optional(),
 });
 
 const recipeImportSchema = z.object({
@@ -453,6 +454,19 @@ type PrismaLike = {
   $executeRaw: (query: TemplateStringsArray, ...values: unknown[]) => Promise<number>;
 };
 
+type AuthorizedSite = {
+  id: string;
+  tenantId: string;
+  name: string;
+  city: string | null;
+  state: string | null;
+  role: string;
+};
+
+type SiteAccessResult =
+  | { allowed: true; site: AuthorizedSite }
+  | { allowed: false; statusCode: number; body: { status: 'error'; message: string } };
+
 let prisma: PrismaLike | null = null;
 let localeTableReady = false;
 let operationalProfileTableReady = false;
@@ -502,6 +516,164 @@ const authenticate = async (request: FastifyRequest, reply: FastifyReply) => {
 const getCompanyFromJwt = (request: FastifyRequest): string => {
   const payload = request.user as { companyName?: string };
   return payload.companyName ?? demoUser.companyName;
+};
+
+const getTenantIdFromJwt = (request: FastifyRequest): string => {
+  const payload = request.user as { tenantId?: string };
+  return payload.tenantId ?? demoContext.tenantId;
+};
+
+const getRoleKeyFromJwt = (request: FastifyRequest): string => {
+  const payload = request.user as { roleKey?: string };
+  return payload.roleKey ?? demoContext.roleKey;
+};
+
+const listAuthorizedSites = async (request: FastifyRequest): Promise<AuthorizedSite[]> => {
+  if (!prisma) {
+    return [];
+  }
+
+  const tenantId = getTenantIdFromJwt(request);
+  const actor = getUserFromJwt(request);
+  const roleKey = getRoleKeyFromJwt(request);
+
+  if (roleKey === 'menucare_admin') {
+    const rows = await prisma.$queryRaw<Array<{
+      id: string;
+      tenant_id: string;
+      name: string;
+      city: string | null;
+      state: string | null;
+    }>>`
+      SELECT id, tenant_id, name, city, state
+      FROM sites
+      WHERE tenant_id = ${tenantId}
+        AND is_active = TRUE
+      ORDER BY name ASC
+    `;
+
+    return rows.map((site) => ({
+      id: site.id,
+      tenantId: site.tenant_id,
+      name: site.name,
+      city: site.city,
+      state: site.state,
+      role: roleKey,
+    }));
+  }
+
+  const rows = await prisma.$queryRaw<Array<{
+    id: string;
+    tenant_id: string;
+    name: string;
+    city: string | null;
+    state: string | null;
+    role: string;
+  }>>`
+    SELECT site.id, site.tenant_id, site.name, site.city, site.state, access.role
+    FROM user_site_accesses access
+    JOIN sites site ON site.id = access.site_id
+    WHERE access.tenant_id = ${tenantId}
+      AND access.user_id = ${actor.id}
+      AND access.is_active = TRUE
+      AND site.is_active = TRUE
+    ORDER BY site.name ASC
+  `;
+
+  return rows.map((site) => ({
+    id: site.id,
+    tenantId: site.tenant_id,
+    name: site.name,
+    city: site.city,
+    state: site.state,
+    role: site.role,
+  }));
+};
+
+const resolveAuthorizedSite = async (
+  request: FastifyRequest,
+  siteId: string,
+): Promise<SiteAccessResult> => {
+  if (!prisma) {
+    return {
+      allowed: false,
+      statusCode: 503,
+      body: { status: 'error', message: apiMessage.health.dbUnavailable },
+    };
+  }
+
+  const tenantId = getTenantIdFromJwt(request);
+  const roleKey = getRoleKeyFromJwt(request);
+  const actor = getUserFromJwt(request);
+
+  const siteRows = await prisma.$queryRaw<Array<{
+    id: string;
+    tenant_id: string;
+    name: string;
+    city: string | null;
+    state: string | null;
+  }>>`
+    SELECT id, tenant_id, name, city, state
+    FROM sites
+    WHERE id = ${siteId}
+      AND tenant_id = ${tenantId}
+      AND is_active = TRUE
+    LIMIT 1
+  `;
+
+  const site = siteRows[0];
+  if (!site) {
+    return {
+      allowed: false,
+      statusCode: 404,
+      body: { status: 'error', message: 'Unidade nao encontrada para este cliente.' },
+    };
+  }
+
+  if (roleKey === 'menucare_admin') {
+    return {
+      allowed: true,
+      site: {
+        id: site.id,
+        tenantId: site.tenant_id,
+        name: site.name,
+        city: site.city,
+        state: site.state,
+        role: roleKey,
+      },
+    };
+  }
+
+  const accessRows = await prisma.$queryRaw<Array<{ role: string }>>`
+    SELECT role
+    FROM user_site_accesses
+    WHERE tenant_id = ${tenantId}
+      AND user_id = ${actor.id}
+      AND site_id = ${siteId}
+      AND is_active = TRUE
+    LIMIT 1
+  `;
+
+  const access = accessRows[0];
+  if (!access) {
+    return {
+      allowed: false,
+      statusCode: 403,
+      body: { status: 'error', message: 'Acesso negado para esta unidade.' },
+    };
+  }
+
+  return {
+    allowed: true,
+    site: {
+      id: site.id,
+      tenantId: site.tenant_id,
+      name: site.name,
+      city: site.city,
+      state: site.state,
+      role: access.role,
+    },
+  };
 };
 
 const ensureLocalePreferencesTable = async () => {
@@ -2090,6 +2262,9 @@ const moduleDeps = {
   clearRefreshTokenCookie,
   touchRefreshSession,
   getCompanyFromJwt,
+  getTenantIdFromJwt,
+  listAuthorizedSites,
+  resolveAuthorizedSite,
   readOperationalProfile,
   operationalProfileSchema,
   saveOperationalProfile,

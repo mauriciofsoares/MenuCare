@@ -18,6 +18,7 @@ app.post('/contracts', { preHandler: authenticate }, async (request, reply) => {
   const parts = request.parts();
   let title = '';
   let sourceType = '';
+  let siteId = '';
   let fileBuffer: Buffer | null = null;
 
   for await (const part of parts) {
@@ -41,10 +42,14 @@ app.post('/contracts', { preHandler: authenticate }, async (request, reply) => {
       if (part.fieldname === 'sourceType') {
         sourceType = String(part.value ?? '');
       }
+
+      if (part.fieldname === 'siteId') {
+        siteId = String(part.value ?? '');
+      }
     }
   }
 
-  const parsed = contractSchema.safeParse({ title, sourceType });
+  const parsed = contractSchema.safeParse({ title, sourceType, siteId });
 
   if (!parsed.success) {
     return reply.code(400).send({
@@ -56,6 +61,7 @@ app.post('/contracts', { preHandler: authenticate }, async (request, reply) => {
   const result = await service.createContract(request, {
     title: parsed.data.title,
     sourceType: parsed.data.sourceType,
+    siteId: parsed.data.siteId,
     fileBuffer,
   });
   return reply.code(result.statusCode).send(result.body);
@@ -63,12 +69,16 @@ app.post('/contracts', { preHandler: authenticate }, async (request, reply) => {
 
 app.get('/contracts', { preHandler: authenticate }, async (request, reply) => {
   const query = z
-    .object({ limit: z.coerce.number().int().min(1).max(50).default(20) })
+    .object({
+      siteId: z.string().trim().min(1).optional(),
+      limit: z.coerce.number().int().min(1).max(50).default(20),
+    })
     .safeParse(request.query);
 
   const limit = query.success ? query.data.limit : 20;
+  const siteId = query.success ? query.data.siteId : undefined;
 
-  const result = await service.listContracts(request, limit);
+  const result = await service.listContracts(request, { limit, siteId });
   return reply.code(result.statusCode).send(result.body);
 });
 

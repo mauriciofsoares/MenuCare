@@ -30,6 +30,30 @@ const loginToken = async () => {
   return response.body.token as string
 }
 
+const getAuthorizedSites = async (token: string) => {
+  const response = await request(app.server)
+    .get('/auth/me')
+    .set('Authorization', `Bearer ${token}`)
+
+  assert.equal(response.status, 200)
+  assert.equal(Array.isArray(response.body.authorizedSites), true)
+
+  const sites = response.body.authorizedSites as Array<{ id: string; name: string }>
+  assert.ok(sites.length > 0)
+  return sites
+}
+
+const getDefaultSiteId = async (token: string) => {
+  const sites = await getAuthorizedSites(token)
+  return sites[0]?.id as string
+}
+
+const ruleEvidence = (label: string) => ({
+  sourceExcerpt: `Clausula contratual validada para ${label}.`,
+  sourcePage: 1,
+  evidenceConfidence: 0.95,
+})
+
 const createOperationalControl = async (token: string, controlStatus: 'DRAFT' | 'ACTIVE' = 'DRAFT') => {
   const suffix = buildUniqueLabel('controle-operacional')
 
@@ -135,6 +159,116 @@ describe('API integration', () => {
     assert.ok(response.body.token.length > 20)
     assert.equal(response.body.user?.email, 'admin@menucare.local')
     assert.match(getFirstSetCookie(response.headers['set-cookie'] as string | string[] | undefined), /menucare_refresh_token=/i)
+  })
+
+  it('/auth/me should return authorized sites', async () => {
+    const token = await loginToken()
+
+    const response = await request(app.server)
+      .get('/auth/me')
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(response.status, 200)
+    assert.equal(response.body.status, 'ok')
+    assert.equal(Array.isArray(response.body.authorizedSites), true)
+    assert.ok(response.body.authorizedSites.length > 0)
+    assert.equal(typeof response.body.authorizedSites[0].id, 'string')
+    assert.equal(typeof response.body.authorizedSites[0].name, 'string')
+  })
+
+  it('authorized unit user should create and list contracts scoped to selected site', async () => {
+    const token = await loginToken()
+    const siteId = await getDefaultSiteId(token)
+    const suffix = buildUniqueLabel('contrato-unidade-autorizada')
+
+    const createResponse = await request(app.server)
+      .post('/contracts')
+      .set('Authorization', `Bearer ${token}`)
+      .field('title', `Contrato ${suffix}`)
+      .field('sourceType', 'contract')
+      .field('siteId', siteId)
+
+    assert.equal(createResponse.status, 201)
+    assert.equal(createResponse.body.contract?.siteId, siteId)
+
+    const listResponse = await request(app.server)
+      .get(`/contracts?siteId=${encodeURIComponent(siteId)}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(listResponse.status, 200)
+    assert.equal(listResponse.body.status, 'ok')
+    assert.ok(
+      (listResponse.body.contracts as Array<{ id: string; siteId: string }>).some(
+        (contract) => contract.id === createResponse.body.contract?.id && contract.siteId === siteId,
+      ),
+    )
+  })
+
+  it('manual rules should inherit contract site and require evidence before approval', async () => {
+    const token = await loginToken()
+    const siteId = await getDefaultSiteId(token)
+    const suffix = buildUniqueLabel('regra-manual-site')
+
+    const contractResponse = await request(app.server)
+      .post('/contracts')
+      .set('Authorization', `Bearer ${token}`)
+      .field('title', `Contrato ${suffix}`)
+      .field('sourceType', 'contract')
+      .field('siteId', siteId)
+
+    assert.equal(contractResponse.status, 201)
+
+    const missingEvidenceResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId: contractResponse.body.contract?.id as string,
+        title: `Regra sem evidencia ${suffix}`,
+        description: 'Regra manual sem evidencia nao pode entrar no fluxo.',
+        category: 'operations',
+        status: 'approved',
+      })
+
+    assert.equal(missingEvidenceResponse.status, 400)
+
+    const createRuleResponse = await request(app.server)
+      .post('/rules')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        contractId: contractResponse.body.contract?.id as string,
+        title: `Regra com evidencia ${suffix}`,
+        description: 'Regra operacional de cardapio com evidencia contratual.',
+        category: 'operations',
+        ...ruleEvidence(suffix),
+        status: 'approved',
+      })
+
+    assert.equal(createRuleResponse.status, 201)
+    assert.equal(createRuleResponse.body.rule?.status, 'pending')
+
+    const approveResponse = await request(app.server)
+      .patch(`/rules/${createRuleResponse.body.rule?.id as string}/status`)
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        status: 'approved',
+        note: 'Aprovacao humana com evidencia validada.',
+      })
+
+    assert.equal(approveResponse.status, 200)
+
+    const listRulesResponse = await request(app.server)
+      .get(`/rules?contractId=${encodeURIComponent(contractResponse.body.contract?.id as string)}&siteId=${encodeURIComponent(siteId)}`)
+      .set('Authorization', `Bearer ${token}`)
+
+    assert.equal(listRulesResponse.status, 200)
+    assert.ok(
+      (listRulesResponse.body.rules as Array<{ id: string; siteId: string; status: string }>).some(
+        (rule) =>
+          rule.id === createRuleResponse.body.rule?.id &&
+          rule.siteId === siteId &&
+          rule.status === 'approved',
+      ),
+    )
   })
 
   it('refresh endpoint should rotate refresh token and reject old cookie', async () => {
