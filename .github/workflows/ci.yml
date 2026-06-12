@@ -44,8 +44,8 @@ jobs:
       - name: Prisma generate (API)
         run: npm exec --workspace apps/api -- prisma generate
 
-      - name: Prisma migrate deploy (API)
-        run: npm exec --workspace apps/api -- prisma migrate deploy
+      - name: Prisma db push (API)
+        run: npm exec --workspace apps/api -- prisma db push --skip-generate
 
       - name: Run tests (API + Web)
         run: npm run test:all
