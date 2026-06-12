@@ -527,8 +527,8 @@ export const createAuthService = (deps: Deps) => {
     const passwordHash = await deps.hashPassword(payload.password);
 
     await deps.prisma.$executeRaw`
-      INSERT INTO auth_password_overrides (tenant_id, email, company_name, password_hash)
-      VALUES (${invite.tenant_id}, ${invite.email}, ${invite.company_name}, ${passwordHash})
+      INSERT INTO auth_password_overrides (tenant_id, email, company_name, password_hash, created_at, updated_at)
+      VALUES (${invite.tenant_id}, ${invite.email}, ${invite.company_name}, ${passwordHash}, NOW(), NOW())
       ON CONFLICT (tenant_id, email)
       DO UPDATE SET
         company_name = EXCLUDED.company_name,
@@ -598,8 +598,8 @@ export const createAuthService = (deps: Deps) => {
     `;
 
     await deps.prisma.$executeRaw`
-      INSERT INTO first_access_invites (tenant_id, token, email, company_name, is_active)
-      VALUES (${tenantId}, ${inviteToken}, ${normalizedEmail}, ${companyName}, TRUE)
+      INSERT INTO first_access_invites (tenant_id, token, email, company_name, is_active, created_at, updated_at)
+      VALUES (${tenantId}, ${inviteToken}, ${normalizedEmail}, ${companyName}, TRUE, NOW(), NOW())
     `;
 
     await deps.registerInviteAuditEvent({
@@ -898,8 +898,8 @@ export const createAuthService = (deps: Deps) => {
     `;
 
     await deps.prisma.$executeRaw`
-      INSERT INTO first_access_invites (tenant_id, token, email, company_name, is_active)
-      VALUES (${tenantId}, ${inviteToken}, ${invite.email}, ${companyName}, TRUE)
+      INSERT INTO first_access_invites (tenant_id, token, email, company_name, is_active, created_at, updated_at)
+      VALUES (${tenantId}, ${inviteToken}, ${invite.email}, ${companyName}, TRUE, NOW(), NOW())
     `;
 
     await deps.registerInviteAuditEvent({

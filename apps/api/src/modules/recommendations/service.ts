@@ -328,7 +328,9 @@ export const createRecommendationsService = (deps: Deps) => {
         governance_blocks_approval,
         historical_non_blocking,
         actor_id,
-        actor_name
+        actor_name,
+        created_at,
+        updated_at
       )
       VALUES (
         ${decisionId},
@@ -341,7 +343,9 @@ export const createRecommendationsService = (deps: Deps) => {
         ${nextMenuProposal.governance.blocksApproval},
         ${nextMenuProposal.historicalLayer.nonBlocking},
         ${actor.id},
-        ${actor.name}
+        ${actor.name},
+        NOW(),
+        NOW()
       )
     `;
 

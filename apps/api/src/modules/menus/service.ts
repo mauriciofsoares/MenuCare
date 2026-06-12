@@ -219,7 +219,9 @@ app.post('/menus/imports', { preHandler: authenticate }, async (request, reply) 
       exceeded_percent,
       validation_status,
       recipes_json,
-      imported_by
+      imported_by,
+      created_at,
+      updated_at
     )
     VALUES (
       ${importId},
@@ -236,7 +238,9 @@ app.post('/menus/imports', { preHandler: authenticate }, async (request, reply) 
       ${Number(exceededPercent.toFixed(2))},
       ${status},
       ${JSON.stringify(effectiveRecipes)},
-      ${actor.id}
+      ${actor.id},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -424,7 +428,9 @@ app.post('/menus/operational-cardapios', { preHandler: authenticate }, async (re
       exceeded_percent,
       validation_status,
       recipes_json,
-      created_by
+      created_by,
+      created_at,
+      updated_at
     )
     VALUES (
       ${cardapioId},
@@ -441,7 +447,9 @@ app.post('/menus/operational-cardapios', { preHandler: authenticate }, async (re
       ${Number(exceededPercent.toFixed(2))},
       ${status},
       ${JSON.stringify(payload.recipes)},
-      ${actor.id}
+      ${actor.id},
+      NOW(),
+      NOW()
     )
   `
 
@@ -1259,7 +1267,7 @@ app.post('/menus/imports/monthly-cycle', { preHandler: authenticate }, async (re
       CAST(${periodEndDate} AS date),
       NOW()
     )
-    ON CONFLICT (company_name, summary_month, unit_name, service_name)
+    ON CONFLICT (tenant_id, summary_month, unit_name, service_name)
     DO UPDATE SET
       tenant_id = EXCLUDED.tenant_id,
       meal_type = EXCLUDED.meal_type,
@@ -2362,7 +2370,9 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
       total_financial_impact,
       nutritional_impact_summary,
       commemorative_context_json,
-      applied_suggestions_json
+      applied_suggestions_json,
+      created_at,
+      updated_at
     )
     VALUES (
       ${versionId},
@@ -2376,7 +2386,9 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
       ${totalFinancialImpact},
       ${nutritionalImpactSummary || 'Sem alteracoes nutricionais relevantes.'},
       ${JSON.stringify(commemorativeContext)},
-      ${JSON.stringify(appliedSuggestions)}
+      ${JSON.stringify(appliedSuggestions)},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -2558,7 +2570,9 @@ app.post('/menus/commemorative-dates', { preHandler: authenticate }, async (requ
       date_year,
       title,
       noble_dish_hint,
-      created_by
+      created_by,
+      created_at,
+      updated_at
     )
     VALUES (
       ${id},
@@ -2568,15 +2582,18 @@ app.post('/menus/commemorative-dates', { preHandler: authenticate }, async (requ
       ${dateYear},
       ${payload.title.trim()},
       ${payload.nobleDishHint?.trim() || null},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
-    ON CONFLICT (company_name, reference_date)
+    ON CONFLICT (tenant_id, reference_date)
     DO UPDATE SET
       tenant_id = EXCLUDED.tenant_id,
       date_year = EXCLUDED.date_year,
       title = EXCLUDED.title,
       noble_dish_hint = EXCLUDED.noble_dish_hint,
-      created_by = EXCLUDED.created_by
+      created_by = EXCLUDED.created_by,
+      updated_at = NOW()
     RETURNING id
   `;
 

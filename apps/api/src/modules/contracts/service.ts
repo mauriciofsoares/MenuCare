@@ -1053,7 +1053,8 @@ ${contractText.slice(0, 12000)}`;
         source_page,
         evidence_confidence,
         status,
-        created_at
+        created_at,
+        updated_at
       )
       VALUES (
         ${ruleId},
@@ -1077,6 +1078,7 @@ ${contractText.slice(0, 12000)}`;
         ${rule.sourcePage},
         ${rule.evidenceConfidence},
         ${'pending'},
+        ${createdAt},
         ${createdAt}
       )
     `;
@@ -1128,8 +1130,7 @@ export const createContractsService = (deps: Deps) => {
       await deps.prisma.$executeRaw`
         UPDATE contracts
         SET status = ${status},
-            inactivation_reason = ${inactivationReason ?? null},
-            inactivated_at = NOW()
+            updated_at = NOW()
         WHERE id = ${contractId}
           AND tenant_id = ${tenantId}
  AND tenant_id = ${tenantId}
@@ -1141,8 +1142,7 @@ export const createContractsService = (deps: Deps) => {
     await deps.prisma.$executeRaw`
       UPDATE contracts
       SET status = ${status},
-          inactivation_reason = NULL,
-          inactivated_at = NULL
+          updated_at = NOW()
       WHERE id = ${contractId}
         AND tenant_id = ${tenantId}
  AND tenant_id = ${tenantId}
@@ -1241,7 +1241,7 @@ export const createContractsService = (deps: Deps) => {
     await deps.ensureDomainTables();
 
     await deps.prisma.$executeRaw`
-      INSERT INTO contracts (id, tenant_id, site_id, company_name, title, source_type, status, extracted_text, created_by)
+      INSERT INTO contracts (id, tenant_id, site_id, company_name, title, source_type, status, created_by, created_at, updated_at)
       VALUES (
         ${contractId},
         ${tenantId},
@@ -1250,8 +1250,9 @@ export const createContractsService = (deps: Deps) => {
         ${payload.title},
         ${payload.sourceType},
         ${'processing'},
-        ${extractedText},
-        ${actor.id}
+        ${actor.id},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -1287,15 +1288,11 @@ export const createContractsService = (deps: Deps) => {
         title: string;
         source_type: string;
         status: string;
-        extracted_text: string | null;
-        inactivation_reason: string | null;
-        inactivated_at: Date | null;
         created_at: Date;
       }>
     >`
       SELECT contract.id, contract.site_id, site.name AS site_name, contract.title, contract.source_type,
-             contract.status, contract.extracted_text, contract.inactivation_reason,
-             contract.inactivated_at, contract.created_at
+             contract.status, contract.created_at
       FROM contracts contract
       JOIN sites site ON site.id = contract.site_id
       WHERE contract.id = ${contractId}
@@ -1313,9 +1310,9 @@ export const createContractsService = (deps: Deps) => {
           title: rows[0]?.title ?? payload.title,
           sourceType: rows[0]?.source_type ?? payload.sourceType,
           status: rows[0]?.status ?? 'processing',
-          extractedText: rows[0]?.extracted_text ?? extractedText,
-          inactivationReason: rows[0]?.inactivation_reason ?? null,
-          inactivatedAt: rows[0]?.inactivated_at?.toISOString() ?? null,
+          extractedText,
+          inactivationReason: null,
+          inactivatedAt: null,
           createdAt: (rows[0]?.created_at ?? new Date()).toISOString(),
           createdBy: actor.name,
         },
@@ -1377,15 +1374,11 @@ export const createContractsService = (deps: Deps) => {
         title: string;
         source_type: string;
         status: string;
-        extracted_text: string | null;
-        inactivation_reason: string | null;
-        inactivated_at: Date | null;
         created_at: Date;
       }>
     >`
       SELECT contract.id, contract.site_id, site.name AS site_name, contract.title, contract.source_type,
-             contract.status, contract.extracted_text, contract.inactivation_reason,
-             contract.inactivated_at, contract.created_at
+             contract.status, contract.created_at
       FROM contracts contract
       JOIN sites site ON site.id = contract.site_id
       WHERE contract.id = ${contractId}
@@ -1422,9 +1415,9 @@ export const createContractsService = (deps: Deps) => {
           title: contract.title,
           sourceType: contract.source_type,
           status: contract.status,
-          extractedText: contract.extracted_text,
-          inactivationReason: contract.inactivation_reason,
-          inactivatedAt: contract.inactivated_at?.toISOString() ?? null,
+          extractedText: null,
+          inactivationReason: null,
+          inactivatedAt: null,
           createdAt: contract.created_at.toISOString(),
         },
       },
@@ -1507,15 +1500,11 @@ export const createContractsService = (deps: Deps) => {
         title: string;
         source_type: string;
         status: string;
-        extracted_text: string | null;
-        inactivation_reason: string | null;
-        inactivated_at: Date | null;
         created_at: Date;
       }>
     >`
       SELECT contract.id, contract.site_id, site.name AS site_name, contract.title, contract.source_type,
-             contract.status, contract.extracted_text, contract.inactivation_reason,
-             contract.inactivated_at, contract.created_at
+             contract.status, contract.created_at
       FROM contracts contract
       JOIN sites site ON site.id = contract.site_id
  AND contract.tenant_id = ${tenantId}
@@ -1537,9 +1526,9 @@ export const createContractsService = (deps: Deps) => {
           title: item.title,
           sourceType: item.source_type,
           status: item.status,
-          extractedText: item.extracted_text,
-          inactivationReason: item.inactivation_reason,
-          inactivatedAt: item.inactivated_at?.toISOString() ?? null,
+          extractedText: null,
+          inactivationReason: null,
+          inactivatedAt: null,
           createdAt: item.created_at.toISOString(),
         })),
       },

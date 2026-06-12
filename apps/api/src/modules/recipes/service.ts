@@ -287,7 +287,9 @@ export const createRecipesService = (deps: Deps) => {
           allergens_json,
           ai_classification_json,
           ai_provider,
-          is_active
+          is_active,
+          created_at,
+          updated_at
         )
         VALUES (
           ${recipeId},
@@ -308,9 +310,11 @@ export const createRecipesService = (deps: Deps) => {
           ${JSON.stringify(recipe.allergens ?? [])},
           ${JSON.stringify({ classification, source: 'heuristic-ready' })},
           ${'heuristic-ready'},
-          TRUE
+          TRUE,
+          NOW(),
+          NOW()
         )
-        ON CONFLICT (company_name, normalized_name)
+        ON CONFLICT (tenant_id, normalized_name)
         DO UPDATE SET
           tenant_id = EXCLUDED.tenant_id,
           source_file_name = EXCLUDED.source_file_name,
@@ -345,7 +349,9 @@ export const createRecipesService = (deps: Deps) => {
             company_name,
             name,
             normalized_name,
-            ingredient_group
+            ingredient_group,
+            created_at,
+            updated_at
           )
           VALUES (
             ${ingredientId},
@@ -353,9 +359,11 @@ export const createRecipesService = (deps: Deps) => {
             ${companyName},
             ${ingredientName.trim()},
             ${normalizedIngredientName},
-            ${classification.foodGroup}
+            ${classification.foodGroup},
+            NOW(),
+            NOW()
           )
-          ON CONFLICT (company_name, normalized_name)
+          ON CONFLICT (tenant_id, normalized_name)
           DO UPDATE SET
             tenant_id = EXCLUDED.tenant_id,
             name = EXCLUDED.name,
@@ -374,7 +382,9 @@ export const createRecipesService = (deps: Deps) => {
             recipe_id,
             ingredient_id,
             quantity,
-            unit
+            unit,
+            created_at,
+            updated_at
           )
           VALUES (
             ${deps.randomUUID()},
@@ -383,7 +393,9 @@ export const createRecipesService = (deps: Deps) => {
             ${persistedRecipeId},
             ${linkedIngredientId},
             ${null},
-            ${null}
+            ${null},
+            NOW(),
+            NOW()
           )
         `;
       }
@@ -408,7 +420,9 @@ export const createRecipesService = (deps: Deps) => {
         classified_count,
         warnings_json,
         actor_id,
-        actor_name
+        actor_name,
+        created_at,
+        updated_at
       )
       VALUES (
         ${importEventId},
@@ -419,7 +433,9 @@ export const createRecipesService = (deps: Deps) => {
         ${importedItems.length},
         ${JSON.stringify([])},
         ${actor.id},
-        ${actor.name}
+        ${actor.name},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -809,7 +825,9 @@ export const createRecipesService = (deps: Deps) => {
         next_classification_json,
         reason,
         actor_id,
-        actor_name
+        actor_name,
+        created_at,
+        updated_at
       )
       VALUES (
         ${deps.randomUUID()},
@@ -820,7 +838,9 @@ export const createRecipesService = (deps: Deps) => {
         ${JSON.stringify(nextClassification)},
         ${payload.reason ?? null},
         ${actor.id},
-        ${actor.name}
+        ${actor.name},
+        NOW(),
+        NOW()
       )
     `;
 

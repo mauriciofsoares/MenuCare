@@ -749,9 +749,82 @@ const ensureAuthTables = async () => {
     return;
   }
 
+  const demoPasswordHash = await hashPassword(demoPassword);
+
   await prisma.$executeRaw`
-    INSERT INTO first_access_invites (id, tenant_id, token, email, company_name, is_active)
-    VALUES (${randomUUID()}, ${demoContext.tenantId}, ${demoInviteToken}, ${demoUser.email}, ${demoUser.companyName}, TRUE)
+    INSERT INTO "Tenant" (id, name, "createdAt", "updatedAt")
+    VALUES (${demoContext.tenantId}, ${demoUser.companyName}, NOW(), NOW())
+    ON CONFLICT (id)
+    DO UPDATE SET
+      name = EXCLUDED.name,
+      "updatedAt" = NOW()
+  `;
+
+  await prisma.$executeRaw`
+    INSERT INTO "User" (id, tenant_id, name, email, password_hash, status, "createdAt", "updatedAt")
+    VALUES (
+      ${demoUser.id},
+      ${demoContext.tenantId},
+      ${demoUser.name},
+      ${demoUser.email},
+      ${demoPasswordHash},
+      'active',
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (id)
+    DO UPDATE SET
+      tenant_id = EXCLUDED.tenant_id,
+      name = EXCLUDED.name,
+      email = EXCLUDED.email,
+      status = EXCLUDED.status,
+      "updatedAt" = NOW()
+  `;
+
+  await prisma.$executeRaw`
+    INSERT INTO sites (id, tenant_id, name, city, state, is_active, created_at, updated_at)
+    VALUES (
+      ${demoSite.id},
+      ${demoContext.tenantId},
+      ${demoSite.name},
+      ${demoSite.city},
+      ${demoSite.state},
+      TRUE,
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (id)
+    DO UPDATE SET
+      tenant_id = EXCLUDED.tenant_id,
+      name = EXCLUDED.name,
+      city = EXCLUDED.city,
+      state = EXCLUDED.state,
+      is_active = TRUE,
+      updated_at = NOW()
+  `;
+
+  await prisma.$executeRaw`
+    INSERT INTO user_site_accesses (id, tenant_id, user_id, site_id, role, is_active, created_at, updated_at)
+    VALUES (
+      ${randomUUID()},
+      ${demoContext.tenantId},
+      ${demoUser.id},
+      ${demoSite.id},
+      ${demoContext.roleKey},
+      TRUE,
+      NOW(),
+      NOW()
+    )
+    ON CONFLICT (tenant_id, user_id, site_id)
+    DO UPDATE SET
+      role = EXCLUDED.role,
+      is_active = TRUE,
+      updated_at = NOW()
+  `;
+
+  await prisma.$executeRaw`
+    INSERT INTO first_access_invites (id, tenant_id, token, email, company_name, is_active, created_at, updated_at)
+    VALUES (${randomUUID()}, ${demoContext.tenantId}, ${demoInviteToken}, ${demoUser.email}, ${demoUser.companyName}, TRUE, NOW(), NOW())
     ON CONFLICT (token)
     DO NOTHING
   `;
@@ -833,8 +906,8 @@ const saveLocaleInDatabase = async (companyName: string, tenantId: string, local
   await ensureLocalePreferencesTable();
 
   await prisma.$executeRaw`
-    INSERT INTO company_locale_preferences (tenant_id, company_name, locale)
-    VALUES (${tenantId}, ${companyName}, ${locale})
+    INSERT INTO company_locale_preferences (tenant_id, company_name, locale, created_at, updated_at)
+    VALUES (${tenantId}, ${companyName}, ${locale}, NOW(), NOW())
     ON CONFLICT (tenant_id, company_name)
     DO UPDATE SET
       locale = EXCLUDED.locale,
@@ -933,7 +1006,9 @@ const saveOperationalProfileInDatabase = async (
       company_name,
       source_profile,
       contract_mode,
-      compliance_mode
+      compliance_mode,
+      created_at,
+      updated_at
     )
     VALUES (
       ${profileId},
@@ -941,7 +1016,9 @@ const saveOperationalProfileInDatabase = async (
       ${companyName},
       ${profile.sourceProfile},
       ${profile.contractMode},
-      ${profile.complianceMode}
+      ${profile.complianceMode},
+      NOW(),
+      NOW()
     )
   `;
 };
@@ -1398,7 +1475,10 @@ const createRefreshSession = async (payload: {
       device_fingerprint,
       device_label,
       ip_address,
-      expires_at
+      expires_at,
+      last_seen_at,
+      created_at,
+      updated_at
     )
     VALUES (
       ${sessionId},
@@ -1414,7 +1494,10 @@ const createRefreshSession = async (payload: {
       ${payload.deviceFingerprint},
       ${payload.deviceLabel},
       ${payload.ipAddress},
-      ${expiresAt}
+      ${expiresAt},
+      NOW(),
+      NOW(),
+      NOW()
     )
   `;
 
@@ -2099,7 +2182,9 @@ const recordAiPreparationEvent = async (payload: {
       module_key,
       source_kind,
       payload_json,
-      provider_key
+      provider_key,
+      created_at,
+      updated_at
     )
     VALUES (
       ${randomUUID()},
@@ -2108,7 +2193,9 @@ const recordAiPreparationEvent = async (payload: {
       ${payload.moduleKey},
       ${payload.sourceKind},
       ${JSON.stringify(payload.data)},
-      ${payload.providerKey}
+      ${payload.providerKey},
+      NOW(),
+      NOW()
     )
   `
 }
@@ -2277,7 +2364,9 @@ const registerInviteAuditEvent = async (payload: {
       action,
       note,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${eventId},
@@ -2288,7 +2377,9 @@ const registerInviteAuditEvent = async (payload: {
       ${payload.action},
       ${payload.note ?? null},
       ${payload.actorId},
-      ${payload.actorName}
+      ${payload.actorName},
+      NOW(),
+      NOW()
     )
   `;
 };

@@ -1093,7 +1093,9 @@ app.patch('/compliance-controls/:controlId/status', { preHandler: authenticate }
       justification,
       evidence_reference,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${eventId},
@@ -1106,7 +1108,9 @@ app.patch('/compliance-controls/:controlId/status', { preHandler: authenticate }
       ${parsedBody.data.justification},
       ${parsedBody.data.evidenceReference ?? null},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -1188,7 +1192,9 @@ app.post('/compliance-controls/:controlId/executions', { preHandler: authenticat
       evidence_summary,
       evidence_reference,
       executed_by,
-      executed_at
+      executed_at,
+      created_at,
+      updated_at
     )
     VALUES (
       ${executionId},
@@ -1200,7 +1206,9 @@ app.post('/compliance-controls/:controlId/executions', { preHandler: authenticat
       ${parsedBody.data.evidenceSummary},
       ${parsedBody.data.evidenceReference ?? null},
       ${actor.id},
-      ${new Date()}
+      ${new Date()},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -1215,7 +1223,9 @@ app.post('/compliance-controls/:controlId/executions', { preHandler: authenticat
       next_status,
       description,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${eventId},
@@ -1226,7 +1236,9 @@ app.post('/compliance-controls/:controlId/executions', { preHandler: authenticat
       ${control.status},
       ${`Execucao manual registrada com status ${parsedBody.data.status}.`},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -1342,7 +1354,9 @@ app.post('/compliance-controls/:controlId/findings', { preHandler: authenticate 
       description,
       status,
       detected_at,
-      created_by
+      created_by,
+      created_at,
+      updated_at
     )
     VALUES (
       ${findingId},
@@ -1354,7 +1368,9 @@ app.post('/compliance-controls/:controlId/findings', { preHandler: authenticate 
       ${parsedBody.data.description},
       ${parsedBody.data.status},
       ${detectedAt},
-      ${actor.id}
+      ${actor.id},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -1370,7 +1386,9 @@ app.post('/compliance-controls/:controlId/findings', { preHandler: authenticate 
       description,
       evidence_reference,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${findingEventId},
@@ -1382,7 +1400,9 @@ app.post('/compliance-controls/:controlId/findings', { preHandler: authenticate 
       ${'Finding registrado manualmente no controle.'},
       ${null},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -1498,7 +1518,9 @@ app.patch('/compliance-controls/:controlId/findings/:findingId/status', { preHan
       description,
       evidence_reference,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${findingEventId},
@@ -1510,7 +1532,9 @@ app.patch('/compliance-controls/:controlId/findings/:findingId/status', { preHan
       ${parsedBody.data.description},
       ${parsedBody.data.evidenceReference ?? null},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -1754,7 +1778,9 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
           rule_id,
           rule_title,
           result_status,
-          evidence
+          evidence,
+          created_at,
+          updated_at
         )
         VALUES (
           ${rowId},
@@ -1764,7 +1790,9 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
           ${rule.id},
           ${rule.title},
           ${resultStatus},
-          ${evidence}
+          ${evidence},
+          NOW(),
+          NOW()
         )
       `;
 
@@ -1795,7 +1823,9 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
             rule_id,
             rule_title,
             result_status,
-            evidence
+            evidence,
+            created_at,
+            updated_at
           )
           VALUES (
             ${rowId},
@@ -1805,7 +1835,9 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
             ${rule.id},
             ${rule.title},
             ${'compliant'},
-            ${evidence}
+            ${evidence},
+            NOW(),
+            NOW()
           )
         `;
 
@@ -1876,7 +1908,9 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
           rule_id,
           rule_title,
           result_status,
-          evidence
+          evidence,
+          created_at,
+          updated_at
         )
         VALUES (
           ${rowId},
@@ -1886,7 +1920,9 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
           ${rule.id},
           ${rule.title},
           ${resultStatus},
-          ${evidence}
+          ${evidence},
+          NOW(),
+          NOW()
         )
       `;
 
@@ -1980,7 +2016,9 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
         rule_id,
         rule_title,
         result_status,
-        evidence
+        evidence,
+        created_at,
+        updated_at
       )
       VALUES (
         ${rowId},
@@ -1990,7 +2028,9 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
         ${rule.id},
         ${rule.title},
         ${resultStatus},
-        ${evidence}
+        ${evidence},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -2357,7 +2397,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         suggestion_text,
         estimated_financial_impact,
         estimated_nutritional_impact,
-        priority_level
+        priority_level,
+        created_at,
+        updated_at
       )
       VALUES (
         ${suggestionId},
@@ -2369,7 +2411,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         ${suggestionText},
         ${estimatedFinancialImpact},
         ${estimatedNutritionalImpactWithHistory},
-        ${'high'}
+        ${'high'},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -2414,7 +2458,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         suggestion_text,
         estimated_financial_impact,
         estimated_nutritional_impact,
-        priority_level
+        priority_level,
+        created_at,
+        updated_at
       )
       VALUES (
         ${suggestionId},
@@ -2426,7 +2472,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         ${suggestionText},
         ${estimatedFinancialImpact},
         ${'Mantem cobertura nutricional prevista para a refeicao.'},
-        ${'high'}
+        ${'high'},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -2469,7 +2517,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         suggestion_text,
         estimated_financial_impact,
         estimated_nutritional_impact,
-        priority_level
+        priority_level,
+        created_at,
+        updated_at
       )
       VALUES (
         ${suggestionId},
@@ -2481,7 +2531,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         ${'Manter cardapio atual e registrar combinacoes de melhor aceitacao para proxima versao.'},
         ${0},
         ${'Sem impacto nutricional adverso previsto.'},
-        ${'medium'}
+        ${'medium'},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -2706,7 +2758,9 @@ app.post('/non-conformities', { preHandler: authenticate }, async (request, repl
       owner,
       due_date,
       status,
-      created_by
+      created_by,
+      created_at,
+      updated_at
     )
     VALUES (
       ${itemId},
@@ -2719,7 +2773,9 @@ app.post('/non-conformities', { preHandler: authenticate }, async (request, repl
       ${payload.owner},
       ${payload.dueDate},
       ${payload.status},
-      ${actor.id}
+      ${actor.id},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -2733,7 +2789,9 @@ app.post('/non-conformities', { preHandler: authenticate }, async (request, repl
       previous_status,
       next_status,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${eventId},
@@ -2743,7 +2801,9 @@ app.post('/non-conformities', { preHandler: authenticate }, async (request, repl
       ${payload.status},
       ${payload.status},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -2902,7 +2962,9 @@ app.patch('/non-conformities/:nonConformityId/status', { preHandler: authenticat
       previous_status,
       next_status,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${eventId},
@@ -2912,7 +2974,9 @@ app.patch('/non-conformities/:nonConformityId/status', { preHandler: authenticat
       ${existing[0]?.status ?? parsedBody.data.status},
       ${parsedBody.data.status},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -3047,7 +3111,9 @@ app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authe
       filter_from,
       filter_to,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${exportEventId},
@@ -3060,7 +3126,9 @@ app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authe
       ${parsedQuery.data.from || null},
       ${parsedQuery.data.to || null},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -3124,7 +3192,9 @@ app.post('/non-conformities/:nonConformityId/actions', { preHandler: authenticat
       owner,
       due_date,
       status,
-      created_by
+      created_by,
+      created_at,
+      updated_at
     )
     VALUES (
       ${actionId},
@@ -3135,7 +3205,9 @@ app.post('/non-conformities/:nonConformityId/actions', { preHandler: authenticat
       ${parsedBody.data.owner},
       ${parsedBody.data.dueDate},
       ${parsedBody.data.status},
-      ${actor.id}
+      ${actor.id},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -3150,7 +3222,9 @@ app.post('/non-conformities/:nonConformityId/actions', { preHandler: authenticat
       previous_status,
       next_status,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${creationEventId},
@@ -3161,7 +3235,9 @@ app.post('/non-conformities/:nonConformityId/actions', { preHandler: authenticat
       ${parsedBody.data.status},
       ${parsedBody.data.status},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -3245,7 +3321,9 @@ app.patch('/non-conformities/:nonConformityId/actions/:actionId/status', { preHa
       previous_status,
       next_status,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${eventId},
@@ -3256,7 +3334,9 @@ app.patch('/non-conformities/:nonConformityId/actions/:actionId/status', { preHa
       ${existing[0]?.status ?? parsedBody.data.status},
       ${parsedBody.data.status},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -3395,7 +3475,9 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', {
       filter_from,
       filter_to,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${exportEventId},
@@ -3409,7 +3491,9 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', {
       ${parsedQuery.data.from || null},
       ${parsedQuery.data.to || null},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -3728,7 +3812,9 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       filter_from,
       filter_to,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${exportEventId},
@@ -3745,7 +3831,9 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       ${parsedQuery.data.from || null},
       ${parsedQuery.data.to || null},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 

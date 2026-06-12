@@ -78,7 +78,9 @@ export const createEvaluationsService = (deps: Deps) => {
         reference_date,
         score,
         evaluations_count,
-        comments
+        comments,
+        created_at,
+        updated_at
       )
       VALUES (
         ${evaluationId},
@@ -90,7 +92,9 @@ export const createEvaluationsService = (deps: Deps) => {
         CAST(${payload.referenceDate} AS date),
         ${payload.score},
         ${payload.evaluationsCount},
-        ${payload.comments?.trim() || null}
+        ${payload.comments?.trim() || null},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -281,7 +285,9 @@ export const createEvaluationsService = (deps: Deps) => {
           evaluations_count,
           mapped_records,
           last_reference_date,
-          trend
+            trend,
+            created_at,
+            updated_at
         )
         VALUES (
           ${deps.randomUUID()},
@@ -295,7 +301,9 @@ export const createEvaluationsService = (deps: Deps) => {
           ${aggregate.evaluationsCount},
           ${aggregate.mappedRecords},
           CAST(${aggregate.lastReferenceDate.toISOString().slice(0, 10)} AS date),
-          ${trend}
+            ${trend},
+            NOW(),
+            NOW()
         )
       `;
 

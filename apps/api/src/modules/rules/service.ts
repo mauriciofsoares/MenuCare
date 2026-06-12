@@ -272,7 +272,7 @@ export const createRulesService = (deps: Deps) => {
     const initialStatus = payload.status === 'approved' ? 'pending' : payload.status;
 
     await deps.prisma.$executeRaw`
-      INSERT INTO extracted_rules (id, tenant_id, site_id, company_name, contract_id, title, description, category, source_excerpt, source_page, evidence_confidence, status)
+      INSERT INTO extracted_rules (id, tenant_id, site_id, company_name, contract_id, title, description, category, source_excerpt, source_page, evidence_confidence, status, created_at, updated_at)
       VALUES (
         ${ruleId},
         ${contract.tenant_id},
@@ -285,7 +285,9 @@ export const createRulesService = (deps: Deps) => {
         ${payload.sourceExcerpt ?? null},
         ${payload.sourcePage ?? null},
         ${payload.evidenceConfidence ?? null},
-        ${initialStatus}
+        ${initialStatus},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -303,7 +305,9 @@ export const createRulesService = (deps: Deps) => {
         next_status,
         note,
         actor_id,
-        actor_name
+        actor_name,
+        created_at,
+        updated_at
       )
       VALUES (
         ${creationEventId},
@@ -315,7 +319,9 @@ export const createRulesService = (deps: Deps) => {
         ${initialStatus},
         ${'Regra cadastrada no fluxo operacional.'},
         ${actor.id},
-        ${actor.name}
+        ${actor.name},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -485,7 +491,9 @@ export const createRulesService = (deps: Deps) => {
         next_status,
         note,
         actor_id,
-        actor_name
+        actor_name,
+        created_at,
+        updated_at
       )
       VALUES (
         ${eventId},
@@ -497,7 +505,9 @@ export const createRulesService = (deps: Deps) => {
         ${nextStatus},
         ${payload.note ?? null},
         ${actor.id},
-        ${actor.name}
+        ${actor.name},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -688,7 +698,9 @@ export const createRulesService = (deps: Deps) => {
         expected_evidence,
         status,
         activated_at,
-        created_by
+        created_by,
+        created_at,
+        updated_at
       )
       VALUES (
         ${controlId},
@@ -704,7 +716,9 @@ export const createRulesService = (deps: Deps) => {
         ${payload.expectedEvidence},
         ${payload.status},
         ${activatedAt},
-        ${actor.id}
+        ${actor.id},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -723,7 +737,9 @@ export const createRulesService = (deps: Deps) => {
           source_type,
           page,
           excerpt,
-          created_by
+          created_by,
+          created_at,
+          updated_at
         )
         VALUES (
           ${evidenceReferenceId},
@@ -736,7 +752,9 @@ export const createRulesService = (deps: Deps) => {
           ${'CONTRACT'},
           ${rule.source_page ?? null},
           ${rule.source_excerpt ?? null},
-          ${actor.id}
+          ${actor.id},
+          NOW(),
+          NOW()
         )
       `;
     }
@@ -752,7 +770,9 @@ export const createRulesService = (deps: Deps) => {
         next_status,
         description,
         actor_id,
-        actor_name
+        actor_name,
+        created_at,
+        updated_at
       )
       VALUES (
         ${eventId},
@@ -763,7 +783,9 @@ export const createRulesService = (deps: Deps) => {
         ${payload.status},
         ${'Controle criado a partir de regra aprovada.'},
         ${actor.id},
-        ${actor.name}
+        ${actor.name},
+        NOW(),
+        NOW()
       )
     `;
 
