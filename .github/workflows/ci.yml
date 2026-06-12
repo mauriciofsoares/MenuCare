@@ -10,8 +10,23 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: menucare
+          POSTGRES_PASSWORD: menucare
+          POSTGRES_DB: menucare
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U menucare -d menucare"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+      DATABASE_URL: postgresql://menucare:menucare@localhost:5432/menucare?schema=public
 
     steps:
       - name: Checkout
@@ -25,6 +40,12 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Prisma generate (API)
+        run: npm exec --workspace apps/api -- prisma generate
+
+      - name: Prisma migrate deploy (API)
+        run: npm exec --workspace apps/api -- prisma migrate deploy
 
       - name: Run tests (API + Web)
         run: npm run test:all
