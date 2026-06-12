@@ -47,7 +47,18 @@ jobs:
       - name: Prisma db push (API)
         run: npm exec --workspace apps/api -- prisma db push --skip-generate
 
+      - name: Confirm DATABASE_URL availability
+        run: node -e "console.log('DATABASE_URL set:', Boolean(process.env.DATABASE_URL))"
+
+      - name: Prisma db push before tests (API)
+        run: npm exec --workspace apps/api -- prisma db push --skip-generate
+
+      - name: Prisma validate (API)
+        run: npm exec --workspace apps/api -- prisma validate
+
       - name: Run tests (API + Web)
+        env:
+          DATABASE_URL: postgresql://menucare:menucare@localhost:5432/menucare?schema=public
         run: npm run test:all
 
       - name: Build (API + Web)
