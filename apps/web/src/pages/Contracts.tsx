@@ -7,6 +7,8 @@ const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001'
 
 type ContractItem = {
   id: string
+  siteId?: string
+  siteName?: string
   title: string
   sourceType: string
   status: string
@@ -17,6 +19,7 @@ type ContractItem = {
 type ContractFormState = {
   title: string
   sourceType: 'contract' | 'bid_notice' | 'reference_term' | 'regulation'
+  siteId: string
 }
 
 const sourceTypeLabels: Record<ContractFormState['sourceType'], string> = {
@@ -98,14 +101,25 @@ export function ContractsPage() {
   const [inactivateReason, setInactivateReason] = useState('')
   const [targetContract, setTargetContract] = useState<ContractItem | null>(null)
   const contractFileInputRef = useRef<HTMLInputElement | null>(null)
+  const [selectedSiteId, setSelectedSiteId] = useState('')
   const [form, setForm] = useState<ContractFormState>({
     title: '',
     sourceType: 'contract',
+    siteId: '',
   })
+  const authorizedSites = authState?.authorizedSites ?? []
+  const activeSiteId = form.siteId || (authorizedSites.length === 1 ? authorizedSites[0]?.id ?? '' : '')
+  const listingSiteId = selectedSiteId || (authorizedSites.length === 1 ? authorizedSites[0]?.id ?? '' : '')
 
   const loadContracts = async (options?: { silent?: boolean }) => {
     if (!authState) {
       setContracts([])
+      return
+    }
+
+    if (!listingSiteId) {
+      setContracts([])
+      setLoading(false)
       return
     }
 
@@ -115,7 +129,7 @@ export function ContractsPage() {
     setError(null)
 
     try {
-      const response = await fetch(`${API_URL}/contracts`, {
+      const response = await fetch(`${API_URL}/contracts?siteId=${encodeURIComponent(listingSiteId)}`, {
         headers: { Authorization: `Bearer ${authState.token}` },
       })
 
@@ -137,7 +151,7 @@ export function ContractsPage() {
 
   useEffect(() => {
     void loadContracts()
-  }, [authState])
+  }, [authState, listingSiteId])
 
   useEffect(() => {
     if (!authState) {
@@ -210,9 +224,14 @@ export function ContractsPage() {
     setSuccessMessage(null)
 
     try {
+      if (!activeSiteId) {
+        throw new Error('Selecione uma unidade para criar o contrato.')
+      }
+
       const formData = new FormData()
       formData.append('title', form.title.trim())
       formData.append('sourceType', form.sourceType)
+      formData.append('siteId', activeSiteId)
 
       if (selectedFile) {
         formData.append('file', selectedFile)
@@ -230,7 +249,7 @@ export function ContractsPage() {
         throw new Error('Falha ao criar contrato.')
       }
 
-      setForm({ title: '', sourceType: 'contract' })
+      setForm({ title: '', sourceType: 'contract', siteId: '' })
       setSelectedFile(null)
       setIsCreateModalOpen(false)
       setSuccessMessage('Contrato criado — extraindo regras...')
@@ -366,10 +385,26 @@ export function ContractsPage() {
 
         {error ? <p className="auth-error">{error}</p> : null}
 
+        {authorizedSites.length > 1 ? (
+          <label className="mc-field-inline">
+            Unidade
+            <select
+              value={selectedSiteId}
+              onChange={(event) => setSelectedSiteId(event.target.value)}
+            >
+              <option value="" disabled>Selecione a unidade</option>
+              {authorizedSites.map((site) => (
+                <option key={site.id} value={site.id}>{site.name}</option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
         <table className="mc-clean-table mc-contracts-table">
           <thead>
             <tr>
               <th>Título</th>
+              <th>Unidade</th>
               <th>Tipo de documento</th>
               <th>Status</th>
               <th>Estágio das regras</th>
@@ -378,11 +413,14 @@ export function ContractsPage() {
             </tr>
           </thead>
           <tbody>
-            {loading ? (
-              <tr><td colSpan={6}>Carregando contratos...</td></tr>
+            {!listingSiteId ? (
+              <tr><td colSpan={7}>Selecione uma unidade para visualizar contratos.</td></tr>
+            ) : loading ? (
+              <tr><td colSpan={7}>Carregando contratos...</td></tr>
             ) : contracts.length ? contracts.map((contract) => (
                 <tr key={contract.id}>
                   <td>{contract.title}</td>
+                  <td>{contract.siteName ?? 'Unidade ativa'}</td>
                   <td>{sourceTypeLabels[(contract.sourceType as ContractFormState['sourceType'])] ?? contract.sourceType}</td>
                   <td>
                     <span
@@ -410,7 +448,7 @@ export function ContractsPage() {
                   </td>
                 </tr>
               )) : (
-                <tr><td colSpan={6}>Nenhum contrato cadastrado.</td></tr>
+                <tr><td colSpan={7}>Nenhum contrato cadastrado.</td></tr>
               )}
           </tbody>
         </table>
@@ -501,6 +539,25 @@ export function ContractsPage() {
                   <option value="bid_notice">Edital</option>
                   <option value="reference_term">Termo Aditivo</option>
                   <option value="regulation">Outro</option>
+                </select>
+              </label>
+
+              <label>
+                Unidade
+                <select
+                  value={activeSiteId}
+                  onChange={(event) =>
+                    setForm((current) => ({
+                      ...current,
+                      siteId: event.target.value,
+                    }))
+                  }
+                  required
+                >
+                  <option value="" disabled>Selecione a unidade</option>
+                  {authorizedSites.map((site) => (
+                    <option key={site.id} value={site.id}>{site.name}</option>
+                  ))}
                 </select>
               </label>
 

@@ -1,5 +1,8 @@
 import type { FastifyInstance } from 'fastify';
 import { createComplianceRepository } from './repository.js';
+import { menuImportMemory } from '../menus/service.js';
+import { recipeMemory } from '../recipes/service.js';
+import { ruleMemory } from '../rules/service.js';
 
 export interface Deps {
   [key: string]: any;
@@ -8,6 +11,15 @@ export interface Deps {
 const CONTROL_STATUS_VALUES = ['DRAFT', 'ACTIVE', 'PAUSED', 'NON_COMPLIANT', 'COMPLETED'] as const;
 const FINDING_STATUS_VALUES = ['OPEN', 'IN_ANALYSIS', 'RESOLVED', 'ACCEPTED_RISK'] as const;
 const FINDING_SEVERITY_VALUES = ['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'] as const;
+
+const menuAuditMemory = new Map<string, Array<{
+  id: string;
+  ruleId: string;
+  ruleTitle: string;
+  resultStatus: 'compliant' | 'non_compliant';
+  evidence: string;
+  createdAt: string;
+}>>();
 
 const CONTROL_STATUS_TRANSITIONS: Record<(typeof CONTROL_STATUS_VALUES)[number], Array<(typeof CONTROL_STATUS_VALUES)[number]>> = {
   DRAFT: ['ACTIVE'],
@@ -93,6 +105,254 @@ export const createComplianceService = (deps: Deps) => {
   const registerRoutes = (app: FastifyInstance) => {
     const service = deps as any;
     const { apiMessage, authenticate, menuImportParamsSchema, prisma, getCompanyFromJwt, ensureDomainTables, normalizeTerm, getDateOnlyString, buildSemanticAliasByContext, resolveStructuredRecipeFromImportedName, startOfIsoWeek, addUtcDays, extractRuleTarget, extractWeeklyMinimum, extractRecurrenceDays, diffUtcDays, inferSuggestionEvidenceSource, inferSuggestionEvidenceSubtype, randomUUID, nonConformitySchema, nonConformityParamsSchema, nonConformityStatusSchema, nonConformityHistoryQuerySchema, getUserFromJwt, actionPlanSchema, actionPlanParamsSchema, actionPlanStatusSchema, actionPlanHistoryQuerySchema, complianceExportAuditQuerySchema, z } = service;
+
+    const buildMemoryMenuAudit = (request: any, importId: string) => {
+      const companyName = getCompanyFromJwt(request);
+      const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+      const imported = menuImportMemory.get(importId);
+
+      if (!imported || imported.companyName !== companyName || imported.tenantId !== tenantId) {
+        return null;
+      }
+
+      const structuredRecipeRows = Array.from(recipeMemory.values())
+        .filter((recipe) => recipe.companyName === companyName && recipe.tenantId === tenantId && recipe.isActive)
+        .map((recipe) => ({
+          name: recipe.name,
+          normalized_name: recipe.normalizedName,
+          category: recipe.category,
+          subcategory: recipe.subcategory,
+          food_group: recipe.foodGroup,
+        }));
+      const structuredRecipeByNormalizedName = new Map(
+        structuredRecipeRows.map((item: any) => [item.normalized_name, item]),
+      );
+      const semanticAliasByContext = buildSemanticAliasByContext({
+        mealType: imported.mealType,
+        serviceName: imported.serviceName,
+      });
+      const importedStructuredRecipes = imported.recipes
+        .map((recipeName) =>
+          resolveStructuredRecipeFromImportedName(
+            recipeName,
+            structuredRecipeRows,
+            structuredRecipeByNormalizedName,
+            semanticAliasByContext,
+          ),
+        )
+        .filter((item): item is NonNullable<typeof item> => Boolean(item));
+      const recipeCorpus = normalizeTerm(imported.recipes.join(' '));
+      const importReferenceDate = getDateOnlyString(imported.referenceDate);
+      const buildTermVariants = (value: string) => {
+        const normalized = normalizeTerm(value);
+
+        if (!normalized || normalized === 'outros' || normalized === 'nao classificado') {
+          return [] as string[];
+        }
+
+        const variants = new Set<string>([normalized]);
+
+        if (normalized.endsWith('s') && normalized.length > 4) {
+          variants.add(normalized.slice(0, -1));
+        }
+
+        return Array.from(variants);
+      };
+      const approvedRules = Array.from(ruleMemory.values())
+        .filter((rule) => rule.companyName === companyName && rule.tenantId === tenantId && rule.status === 'approved')
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+      const auditRows: Array<{
+        id: string;
+        ruleId: string;
+        ruleTitle: string;
+        resultStatus: 'compliant' | 'non_compliant';
+        evidence: string;
+        createdAt: string;
+      }> = [];
+
+      for (const rule of approvedRules) {
+        const normalizedRuleText = normalizeTerm(`${rule.title} ${rule.description}`);
+        const ruleTarget = extractRuleTarget(normalizedRuleText);
+        const weeklyMinimum = extractWeeklyMinimum(normalizedRuleText);
+        const recurrenceDays = extractRecurrenceDays(normalizedRuleText);
+
+        if (ruleTarget && weeklyMinimum !== null) {
+          const weekStart = startOfIsoWeek(importReferenceDate);
+          const weekEnd = addUtcDays(weekStart, 6);
+          const weeklyOccurrences = Array.from(menuImportMemory.values())
+            .filter((item) =>
+              item.companyName === companyName
+              && item.tenantId === tenantId
+              && item.unitName === imported.unitName
+              && item.serviceName === imported.serviceName
+              && item.referenceDate >= weekStart
+              && item.referenceDate <= weekEnd
+            )
+            .filter((item) => {
+              const structuredRecipes = item.recipes
+                .map((recipeName) =>
+                  resolveStructuredRecipeFromImportedName(
+                    recipeName,
+                    structuredRecipeRows,
+                    structuredRecipeByNormalizedName,
+                    semanticAliasByContext,
+                  ),
+                )
+                .filter((recipe): recipe is NonNullable<typeof recipe> => Boolean(recipe));
+
+              return structuredRecipes.some((recipe) => ruleTarget.matches(recipe));
+            }).length;
+
+          auditRows.push({
+            id: randomUUID(),
+            ruleId: rule.id,
+            ruleTitle: rule.title,
+            resultStatus: weeklyOccurrences >= weeklyMinimum ? 'compliant' : 'non_compliant',
+            evidence: `Regra avaliada por frequencia estruturada: ${ruleTarget.label} encontrado ${weeklyOccurrences} vez(es) na semana de ${weekStart} a ${weekEnd}; minimo exigido ${weeklyMinimum}.`,
+            createdAt: new Date().toISOString(),
+          });
+          continue;
+        }
+
+        if (ruleTarget && recurrenceDays !== null) {
+          const currentHasTarget = importedStructuredRecipes.some((recipe) => ruleTarget.matches(recipe));
+
+          if (!currentHasTarget) {
+            auditRows.push({
+              id: randomUUID(),
+              ruleId: rule.id,
+              ruleTitle: rule.title,
+              resultStatus: 'compliant',
+              evidence: `Regra avaliada por recorrencia estruturada: ${ruleTarget.label} nao aparece nesta importacao, sem violacao de recorrencia.`,
+              createdAt: new Date().toISOString(),
+            });
+            continue;
+          }
+
+          const recurrenceWindowStart = addUtcDays(importReferenceDate, -(recurrenceDays - 1));
+          const previousOccurrence = Array.from(menuImportMemory.values())
+            .filter((item) =>
+              item.companyName === companyName
+              && item.tenantId === tenantId
+              && item.unitName === imported.unitName
+              && item.serviceName === imported.serviceName
+              && item.referenceDate >= recurrenceWindowStart
+              && item.referenceDate <= addUtcDays(importReferenceDate, -1)
+            )
+            .find((item) => {
+              const structuredRecipes = item.recipes
+                .map((recipeName) =>
+                  resolveStructuredRecipeFromImportedName(
+                    recipeName,
+                    structuredRecipeRows,
+                    structuredRecipeByNormalizedName,
+                    semanticAliasByContext,
+                  ),
+                )
+                .filter((recipe): recipe is NonNullable<typeof recipe> => Boolean(recipe));
+
+              return structuredRecipes.some((recipe) => ruleTarget.matches(recipe));
+            });
+
+          auditRows.push({
+            id: randomUUID(),
+            ruleId: rule.id,
+            ruleTitle: rule.title,
+            resultStatus: previousOccurrence ? 'non_compliant' : 'compliant',
+            evidence: previousOccurrence
+              ? `Regra avaliada por recorrencia estruturada: ${ruleTarget.label} reapareceu abaixo do minimo de ${recurrenceDays} dias.`
+              : `Regra avaliada por recorrencia estruturada: ${ruleTarget.label} sem repeticao nos ultimos ${recurrenceDays} dias.`,
+            createdAt: new Date().toISOString(),
+          });
+          continue;
+        }
+
+        const structuredEvidenceByTarget = ruleTarget
+          ? importedStructuredRecipes.find((recipe) => ruleTarget.matches(recipe))
+          : null;
+        const structuredEvidenceByLexicalMatch = importedStructuredRecipes.find((recipe) => {
+          const candidates = [
+            ...buildTermVariants(recipe.name),
+            ...buildTermVariants(recipe.category),
+            ...buildTermVariants(recipe.subcategory),
+            ...buildTermVariants(recipe.food_group),
+          ];
+
+          return candidates.some((candidate) => candidate.length >= 4 && normalizedRuleText.includes(candidate));
+        });
+        const structuredEvidenceBySemanticTarget = (() => {
+          if (!ruleTarget) {
+            return null;
+          }
+
+          const label = normalizeTerm(ruleTarget.label);
+          const keywordByLabel: Record<string, string[]> = {
+            peixe: ['peixe', 'pescado', 'tilapia', 'merluza', 'sardinha', 'posta', 'file'],
+            frango: ['frango', 'galeto', 'sobrecoxa', 'coxa'],
+            bovino: ['carne', 'bovina', 'boi', 'bife'],
+            suino: ['suino', 'porco', 'lombo', 'pernil'],
+            carboidrato: ['carboidrato', 'arroz', 'massa', 'macarrao', 'batata', 'mandioca', 'pure'],
+            fruta: ['fruta', 'laranja', 'banana', 'maca', 'mamao', 'abacaxi', 'suco', 'citrico'],
+            vegetais: ['verdura', 'vegetal', 'vegetais', 'legume', 'salada', 'folhas', 'hortalica'],
+          };
+          const matchedKey = Object.keys(keywordByLabel).find((key) => label.includes(key));
+
+          if (!matchedKey || !keywordByLabel[matchedKey].some((keyword) => recipeCorpus.includes(keyword))) {
+            return null;
+          }
+
+          return {
+            name: `Evidencia contextual ${ruleTarget.label}`,
+            category: ruleTarget.label,
+            subcategory: 'Contextual',
+            food_group: 'Contextual',
+          };
+        })();
+        const structuredEvidenceByRecipeLibrary = structuredRecipeRows.find((recipe) => {
+          const candidates = [
+            ...buildTermVariants(recipe.name),
+            ...buildTermVariants(recipe.category),
+            ...buildTermVariants(recipe.subcategory),
+            ...buildTermVariants(recipe.food_group),
+          ];
+
+          return candidates.some(
+            (candidate) =>
+              candidate.length >= 4
+              && normalizedRuleText.includes(candidate)
+              && recipeCorpus.includes(candidate.split(' ')[0] ?? candidate),
+          );
+        });
+        const structuredEvidence =
+          structuredEvidenceByTarget
+          ?? structuredEvidenceBySemanticTarget
+          ?? structuredEvidenceByLexicalMatch
+          ?? structuredEvidenceByRecipeLibrary;
+        const tokenSource = normalizedRuleText
+          .split(/[^a-z0-9]+/)
+          .filter((token: any) => token.length >= 4)
+          .slice(0, 12);
+        const hasTextualEvidence = tokenSource.some((token: any) => recipeCorpus.includes(token));
+        const hasEvidence = Boolean(structuredEvidence) || hasTextualEvidence;
+
+        auditRows.push({
+          id: randomUUID(),
+          ruleId: rule.id,
+          ruleTitle: rule.title,
+          resultStatus: hasEvidence ? 'compliant' : 'non_compliant',
+          evidence: structuredEvidence
+            ? `Regra com evidencia por classificacao estruturada: ${structuredEvidence.name} (${structuredEvidence.category} / ${structuredEvidence.subcategory} / ${structuredEvidence.food_group}).`
+            : hasTextualEvidence
+              ? 'Regra com evidencia textual nas receitas importadas por fallback.'
+              : 'Regra sem evidencia estruturada ou textual nas receitas importadas.',
+          createdAt: new Date().toISOString(),
+        });
+      }
+
+      menuAuditMemory.set(importId, auditRows);
+      return auditRows;
+    };
 
 app.get('/compliance-controls', { preHandler: authenticate }, async (request, reply) => {
   const parsedQuery = z.object({
@@ -181,7 +441,8 @@ app.get('/compliance-controls', { preHandler: authenticate }, async (request, re
             AND finding.company_name = control.company_name
             AND finding.status IN ('OPEN', 'IN_ANALYSIS')
         ) AS open_findings ON TRUE
-        WHERE control.company_name = ${companyName}
+        WHERE control.tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+          AND control.company_name = ${companyName}
         ORDER BY control.created_at DESC
         LIMIT ${parsedQuery.data.limit}
       `
@@ -246,7 +507,8 @@ app.get('/compliance-controls', { preHandler: authenticate }, async (request, re
             AND finding.company_name = control.company_name
             AND finding.status IN ('OPEN', 'IN_ANALYSIS')
         ) AS open_findings ON TRUE
-        WHERE control.company_name = ${companyName}
+        WHERE control.tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+          AND control.company_name = ${companyName}
           AND UPPER(control.status) = ${requestedStatus}
         ORDER BY control.created_at DESC
         LIMIT ${parsedQuery.data.limit}
@@ -277,7 +539,8 @@ app.get('/compliance-controls', { preHandler: authenticate }, async (request, re
     INNER JOIN compliance_controls control
       ON control.id = execution.control_id
      AND control.company_name = execution.company_name
-    WHERE execution.company_name = ${companyName}
+ AND execution.tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND execution.company_name = ${companyName}
     ORDER BY execution.executed_at DESC
     LIMIT 10
   `;
@@ -415,7 +678,8 @@ app.get('/contracts/:id/controls', { preHandler: authenticate }, async (request,
       ORDER BY executed_at DESC
       LIMIT 1
     ) AS last_execution ON TRUE
-    WHERE control.company_name = ${companyName}
+    WHERE control.tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND control.company_name = ${companyName}
       AND control.contract_id = ${parsedParams.data.id}
     ORDER BY control.created_at DESC
   `;
@@ -510,7 +774,8 @@ app.get('/compliance-controls/:controlId', { preHandler: authenticate }, async (
       ON rule.id = control.contract_rule_id
      AND rule.company_name = control.company_name
     WHERE control.id = ${parsedParams.data.controlId}
-      AND control.company_name = ${companyName}
+ AND control.tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND control.company_name = ${companyName}
     LIMIT 1
   `;
 
@@ -535,7 +800,8 @@ app.get('/compliance-controls/:controlId', { preHandler: authenticate }, async (
     SELECT id, execution_date, status, evidence_summary, evidence_reference, executed_by, executed_at
     FROM compliance_control_executions
     WHERE control_id = ${parsedParams.data.controlId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     ORDER BY executed_at DESC
     LIMIT 50
   `;
@@ -553,7 +819,8 @@ app.get('/compliance-controls/:controlId', { preHandler: authenticate }, async (
     SELECT id, previous_status, next_status, description, justification, evidence_reference, actor_name, created_at
     FROM compliance_control_events
     WHERE control_id = ${parsedParams.data.controlId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     ORDER BY created_at DESC
     LIMIT 50
   `;
@@ -570,12 +837,14 @@ app.get('/compliance-controls/:controlId', { preHandler: authenticate }, async (
   }>>`
     SELECT id, finding_id, previous_status, next_status, description, evidence_reference, actor_name, created_at
     FROM compliance_finding_events
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND company_name = ${companyName}
       AND finding_id IN (
         SELECT id
         FROM compliance_findings
         WHERE control_id = ${parsedParams.data.controlId}
-          AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
       )
     ORDER BY created_at DESC
     LIMIT 50
@@ -595,7 +864,8 @@ app.get('/compliance-controls/:controlId', { preHandler: authenticate }, async (
     SELECT id, execution_id, severity, description, status, detected_at, resolved_at, resolved_by, created_by
     FROM compliance_findings
     WHERE control_id = ${parsedParams.data.controlId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     ORDER BY detected_at DESC
     LIMIT 50
   `;
@@ -612,7 +882,8 @@ app.get('/compliance-controls/:controlId', { preHandler: authenticate }, async (
   }>>`
     SELECT id, entity_type, entity_id, source_type, page, section, excerpt, created_at
     FROM evidence_references
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND company_name = ${companyName}
       AND (
         control_id = ${parsedParams.data.controlId}
         OR entity_id = ${parsedParams.data.controlId}
@@ -627,14 +898,14 @@ app.get('/compliance-controls/:controlId', { preHandler: authenticate }, async (
       type: 'event',
       createdAt: item.created_at.toISOString(),
       title: `${normalizeControlStatus(item.previous_status)} -> ${normalizeControlStatus(item.next_status)}`,
-      description: [item.description, item.justification ? `Justificativa: ${item.justification}` : null, item.evidence_reference ? `Evidência: ${item.evidence_reference}` : null].filter(Boolean).join(' · '),
+      description: [item.description, item.justification ? `Justificativa: ${item.justification}` : null, item.evidence_reference ? `EvidÃƒÂªncia: ${item.evidence_reference}` : null].filter(Boolean).join(' Ã‚Â· '),
       actorName: item.actor_name,
     })),
     ...executionRows.map((item: (typeof executionRows)[number]) => ({
       id: item.id,
       type: 'execution',
       createdAt: item.executed_at.toISOString(),
-      title: item.status === 'completed' ? 'Execução conforme' : 'Execução com desvio',
+      title: item.status === 'completed' ? 'ExecuÃƒÂ§ÃƒÂ£o conforme' : 'ExecuÃƒÂ§ÃƒÂ£o com desvio',
       description: item.evidence_summary,
       actorName: item.executed_by,
     })),
@@ -651,7 +922,7 @@ app.get('/compliance-controls/:controlId', { preHandler: authenticate }, async (
       type: 'finding',
       createdAt: item.created_at.toISOString(),
       title: `Finding ${normalizeFindingStatus(item.previous_status)} -> ${normalizeFindingStatus(item.next_status)}`,
-      description: [item.description, item.evidence_reference ? `Evidência: ${item.evidence_reference}` : null].filter(Boolean).join(' · '),
+      description: [item.description, item.evidence_reference ? `EvidÃƒÂªncia: ${item.evidence_reference}` : null].filter(Boolean).join(' Ã‚Â· '),
       actorName: item.actor_name,
     })),
   ].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
@@ -767,7 +1038,8 @@ app.patch('/compliance-controls/:controlId/status', { preHandler: authenticate }
     SELECT id, status
     FROM compliance_controls
     WHERE id = ${parsedParams.data.controlId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     LIMIT 1
   `;
 
@@ -804,7 +1076,8 @@ app.patch('/compliance-controls/:controlId/status', { preHandler: authenticate }
           ELSE NULL
         END
     WHERE id = ${parsedParams.data.controlId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
   `;
 
   const eventId = randomUUID();
@@ -820,11 +1093,13 @@ app.patch('/compliance-controls/:controlId/status', { preHandler: authenticate }
       justification,
       evidence_reference,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${eventId},
-      ${tenantId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${parsedParams.data.controlId},
       ${previousStatus},
@@ -833,7 +1108,9 @@ app.patch('/compliance-controls/:controlId/status', { preHandler: authenticate }
       ${parsedBody.data.justification},
       ${parsedBody.data.evidenceReference ?? null},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -881,7 +1158,8 @@ app.post('/compliance-controls/:controlId/executions', { preHandler: authenticat
     SELECT id, title, status
     FROM compliance_controls
     WHERE id = ${parsedParams.data.controlId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     LIMIT 1
   `;
 
@@ -914,11 +1192,13 @@ app.post('/compliance-controls/:controlId/executions', { preHandler: authenticat
       evidence_summary,
       evidence_reference,
       executed_by,
-      executed_at
+      executed_at,
+      created_at,
+      updated_at
     )
     VALUES (
       ${executionId},
-      ${tenantId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${parsedParams.data.controlId},
       ${parsedBody.data.executionDate}::date,
@@ -926,7 +1206,9 @@ app.post('/compliance-controls/:controlId/executions', { preHandler: authenticat
       ${parsedBody.data.evidenceSummary},
       ${parsedBody.data.evidenceReference ?? null},
       ${actor.id},
-      ${new Date()}
+      ${new Date()},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -941,18 +1223,22 @@ app.post('/compliance-controls/:controlId/executions', { preHandler: authenticat
       next_status,
       description,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${eventId},
-      ${tenantId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${parsedParams.data.controlId},
       ${control.status},
       ${control.status},
       ${`Execucao manual registrada com status ${parsedBody.data.status}.`},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -1024,7 +1310,8 @@ app.post('/compliance-controls/:controlId/findings', { preHandler: authenticate 
     SELECT id, status
     FROM compliance_controls
     WHERE id = ${parsedParams.data.controlId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     LIMIT 1
   `;
 
@@ -1040,7 +1327,8 @@ app.post('/compliance-controls/:controlId/findings', { preHandler: authenticate 
       FROM compliance_control_executions
       WHERE id = ${parsedBody.data.executionId}
         AND control_id = ${parsedParams.data.controlId}
-        AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
       LIMIT 1
     `;
 
@@ -1066,11 +1354,13 @@ app.post('/compliance-controls/:controlId/findings', { preHandler: authenticate 
       description,
       status,
       detected_at,
-      created_by
+      created_by,
+      created_at,
+      updated_at
     )
     VALUES (
       ${findingId},
-      ${tenantId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${parsedParams.data.controlId},
       ${parsedBody.data.executionId ?? null},
@@ -1078,7 +1368,9 @@ app.post('/compliance-controls/:controlId/findings', { preHandler: authenticate 
       ${parsedBody.data.description},
       ${parsedBody.data.status},
       ${detectedAt},
-      ${actor.id}
+      ${actor.id},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -1094,11 +1386,13 @@ app.post('/compliance-controls/:controlId/findings', { preHandler: authenticate 
       description,
       evidence_reference,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${findingEventId},
-      ${tenantId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${findingId},
       ${parsedBody.data.status},
@@ -1106,7 +1400,9 @@ app.post('/compliance-controls/:controlId/findings', { preHandler: authenticate 
       ${'Finding registrado manualmente no controle.'},
       ${null},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -1171,7 +1467,8 @@ app.patch('/compliance-controls/:controlId/findings/:findingId/status', { preHan
     FROM compliance_findings
     WHERE id = ${parsedParams.data.findingId}
       AND control_id = ${parsedParams.data.controlId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     LIMIT 1
   `;
 
@@ -1205,7 +1502,8 @@ app.patch('/compliance-controls/:controlId/findings/:findingId/status', { preHan
         resolved_by = ${resolvedBy}
     WHERE id = ${parsedParams.data.findingId}
       AND control_id = ${parsedParams.data.controlId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
   `;
 
   const findingEventId = randomUUID();
@@ -1220,11 +1518,13 @@ app.patch('/compliance-controls/:controlId/findings/:findingId/status', { preHan
       description,
       evidence_reference,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${findingEventId},
-      ${tenantId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${parsedParams.data.findingId},
       ${previousStatus},
@@ -1232,7 +1532,9 @@ app.patch('/compliance-controls/:controlId/findings/:findingId/status', { preHan
       ${parsedBody.data.description},
       ${parsedBody.data.evidenceReference ?? null},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -1263,13 +1565,31 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
   }
 
   if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
+    const auditRows = buildMemoryMenuAudit(request, parsedParams.data.importId);
+
+    if (!auditRows) {
+      return reply.code(404).send({
+        status: 'error',
+        message: 'Importacao de cardapio nao encontrada para esta empresa.',
+      });
+    }
+
+    const compliantCount = auditRows.filter((item) => item.resultStatus === 'compliant').length;
+    const nonCompliantCount = auditRows.filter((item) => item.resultStatus === 'non_compliant').length;
+
+    return {
+      status: 'ok',
+      summary: {
+        auditedRules: auditRows.length,
+        compliantCount,
+        nonCompliantCount,
+      },
+      results: auditRows,
+    };
   }
 
   const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
   const importId = parsedParams.data.importId;
 
   await ensureDomainTables();
@@ -1285,7 +1605,9 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
     SELECT id, unit_name, service_name, meal_type, reference_date, recipes_json
     FROM menu_pdf_imports
     WHERE id = ${importId}
-      AND company_name = ${companyName}
+      AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     LIMIT 1
   `;
 
@@ -1305,7 +1627,9 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
   }>>`
     SELECT id, title, description
     FROM extracted_rules
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
       AND status = 'approved'
     ORDER BY created_at DESC
     LIMIT 200
@@ -1332,7 +1656,9 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
   }>>`
     SELECT name, normalized_name, category, subcategory, food_group
     FROM recipe_library_items
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
       AND is_active = TRUE
   `;
 
@@ -1376,7 +1702,9 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
   await prisma.$executeRaw`
     DELETE FROM menu_import_rule_audits
     WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
+      AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
   `;
 
   const auditRows: Array<{
@@ -1407,10 +1735,11 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
       }>>`
         SELECT reference_date, recipes_json
         FROM menu_pdf_imports
-        WHERE company_name = ${companyName}
+        WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+          AND company_name = ${companyName}
           AND unit_name = ${imported.unit_name}
           AND service_name = ${imported.service_name}
-          AND reference_date BETWEEN ${weekStart} AND ${weekEnd}
+          AND reference_date BETWEEN CAST(${weekStart} AS date) AND CAST(${weekEnd} AS date)
         ORDER BY reference_date ASC
       `;
 
@@ -1443,21 +1772,27 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
       await prisma.$executeRaw`
         INSERT INTO menu_import_rule_audits (
           id,
+          tenant_id,
           company_name,
           menu_import_id,
           rule_id,
           rule_title,
           result_status,
-          evidence
+          evidence,
+          created_at,
+          updated_at
         )
         VALUES (
           ${rowId},
+          ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
           ${companyName},
           ${importId},
           ${rule.id},
           ${rule.title},
           ${resultStatus},
-          ${evidence}
+          ${evidence},
+          NOW(),
+          NOW()
         )
       `;
 
@@ -1482,21 +1817,27 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
         await prisma.$executeRaw`
           INSERT INTO menu_import_rule_audits (
             id,
+            tenant_id,
             company_name,
             menu_import_id,
             rule_id,
             rule_title,
             result_status,
-            evidence
+            evidence,
+            created_at,
+            updated_at
           )
           VALUES (
             ${rowId},
+            ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
             ${companyName},
             ${importId},
             ${rule.id},
             ${rule.title},
             ${'compliant'},
-            ${evidence}
+            ${evidence},
+            NOW(),
+            NOW()
           )
         `;
 
@@ -1518,10 +1859,11 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
       }>>`
         SELECT reference_date, recipes_json
         FROM menu_pdf_imports
-        WHERE company_name = ${companyName}
+        WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+          AND company_name = ${companyName}
           AND unit_name = ${imported.unit_name}
           AND service_name = ${imported.service_name}
-          AND reference_date BETWEEN ${recurrenceWindowStart} AND ${addUtcDays(importReferenceDate, -1)}
+          AND reference_date BETWEEN CAST(${recurrenceWindowStart} AS date) AND CAST(${addUtcDays(importReferenceDate, -1)} AS date)
         ORDER BY reference_date DESC
       `;
 
@@ -1560,21 +1902,27 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
       await prisma.$executeRaw`
         INSERT INTO menu_import_rule_audits (
           id,
+          tenant_id,
           company_name,
           menu_import_id,
           rule_id,
           rule_title,
           result_status,
-          evidence
+          evidence,
+          created_at,
+          updated_at
         )
         VALUES (
           ${rowId},
+          ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
           ${companyName},
           ${importId},
           ${rule.id},
           ${rule.title},
           ${resultStatus},
-          ${evidence}
+          ${evidence},
+          NOW(),
+          NOW()
         )
       `;
 
@@ -1589,7 +1937,49 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
       continue;
     }
 
-    const structuredEvidence = importedStructuredRecipes.find((recipe) => {
+    const structuredEvidenceByTarget = ruleTarget
+      ? importedStructuredRecipes.find((recipe) => ruleTarget.matches(recipe))
+      : null;
+
+    const structuredEvidenceBySemanticTarget = (() => {
+      if (!ruleTarget) {
+        return null;
+      }
+
+      const corpus = normalizeTerm(importedRecipes.join(' '));
+      const label = normalizeTerm(ruleTarget.label);
+      const keywordByLabel: Record<string, string[]> = {
+        peixe: ['peixe', 'pescado', 'tilapia', 'merluza', 'sardinha', 'posta', 'file'],
+        frango: ['frango', 'galeto', 'sobrecoxa', 'coxa'],
+        bovino: ['carne', 'bovina', 'boi', 'bife'],
+        suino: ['suino', 'porco', 'lombo', 'pernil'],
+        carboidrato: ['carboidrato', 'arroz', 'massa', 'macarrao', 'batata', 'mandioca', 'pure'],
+        fruta: ['fruta', 'laranja', 'banana', 'maca', 'mamao', 'abacaxi', 'suco', 'citrico'],
+        vegetais: ['verdura', 'vegetal', 'vegetais', 'legume', 'salada', 'folhas', 'hortalica'],
+      };
+
+      const matchedKey = Object.keys(keywordByLabel).find((key) => label.includes(key));
+
+      if (!matchedKey) {
+        return null;
+      }
+
+      const keywords = keywordByLabel[matchedKey];
+      const hasSemanticTarget = keywords.some((keyword) => corpus.includes(keyword));
+
+      if (!hasSemanticTarget) {
+        return null;
+      }
+
+      return {
+        name: `Evidencia contextual ${ruleTarget.label}`,
+        category: ruleTarget.label,
+        subcategory: 'Contextual',
+        food_group: 'Contextual',
+      };
+    })();
+
+    const structuredEvidenceByLexicalMatch = importedStructuredRecipes.find((recipe) => {
       const candidates = [
         ...buildTermVariants(recipe.name),
         ...buildTermVariants(recipe.category),
@@ -1599,6 +1989,11 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
 
       return candidates.some((candidate) => candidate.length >= 4 && normalizedRuleText.includes(candidate));
     });
+
+    const structuredEvidence =
+      structuredEvidenceByTarget
+      ?? structuredEvidenceBySemanticTarget
+      ?? structuredEvidenceByLexicalMatch;
 
     const hasTextualEvidence = tokenSource.some((token: any) => recipeCorpus.includes(token));
     const hasEvidence = Boolean(structuredEvidence) || hasTextualEvidence;
@@ -1615,21 +2010,27 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
     await prisma.$executeRaw`
       INSERT INTO menu_import_rule_audits (
         id,
+        tenant_id,
         company_name,
         menu_import_id,
         rule_id,
         rule_title,
         result_status,
-        evidence
+        evidence,
+        created_at,
+        updated_at
       )
       VALUES (
         ${rowId},
+        ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
         ${companyName},
         ${importId},
         ${rule.id},
         ${rule.title},
         ${resultStatus},
-        ${evidence}
+        ${evidence},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -1645,6 +2046,11 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
 
   const compliantCount = auditRows.filter((item) => item.resultStatus === 'compliant').length;
   const nonCompliantCount = auditRows.filter((item) => item.resultStatus === 'non_compliant').length;
+  const orderedAuditRows = [...auditRows].sort((left, right) => {
+    const leftStructured = /classificacao estruturada/i.test(left.evidence) ? 0 : 1;
+    const rightStructured = /classificacao estruturada/i.test(right.evidence) ? 0 : 1;
+    return leftStructured - rightStructured;
+  });
 
   return {
     status: 'ok',
@@ -1653,7 +2059,7 @@ app.post('/menus/imports/:importId/audit', { preHandler: authenticate }, async (
       compliantCount,
       nonCompliantCount,
     },
-    results: auditRows,
+    results: orderedAuditRows,
   };
 });
 
@@ -1668,13 +2074,23 @@ app.get('/menus/imports/:importId/audit', { preHandler: authenticate }, async (r
   }
 
   if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
+    const rows = menuAuditMemory.get(parsedParams.data.importId) ?? [];
+    const compliantCount = rows.filter((item) => item.resultStatus === 'compliant').length;
+    const nonCompliantCount = rows.filter((item) => item.resultStatus === 'non_compliant').length;
+
+    return {
+      status: 'ok',
+      summary: {
+        auditedRules: rows.length,
+        compliantCount,
+        nonCompliantCount,
+      },
+      results: rows,
+    };
   }
 
   const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
   const importId = parsedParams.data.importId;
 
   await ensureDomainTables();
@@ -1690,12 +2106,34 @@ app.get('/menus/imports/:importId/audit', { preHandler: authenticate }, async (r
     SELECT id, rule_id, rule_title, result_status, evidence, created_at
     FROM menu_import_rule_audits
     WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
+      AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     ORDER BY created_at DESC
   `;
 
   const compliantCount = rows.filter((item: any) => item.result_status === 'compliant').length;
   const nonCompliantCount = rows.filter((item: any) => item.result_status === 'non_compliant').length;
+  const mappedRows: Array<{
+    id: string;
+    ruleId: string | null;
+    ruleTitle: string;
+    resultStatus: 'compliant' | 'non_compliant';
+    evidence: string;
+    createdAt: string;
+  }> = rows.map((item: any) => ({
+    id: item.id,
+    ruleId: item.rule_id,
+    ruleTitle: item.rule_title,
+    resultStatus: item.result_status,
+    evidence: item.evidence,
+    createdAt: item.created_at.toISOString(),
+  }));
+  const orderedRows = mappedRows.sort((left, right) => {
+    const leftStructured = /classificacao estruturada/i.test(left.evidence) ? 0 : 1;
+    const rightStructured = /classificacao estruturada/i.test(right.evidence) ? 0 : 1;
+    return leftStructured - rightStructured;
+  });
 
   return {
     status: 'ok',
@@ -1704,14 +2142,7 @@ app.get('/menus/imports/:importId/audit', { preHandler: authenticate }, async (r
       compliantCount,
       nonCompliantCount,
     },
-    results: rows.map((item: any) => ({
-      id: item.id,
-      ruleId: item.rule_id,
-      ruleTitle: item.rule_title,
-      resultStatus: item.result_status,
-      evidence: item.evidence,
-      createdAt: item.created_at.toISOString(),
-    })),
+    results: orderedRows,
   };
 });
 
@@ -1733,6 +2164,7 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
   }
 
   const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
   const importId = parsedParams.data.importId;
 
   await ensureDomainTables();
@@ -1750,7 +2182,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
     SELECT id, unit_name, service_name, meal_type, meal_cost, financial_goal, exceeded_value, recipes_json
     FROM menu_pdf_imports
     WHERE id = ${importId}
-      AND company_name = ${companyName}
+      AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     LIMIT 1
   `;
 
@@ -1771,14 +2205,18 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
     SELECT rule_id, rule_title, result_status
     FROM menu_import_rule_audits
     WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
+      AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     ORDER BY created_at DESC
   `;
 
   await prisma.$executeRaw`
     DELETE FROM menu_import_adjustment_suggestions
     WHERE menu_import_id = ${importId}
-      AND company_name = ${companyName}
+      AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
   `;
 
   const parseNumber = (value: number | string) => {
@@ -1808,7 +2246,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
   }>>`
     SELECT name, normalized_name, category, subcategory, food_group, cost_per_capita
     FROM recipe_library_items
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
       AND is_active = TRUE
   `;
 
@@ -1850,7 +2290,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
   }>>`
     SELECT recipes_json, average_rating, evaluations_count
     FROM menu_combination_intelligence
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
       AND unit_name = ${imported.unit_name}
       AND service_name = ${imported.service_name}
     ORDER BY average_rating DESC, evaluations_count DESC
@@ -1942,11 +2384,12 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
       : 'Preserva aderencia nutricional com substituicoes equivalentes.';
     const estimatedNutritionalImpactWithHistory = historicalSupport
       ? `${estimatedNutritionalImpact} Contexto historico operacional: combinacao semelhante com nota media ${historicalSupport.averageRating.toFixed(2)} em ${historicalSupport.evaluationsCount} avaliacoes.`
-      : estimatedNutritionalImpact;
+      : `${estimatedNutritionalImpact} Contexto historico operacional indisponivel para esta combinacao.`;
 
     await prisma.$executeRaw`
       INSERT INTO menu_import_adjustment_suggestions (
         id,
+        tenant_id,
         company_name,
         menu_import_id,
         source_type,
@@ -1954,10 +2397,13 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         suggestion_text,
         estimated_financial_impact,
         estimated_nutritional_impact,
-        priority_level
+        priority_level,
+        created_at,
+        updated_at
       )
       VALUES (
         ${suggestionId},
+        ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
         ${companyName},
         ${importId},
         ${'rule'},
@@ -1965,7 +2411,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         ${suggestionText},
         ${estimatedFinancialImpact},
         ${estimatedNutritionalImpactWithHistory},
-        ${'high'}
+        ${'high'},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -2002,6 +2450,7 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
     await prisma.$executeRaw`
       INSERT INTO menu_import_adjustment_suggestions (
         id,
+        tenant_id,
         company_name,
         menu_import_id,
         source_type,
@@ -2009,10 +2458,13 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         suggestion_text,
         estimated_financial_impact,
         estimated_nutritional_impact,
-        priority_level
+        priority_level,
+        created_at,
+        updated_at
       )
       VALUES (
         ${suggestionId},
+        ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
         ${companyName},
         ${importId},
         ${'financial_goal'},
@@ -2020,7 +2472,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         ${suggestionText},
         ${estimatedFinancialImpact},
         ${'Mantem cobertura nutricional prevista para a refeicao.'},
-        ${'high'}
+        ${'high'},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -2055,6 +2509,7 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
     await prisma.$executeRaw`
       INSERT INTO menu_import_adjustment_suggestions (
         id,
+        tenant_id,
         company_name,
         menu_import_id,
         source_type,
@@ -2062,10 +2517,13 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         suggestion_text,
         estimated_financial_impact,
         estimated_nutritional_impact,
-        priority_level
+        priority_level,
+        created_at,
+        updated_at
       )
       VALUES (
         ${suggestionId},
+        ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
         ${companyName},
         ${importId},
         ${'rule'},
@@ -2073,7 +2531,9 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
         ${'Manter cardapio atual e registrar combinacoes de melhor aceitacao para proxima versao.'},
         ${0},
         ${'Sem impacto nutricional adverso previsto.'},
-        ${'medium'}
+        ${'medium'},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -2105,6 +2565,23 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
     });
   }
 
+  const suggestionRank = (item: { evidenceSource: string; evidenceSubtype: string | null; sourceType: string }) => {
+    if (item.evidenceSource === 'structured' && item.evidenceSubtype === 'classification') {
+      return 0;
+    }
+
+    if (item.evidenceSource === 'structured') {
+      return 1;
+    }
+
+    if (item.sourceType === 'rule') {
+      return 2;
+    }
+
+    return 3;
+  };
+  const orderedSuggestions = [...suggestions].sort((left, right) => suggestionRank(left) - suggestionRank(right));
+
   return {
     status: 'ok',
     summary: {
@@ -2125,7 +2602,7 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
           .toFixed(2),
       ),
     },
-    suggestions,
+    suggestions: orderedSuggestions,
   };
 });
 
@@ -2147,6 +2624,7 @@ app.get('/menus/imports/:importId/suggestions', { preHandler: authenticate }, as
   }
 
   const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
   const importId = parsedParams.data.importId;
 
   await ensureDomainTables();
@@ -2172,6 +2650,7 @@ app.get('/menus/imports/:importId/suggestions', { preHandler: authenticate }, as
       created_at
     FROM menu_import_adjustment_suggestions
     WHERE menu_import_id = ${importId}
+      AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
       AND company_name = ${companyName}
     ORDER BY created_at DESC
   `;
@@ -2181,6 +2660,62 @@ app.get('/menus/imports/:importId/suggestions', { preHandler: authenticate }, as
     return Number(parsed.toFixed(2));
   };
 
+  const mappedSuggestions: Array<{
+    id: string;
+    sourceType: 'rule' | 'financial_goal';
+    sourceReference: string | null;
+    suggestionText: string;
+    estimatedFinancialImpact: number;
+    estimatedNutritionalImpact: string;
+    evidenceSource: 'structured' | 'textual_fallback' | 'financial_goal' | 'preventive';
+    evidenceSubtype: 'frequency' | 'recurrence' | 'classification' | null;
+    priorityLevel: 'high' | 'medium';
+    createdAt: string;
+  }> = rows.map((item: any) => {
+    const evidenceSource = inferSuggestionEvidenceSource({
+      sourceType: item.source_type,
+      suggestionText: item.suggestion_text,
+      estimatedNutritionalImpact: item.estimated_nutritional_impact,
+      sourceReference: item.source_reference,
+    });
+
+    return {
+      id: item.id,
+      sourceType: item.source_type,
+      sourceReference: item.source_reference,
+      suggestionText: item.suggestion_text,
+      estimatedFinancialImpact: parseNumber(item.estimated_financial_impact),
+      estimatedNutritionalImpact: item.estimated_nutritional_impact,
+      evidenceSource,
+      evidenceSubtype: inferSuggestionEvidenceSubtype({
+        evidenceSource,
+        suggestionText: item.suggestion_text,
+        sourceReference: item.source_reference,
+      }),
+      priorityLevel: item.priority_level,
+      createdAt: item.created_at.toISOString(),
+    };
+  });
+  const orderedSuggestions = mappedSuggestions.sort((left, right) => {
+    const rank = (item: { evidenceSource: string; evidenceSubtype: string | null; sourceType: string }) => {
+      if (item.evidenceSource === 'structured' && item.evidenceSubtype === 'classification') {
+        return 0;
+      }
+
+      if (item.evidenceSource === 'structured') {
+        return 1;
+      }
+
+      if (item.sourceType === 'rule') {
+        return 2;
+      }
+
+      return 3;
+    };
+
+    return rank(left) - rank(right);
+  });
+
   return {
     status: 'ok',
     summary: {
@@ -2189,31 +2724,7 @@ app.get('/menus/imports/:importId/suggestions', { preHandler: authenticate }, as
         rows.reduce((sum: any, item: any) => sum + parseNumber(item.estimated_financial_impact), 0).toFixed(2),
       ),
     },
-    suggestions: rows.map((item: any) => {
-      const evidenceSource = inferSuggestionEvidenceSource({
-        sourceType: item.source_type,
-        suggestionText: item.suggestion_text,
-        estimatedNutritionalImpact: item.estimated_nutritional_impact,
-        sourceReference: item.source_reference,
-      });
-
-      return {
-        id: item.id,
-        sourceType: item.source_type,
-        sourceReference: item.source_reference,
-        suggestionText: item.suggestion_text,
-        estimatedFinancialImpact: parseNumber(item.estimated_financial_impact),
-        estimatedNutritionalImpact: item.estimated_nutritional_impact,
-        evidenceSource,
-        evidenceSubtype: inferSuggestionEvidenceSubtype({
-          evidenceSource,
-          suggestionText: item.suggestion_text,
-          sourceReference: item.source_reference,
-        }),
-        priorityLevel: item.priority_level,
-        createdAt: item.created_at.toISOString(),
-      };
-    }),
+    suggestions: orderedSuggestions,
   };
 });
 
@@ -2238,6 +2749,7 @@ app.post('/non-conformities', { preHandler: authenticate }, async (request, repl
   await prisma.$executeRaw`
     INSERT INTO non_conformities (
       id,
+      tenant_id,
       company_name,
       title,
       description,
@@ -2246,10 +2758,13 @@ app.post('/non-conformities', { preHandler: authenticate }, async (request, repl
       owner,
       due_date,
       status,
-      created_by
+      created_by,
+      created_at,
+      updated_at
     )
     VALUES (
       ${itemId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${payload.title},
       ${payload.description},
@@ -2258,7 +2773,9 @@ app.post('/non-conformities', { preHandler: authenticate }, async (request, repl
       ${payload.owner},
       ${payload.dueDate},
       ${payload.status},
-      ${actor.id}
+      ${actor.id},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -2266,21 +2783,27 @@ app.post('/non-conformities', { preHandler: authenticate }, async (request, repl
   await prisma.$executeRaw`
     INSERT INTO non_conformity_events (
       id,
+      tenant_id,
       company_name,
       non_conformity_id,
       previous_status,
       next_status,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${eventId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${itemId},
       ${payload.status},
       ${payload.status},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -2349,7 +2872,8 @@ app.get('/non-conformities', { preHandler: authenticate }, async (request, reply
       }>>`
         SELECT id, title, description, origin, impact, owner, due_date, status, created_at
         FROM non_conformities
-        WHERE company_name = ${companyName}
+        WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+          AND company_name = ${companyName}
           AND status = ${selectedStatus}
         ORDER BY created_at DESC
         LIMIT ${limit}
@@ -2367,7 +2891,8 @@ app.get('/non-conformities', { preHandler: authenticate }, async (request, reply
       }>>`
         SELECT id, title, description, origin, impact, owner, due_date, status, created_at
         FROM non_conformities
-        WHERE company_name = ${companyName}
+        WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+          AND company_name = ${companyName}
         ORDER BY created_at DESC
         LIMIT ${limit}
       `;
@@ -2409,7 +2934,8 @@ app.patch('/non-conformities/:nonConformityId/status', { preHandler: authenticat
     SELECT id, status
     FROM non_conformities
     WHERE id = ${parsedParams.data.nonConformityId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     LIMIT 1
   `;
 
@@ -2422,28 +2948,35 @@ app.patch('/non-conformities/:nonConformityId/status', { preHandler: authenticat
     SET status = ${parsedBody.data.status},
         updated_at = NOW()
     WHERE id = ${parsedParams.data.nonConformityId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
   `;
 
   const eventId = randomUUID();
   await prisma.$executeRaw`
     INSERT INTO non_conformity_events (
       id,
+      tenant_id,
       company_name,
       non_conformity_id,
       previous_status,
       next_status,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${eventId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${parsedParams.data.nonConformityId},
       ${existing[0]?.status ?? parsedBody.data.status},
       ${parsedBody.data.status},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -2474,7 +3007,8 @@ app.get('/non-conformities/:nonConformityId/history', { preHandler: authenticate
   const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>`
     SELECT COUNT(*)::bigint AS total
     FROM non_conformity_events
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND company_name = ${companyName}
       AND non_conformity_id = ${parsedParams.data.nonConformityId}
       AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
       AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
@@ -2491,7 +3025,8 @@ app.get('/non-conformities/:nonConformityId/history', { preHandler: authenticate
   }>>`
     SELECT id, previous_status, next_status, actor_name, created_at
     FROM non_conformity_events
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND company_name = ${companyName}
       AND non_conformity_id = ${parsedParams.data.nonConformityId}
       AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
       AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
@@ -2545,7 +3080,8 @@ app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authe
   }>>`
     SELECT previous_status, next_status, actor_name, created_at
     FROM non_conformity_events
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND company_name = ${companyName}
       AND non_conformity_id = ${parsedParams.data.nonConformityId}
       AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
       AND (${fromDate}::timestamptz IS NULL OR created_at >= ${fromDate})
@@ -2567,6 +3103,7 @@ app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authe
     INSERT INTO compliance_export_events (
       id,
       export_id,
+      tenant_id,
       company_name,
       export_type,
       non_conformity_id,
@@ -2574,11 +3111,14 @@ app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authe
       filter_from,
       filter_to,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${exportEventId},
       ${exportId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${'non_conformity_history'},
       ${parsedParams.data.nonConformityId},
@@ -2586,7 +3126,9 @@ app.get('/non-conformities/:nonConformityId/history/export', { preHandler: authe
       ${parsedQuery.data.from || null},
       ${parsedQuery.data.to || null},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -2643,23 +3185,29 @@ app.post('/non-conformities/:nonConformityId/actions', { preHandler: authenticat
   await prisma.$executeRaw`
     INSERT INTO non_conformity_action_plans (
       id,
+      tenant_id,
       company_name,
       non_conformity_id,
       description,
       owner,
       due_date,
       status,
-      created_by
+      created_by,
+      created_at,
+      updated_at
     )
     VALUES (
       ${actionId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${parsedParams.data.nonConformityId},
       ${parsedBody.data.description},
       ${parsedBody.data.owner},
       ${parsedBody.data.dueDate},
       ${parsedBody.data.status},
-      ${actor.id}
+      ${actor.id},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -2667,23 +3215,29 @@ app.post('/non-conformities/:nonConformityId/actions', { preHandler: authenticat
   await prisma.$executeRaw`
     INSERT INTO non_conformity_action_events (
       id,
+      tenant_id,
       company_name,
       non_conformity_id,
       action_plan_id,
       previous_status,
       next_status,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${creationEventId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${parsedParams.data.nonConformityId},
       ${actionId},
       ${parsedBody.data.status},
       ${parsedBody.data.status},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -2738,7 +3292,8 @@ app.patch('/non-conformities/:nonConformityId/actions/:actionId/status', { preHa
     FROM non_conformity_action_plans
     WHERE id = ${parsedParams.data.actionId}
       AND non_conformity_id = ${parsedParams.data.nonConformityId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     LIMIT 1
   `;
 
@@ -2751,30 +3306,37 @@ app.patch('/non-conformities/:nonConformityId/actions/:actionId/status', { preHa
     SET status = ${parsedBody.data.status}
     WHERE id = ${parsedParams.data.actionId}
       AND non_conformity_id = ${parsedParams.data.nonConformityId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
   `;
 
   const eventId = randomUUID();
   await prisma.$executeRaw`
     INSERT INTO non_conformity_action_events (
       id,
+      tenant_id,
       company_name,
       non_conformity_id,
       action_plan_id,
       previous_status,
       next_status,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${eventId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${parsedParams.data.nonConformityId},
       ${parsedParams.data.actionId},
       ${existing[0]?.status ?? parsedBody.data.status},
       ${parsedBody.data.status},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -2805,7 +3367,8 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history', { preHan
   const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>`
     SELECT COUNT(*)::bigint AS total
     FROM non_conformity_action_events
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND company_name = ${companyName}
       AND non_conformity_id = ${parsedParams.data.nonConformityId}
       AND action_plan_id = ${parsedParams.data.actionId}
       AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
@@ -2823,7 +3386,8 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history', { preHan
   }>>`
     SELECT id, previous_status, next_status, actor_name, created_at
     FROM non_conformity_action_events
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND company_name = ${companyName}
       AND non_conformity_id = ${parsedParams.data.nonConformityId}
       AND action_plan_id = ${parsedParams.data.actionId}
       AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
@@ -2878,7 +3442,8 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', {
   }>>`
     SELECT previous_status, next_status, actor_name, created_at
     FROM non_conformity_action_events
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND company_name = ${companyName}
       AND non_conformity_id = ${parsedParams.data.nonConformityId}
       AND action_plan_id = ${parsedParams.data.actionId}
       AND (${actorFilter}::text IS NULL OR actor_name ILIKE ${actorFilter})
@@ -2901,6 +3466,7 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', {
     INSERT INTO compliance_export_events (
       id,
       export_id,
+      tenant_id,
       company_name,
       export_type,
       non_conformity_id,
@@ -2909,11 +3475,14 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', {
       filter_from,
       filter_to,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${exportEventId},
       ${exportId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${'action_plan_history'},
       ${parsedParams.data.nonConformityId},
@@ -2922,7 +3491,9 @@ app.get('/non-conformities/:nonConformityId/actions/:actionId/history/export', {
       ${parsedQuery.data.from || null},
       ${parsedQuery.data.to || null},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 
@@ -2986,7 +3557,8 @@ app.get('/non-conformities/:nonConformityId/actions', { preHandler: authenticate
     SELECT id, non_conformity_id, description, owner, due_date, status, created_at
     FROM non_conformity_action_plans
     WHERE non_conformity_id = ${parsedParams.data.nonConformityId}
-      AND company_name = ${companyName}
+ AND tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+ AND company_name = ${companyName}
     ORDER BY created_at DESC
     LIMIT 50
   `;
@@ -3035,7 +3607,8 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
   const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>`
     SELECT COUNT(*)::bigint AS total
     FROM compliance_export_events
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND company_name = ${companyName}
       AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
       AND (${exportIdFilter}::text IS NULL OR export_id = ${exportIdFilter})
       AND (${nonConformityFilter}::text IS NULL OR non_conformity_id = ${nonConformityFilter})
@@ -3080,7 +3653,8 @@ app.get('/compliance/exports/audit', { preHandler: authenticate }, async (reques
       actor_name,
       created_at
     FROM compliance_export_events
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND company_name = ${companyName}
       AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
       AND (${exportIdFilter}::text IS NULL OR export_id = ${exportIdFilter})
       AND (${nonConformityFilter}::text IS NULL OR non_conformity_id = ${nonConformityFilter})
@@ -3153,7 +3727,8 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
   const countRows = await prisma.$queryRaw<Array<{ total: bigint }>>`
     SELECT COUNT(*)::bigint AS total
     FROM compliance_export_events
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND company_name = ${companyName}
       AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
       AND (${exportIdFilter}::text IS NULL OR export_id = ${exportIdFilter})
       AND (${nonConformityFilter}::text IS NULL OR non_conformity_id = ${nonConformityFilter})
@@ -3198,7 +3773,8 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       actor_name,
       created_at
     FROM compliance_export_events
-    WHERE company_name = ${companyName}
+    WHERE tenant_id = ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'}
+      AND company_name = ${companyName}
       AND (${exportTypeFilter}::text IS NULL OR export_type = ${exportTypeFilter})
       AND (${exportIdFilter}::text IS NULL OR export_id = ${exportIdFilter})
       AND (${nonConformityFilter}::text IS NULL OR non_conformity_id = ${nonConformityFilter})
@@ -3224,6 +3800,7 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
     INSERT INTO compliance_export_events (
       id,
       export_id,
+      tenant_id,
       company_name,
       export_type,
       filter_export_id,
@@ -3235,11 +3812,14 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       filter_from,
       filter_to,
       actor_id,
-      actor_name
+      actor_name,
+      created_at,
+      updated_at
     )
     VALUES (
       ${exportEventId},
       ${exportId},
+      ${(request.user as { tenantId?: string }).tenantId ?? 'demo-tenant'},
       ${companyName},
       ${'compliance_export_audit'},
       ${parsedQuery.data.exportId?.trim() || null},
@@ -3251,7 +3831,9 @@ app.get('/compliance/exports/audit/export', { preHandler: authenticate }, async 
       ${parsedQuery.data.from || null},
       ${parsedQuery.data.to || null},
       ${actor.id},
-      ${actor.name}
+      ${actor.name},
+      NOW(),
+      NOW()
     )
   `;
 

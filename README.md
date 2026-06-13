@@ -32,6 +32,7 @@ Monorepo inicial do MenuCare com:
 
 ## Qualidade
 - Testes (API + Web): `npm test`
+- Testes da API com PostgreSQL local (PowerShell): `$env:DATABASE_URL='postgresql://menucare:menucare@localhost:5432/menucare?schema=public'; npm run test --workspace apps/api`
 - Testes E2E (Playwright): `npm run test:e2e`
 - Listar testes E2E: `npm run test:e2e:list`
 - Instalar browser do Playwright: `npm run test:e2e:install`

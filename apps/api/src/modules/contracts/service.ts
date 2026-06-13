@@ -1,4 +1,4 @@
-﻿import { createContractsRepository } from './repository.js';
+import { createContractsRepository } from './repository.js';
 import type { FastifyRequest } from 'fastify';
 import { createHash } from 'node:crypto';
 
@@ -19,6 +19,18 @@ type ExtractedRule = {
   title: string;
   description: string;
   category: string;
+  ruleType: string;
+  periodicity: string | null;
+  quantity: number | null;
+  unitMeasure: string | null;
+  calculationBasis: string | null;
+  applicability: 'general' | 'direct_site' | 'site_group';
+  originGroupText: string | null;
+  detectedUnits: string[];
+  sourceItem: string | null;
+  sourceExcerpt: string | null;
+  sourcePage: number | null;
+  evidenceConfidence: number | null;
 };
 
 type RuleWithEvidence = ExtractedRule & {
@@ -37,13 +49,36 @@ export interface Deps {
     };
   };
   authenticate: any;
-  contractSchema: SchemaLike<{ title: string; sourceType: string }>;
+  contractSchema: SchemaLike<{ title: string; sourceType: string; siteId?: string }>;
   prisma: {
     $queryRaw: <T>(query: TemplateStringsArray, ...params: unknown[]) => Promise<T>;
     $executeRaw: (query: TemplateStringsArray, ...params: unknown[]) => Promise<unknown>;
   } | null;
   getCompanyFromJwt: (request: FastifyRequest) => string;
+  getTenantIdFromJwt: (request: FastifyRequest) => string;
   getUserFromJwt: (request: FastifyRequest) => { id: string; name: string };
+  resolveAuthorizedSite: (request: FastifyRequest, siteId: string) => Promise<
+    | {
+        allowed: true;
+        site: {
+          id: string;
+          tenantId: string;
+          name: string;
+          city: string | null;
+          state: string | null;
+          role: string;
+        };
+      }
+    | { allowed: false; statusCode: number; body: unknown }
+  >;
+  listAuthorizedSites: (request: FastifyRequest) => Promise<Array<{
+    id: string;
+    tenantId: string;
+    name: string;
+    city: string | null;
+    state: string | null;
+    role: string;
+  }>>;
   randomUUID: () => string;
   ensureDomainTables: () => Promise<void>;
   PDFParse: new (input: { data: Buffer }) => {
@@ -51,6 +86,7 @@ export interface Deps {
     destroy: () => Promise<void>;
   };
   recordAiPreparationEvent: (payload: {
+    tenantId: string;
     companyName: string;
     moduleKey: 'rules' | 'menus' | 'recipes' | 'contracts';
     sourceKind: string;
@@ -186,8 +222,26 @@ type ContractSegment = {
   text: string;
 };
 
+export type MemoryContract = {
+  id: string;
+  tenantId: string;
+  siteId: string;
+  siteName: string;
+  companyName: string;
+  title: string;
+  sourceType: string;
+  status: string;
+  extractedText: string | null;
+  inactivationReason: string | null;
+  inactivatedAt: Date | null;
+  createdAt: Date;
+  createdBy: string;
+};
+
+export const contractMemory = new Map<string, MemoryContract>();
+
 const splitByClauses = (fullText: string): ContractSegment[] => {
-  const clauseRegex = /(?:^|\n)\s*cl[aÃ¡]usula\s+[^\n]*/gim;
+  const clauseRegex = /(?:^|\n)\s*cl[aÃƒÂ¡]usula\s+[^\n]*/gim;
   const matches = Array.from(fullText.matchAll(clauseRegex));
 
   if (!matches.length) {
@@ -304,6 +358,15 @@ const tokenizeEvidenceText = (value: string) => value
   .filter((token) => token.length >= 4);
 
 const findDeterministicEvidence = (rule: ExtractedRule, pages: EvidencePage[]): RuleWithEvidence => {
+  if (rule.sourceExcerpt?.trim()) {
+    return {
+      ...rule,
+      sourceExcerpt: rule.sourceExcerpt.trim().slice(0, 500),
+      sourcePage: rule.sourcePage ?? null,
+      evidenceConfidence: rule.evidenceConfidence ?? 0.85,
+    };
+  }
+
   const evidenceCandidates = [
     rule.title.trim(),
     rule.description.trim().slice(0, 180),
@@ -381,27 +444,167 @@ const findDeterministicEvidence = (rule: ExtractedRule, pages: EvidencePage[]): 
   };
 };
 
+const normalizeText = (value: string) => value
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLowerCase();
+
+const operationalRuleKeywords = [
+  'cardapio',
+  'refeicao',
+  'buffet',
+  'proteina',
+  'ovo',
+  'salada',
+  'guarnicao',
+  'arroz',
+  'feijao',
+  'sobremesa',
+  'fruta',
+  'suco',
+  'bebida',
+  'cafe',
+  'cha',
+  'light',
+  'vegana',
+  'vegetariana',
+  'alergenico',
+  'incidencia',
+  'periodicidade',
+  'frequencia',
+  'substituicao',
+  'repeticao',
+  'prato especial',
+  'aprovacao do cardapio',
+];
+
+const outOfScopeKeywords = [
+  'multa',
+  'seguro',
+  'trabalhista',
+  'documento administrativo',
+  'sla',
+  'penalidade',
+  'dados cadastrais',
+  'contato',
+  'comercial',
+  'faturamento',
+  'nota fiscal',
+];
+
+const isOperationalMenuRule = (rule: { title: string; description: string; category: string }) => {
+  const content = normalizeText(`${rule.title} ${rule.description} ${rule.category}`);
+
+  if (outOfScopeKeywords.some((keyword) => content.includes(keyword))) {
+    return false;
+  }
+
+  return operationalRuleKeywords.some((keyword) => content.includes(keyword));
+};
+
+const readStringField = (record: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'string' && value.trim()) {
+      return value.trim();
+    }
+  }
+
+  return null;
+};
+
+const readNumberField = (record: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string' && value.trim()) {
+      const parsed = Number(value.replace(',', '.'));
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
+};
+
+const readStringArrayField = (record: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const value = record[key];
+    if (Array.isArray(value)) {
+      return value
+        .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+        .map((item) => item.trim());
+    }
+  }
+
+  return [];
+};
+
 const normalizeExtractedRules = (payload: unknown): ExtractedRule[] => {
   if (!Array.isArray(payload)) {
     return [];
   }
 
-  const allowedCategories = new Set(['nutrition', 'management', 'legal', 'compliance', 'operations']);
+  const allowedApplicability = new Set(['general', 'direct_site', 'site_group']);
 
   return payload
     .filter((rule): rule is Record<string, unknown> => typeof rule === 'object' && rule !== null)
     .map((rule) => {
-      const title = typeof rule.title === 'string' ? rule.title.trim().slice(0, 80) : '';
-      const description = typeof rule.description === 'string' ? rule.description.trim() : '';
-      const category = typeof rule.category === 'string' ? rule.category.trim().toLowerCase() : '';
+      const title = readStringField(rule, ['title', 'titulo', 'tipo_regra'])?.slice(0, 120) ?? '';
+      const description = readStringField(rule, ['description', 'descricao']) ?? '';
+      const category = readStringField(rule, ['category', 'categoria'])?.toLowerCase() ?? 'cardapio';
+      const rawApplicability = readStringField(rule, ['applicability', 'aplicabilidade']) ?? 'general';
+      const applicability = allowedApplicability.has(rawApplicability)
+        ? rawApplicability as ExtractedRule['applicability']
+        : 'general';
+      const ruleType = readStringField(rule, ['ruleType', 'rule_type', 'tipo_regra']) ?? 'operational_menu_rule';
 
-      if (!title || !description || !allowedCategories.has(category)) {
+      if (!title || !description) {
         return null;
       }
 
-      return { title, description, category };
+      const normalized = { title, description, category };
+
+      if (!isOperationalMenuRule(normalized)) {
+        return null;
+      }
+
+      return {
+        ...normalized,
+        ruleType,
+        periodicity: readStringField(rule, ['periodicity', 'periodicidade']),
+        quantity: readNumberField(rule, ['quantity', 'quantidade', 'incidencia']),
+        unitMeasure: readStringField(rule, ['unitMeasure', 'unit_measure', 'unidade_medida']),
+        calculationBasis: readStringField(rule, ['calculationBasis', 'calculation_basis', 'base_calculo']),
+        applicability,
+        originGroupText: readStringField(rule, ['originGroupText', 'origin_group_text', 'grupo_origem_no_contrato']),
+        detectedUnits: readStringArrayField(rule, ['detectedUnits', 'detected_units', 'unidades_aplicaveis', 'unidades_detectadas_no_trecho']),
+        sourceItem: readStringField(rule, ['sourceItem', 'source_item', 'item', 'fonte_item']),
+        sourceExcerpt: readStringField(rule, ['sourceExcerpt', 'source_excerpt', 'trecho_evidencia'])?.slice(0, 500) ?? null,
+        sourcePage: readNumberField(rule, ['sourcePage', 'source_page', 'pagina', 'fonte_pagina']),
+        evidenceConfidence: readNumberField(rule, ['evidenceConfidence', 'evidence_confidence', 'confianca']),
+      };
     })
     .filter((rule): rule is ExtractedRule => rule !== null);
+};
+
+const ruleAppliesToSelectedSite = (rule: ExtractedRule, siteName: string) => {
+  if (rule.applicability === 'general') {
+    return true;
+  }
+
+  const selected = normalizeText(siteName);
+  const detectedUnits = rule.detectedUnits.map((unit) => normalizeText(unit));
+  const originGroup = normalizeText(rule.originGroupText ?? '');
+
+  return (
+    detectedUnits.some((unit) => unit === selected || unit.includes(selected) || selected.includes(unit)) ||
+    originGroup.includes(selected)
+  );
 };
 
 export const extractRulesFromPdf = async (
@@ -409,6 +612,8 @@ export const extractRulesFromPdf = async (
   contractId: string,
   pdfBuffer: Buffer,
   companyName: string,
+  site: { id: string; tenantId: string; name: string },
+  knownSites: Array<{ id: string; name: string }>,
 ): Promise<RouteResult> => {
   const nowIso = new Date().toISOString();
 
@@ -428,7 +633,9 @@ export const extractRulesFromPdf = async (
     SELECT id
     FROM contracts
     WHERE id = ${contractId}
+      AND tenant_id = ${site.tenantId}
       AND company_name = ${companyName}
+      AND site_id = ${site.id}
     LIMIT 1
   `;
 
@@ -478,17 +685,31 @@ export const extractRulesFromPdf = async (
     : [{ chunkId: 1, chunkLabel: 'Documento completo', strategy: 'pages' as const, text: contractText }]
   ).slice(0, maxSegments);
 
-  const promptTemplate = `Analise este contrato e extraia as regras. Responda com JSON array.
+  const knownSiteNames = knownSites.map((knownSite) => knownSite.name).join(', ');
+  const promptTemplate = `Voce esta extraindo regras operacionais de cardapio para:
 
-Exemplo de resposta:
-{"rules":[{"title":"Titulo da regra","description":"Descricao","category":"nutrition"}]}
+Cliente: ${companyName}
+Unidade selecionada: ${site.name}
+Contrato: ${contractId}
+Unidades conhecidas do cliente: ${knownSiteNames || site.name}
 
-Categorias: nutrition, management, legal, compliance, operations
+Extraia somente regras que impactem montagem, aprovacao ou validacao de cardapio, alimentacao e conformidade nutricional/contratual.
 
-Contrato:
-${contractText.substring(0, 2000)}
+Inclua regras sobre quantidade de opcoes por dia, frequencia mensal, incidencia de proteinas, tipos de proteina, substituicoes, repeticao, buffet livre, buffet especial, prato especial, salada, guarnicao, arroz, feijao, sobremesa, fruta, suco, bebida, cafe, cha, ovo, opcoes light/vegana/restritivas, alergenicos e aprovacao de cardapio.
 
-Responda apenas com o JSON:`;
+Ignore clausulas juridicas gerais, multas, SLA, seguros, documentos administrativos, dados comerciais, obrigacoes trabalhistas, penalidades, cadastro, contato e qualquer clausula sem impacto direto no cardapio.
+
+Criterios de aplicabilidade:
+1. Extraia regras gerais quando o texto indicar todas as unidades/localidades/restaurantes/turnos ou todo o contrato.
+2. Extraia regras que citem diretamente a unidade selecionada.
+3. Extraia regras de grupos somente quando a unidade selecionada estiver explicitamente no grupo citado.
+4. Ignore regras de outras unidades.
+5. Nao use contratos anteriores.
+6. Nao inferir por semelhanca.
+7. Toda regra precisa de evidencia textual ou tabela de origem.
+
+Responda apenas JSON no formato:
+{"rules":[{"title":"Titulo curto","description":"Descricao operacional","rule_type":"incidencia_cardapio","category":"proteina","periodicity":"mensal","quantity":14,"unit_measure":"incidencias","calculation_basis":"22 dias uteis","applicability":"site_group","detectedUnits":["${site.name}"],"originGroupText":"Grupo literal do contrato","sourceItem":"19","sourcePage":21,"sourceExcerpt":"Trecho literal de evidencia"}]}`;
 
   const diagnostics: ExtractionDiagnostics = {
     contractId,
@@ -528,6 +749,7 @@ Responda apenas com o JSON:`;
 
   const persistDiagnostics = async () => {
     await deps.recordAiPreparationEvent({
+      tenantId: site.tenantId,
       companyName,
       moduleKey: 'contracts',
       sourceKind: 'contract-rule-extraction-diagnostic',
@@ -563,7 +785,12 @@ Responda apenas com o JSON:`;
       errorMessage: null,
     };
 
-    const prompt = promptTemplate;
+    const prompt = `${promptTemplate}
+
+Trecho do contrato (${segment.chunkLabel}):
+${segment.text}
+
+Responda apenas com JSON:`;
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), ollamaTimeoutMs);
@@ -649,7 +876,8 @@ Responda apenas com o JSON:`;
     }
   }
 
-  const normalizedRules = Array.from(dedupedRulesMap.values());
+  const normalizedRules = Array.from(dedupedRulesMap.values())
+    .filter((rule) => ruleAppliesToSelectedSite(rule, site.name));
   const evidencePages = buildEvidencePages(contractText, pageChunkChars);
   let rulesWithEvidence = normalizedRules.map((rule) => findDeterministicEvidence(rule, evidencePages));
 
@@ -736,6 +964,12 @@ ${contractText.slice(0, 12000)}`;
   diagnostics.rulesWithEvidence = rulesWithEvidence.filter((rule) => !!rule.sourceExcerpt).length;
   diagnostics.rulesWithoutEvidence = rulesWithEvidence.length - diagnostics.rulesWithEvidence;
 
+  rulesWithEvidence = rulesWithEvidence.filter((rule) => !!rule.sourceExcerpt);
+  diagnostics.rulesDetected = rulesWithEvidence.length;
+  diagnostics.schemaValid = rulesWithEvidence.length > 0;
+  diagnostics.rulesWithEvidence = rulesWithEvidence.length;
+  diagnostics.rulesWithoutEvidence = 0;
+
   if (!rulesWithEvidence.length) {
     diagnostics.outcome = timeoutCount === segments.length ? 'error' : 'empty';
     diagnostics.errorMessage = timeoutCount === segments.length
@@ -797,18 +1031,54 @@ ${contractText.slice(0, 12000)}`;
     const createdAt = new Date();
 
     await deps.prisma.$executeRaw`
-      INSERT INTO extracted_rules (id, company_name, contract_id, title, description, category, source_excerpt, source_page, evidence_confidence, status, created_at)
+      INSERT INTO extracted_rules (
+        id,
+        tenant_id,
+        site_id,
+        company_name,
+        contract_id,
+        title,
+        description,
+        category,
+        rule_type,
+        periodicity,
+        quantity,
+        unit_measure,
+        calculation_basis,
+        applicability,
+        origin_group_text,
+        detected_units_json,
+        source_item,
+        source_excerpt,
+        source_page,
+        evidence_confidence,
+        status,
+        created_at,
+        updated_at
+      )
       VALUES (
         ${ruleId},
+        ${site.tenantId},
+        ${site.id},
         ${companyName},
         ${contractId},
         ${rule.title},
         ${rule.description},
         ${rule.category},
+        ${rule.ruleType},
+        ${rule.periodicity},
+        ${rule.quantity},
+        ${rule.unitMeasure},
+        ${rule.calculationBasis},
+        ${rule.applicability},
+        ${rule.originGroupText},
+        ${JSON.stringify(rule.detectedUnits)},
+        ${rule.sourceItem},
         ${rule.sourceExcerpt},
         ${rule.sourcePage},
         ${rule.evidenceConfidence},
         ${'pending'},
+        ${createdAt},
         ${createdAt}
       )
     `;
@@ -847,6 +1117,7 @@ export const createContractsService = (deps: Deps) => {
 
   const updateContractStatus = async (
     contractId: string,
+    tenantId: string,
     companyName: string,
     status: 'processing' | 'rules_extracted' | 'active' | 'inactive' | 'extraction_failed',
     inactivationReason?: string | null,
@@ -859,10 +1130,11 @@ export const createContractsService = (deps: Deps) => {
       await deps.prisma.$executeRaw`
         UPDATE contracts
         SET status = ${status},
-            inactivation_reason = ${inactivationReason ?? null},
-            inactivated_at = NOW()
+            updated_at = NOW()
         WHERE id = ${contractId}
-          AND company_name = ${companyName}
+          AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       `;
       return;
     }
@@ -870,29 +1142,39 @@ export const createContractsService = (deps: Deps) => {
     await deps.prisma.$executeRaw`
       UPDATE contracts
       SET status = ${status},
-          inactivation_reason = NULL,
-          inactivated_at = NULL
+          updated_at = NOW()
       WHERE id = ${contractId}
-        AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
     `;
   };
 
   const createContract = async (
     request: FastifyRequest,
-    payload: { title: string; sourceType: string; fileBuffer?: Buffer | null },
+    payload: { title: string; sourceType: string; siteId?: string; fileBuffer?: Buffer | null },
   ): Promise<RouteResult> => {
-    if (!deps.prisma) {
+    const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = deps.getTenantIdFromJwt(request);
+    const actor = deps.getUserFromJwt(request);
+    const knownSites = await deps.listAuthorizedSites(request);
+    const resolvedSiteId = payload.siteId ?? (knownSites.length === 1 ? knownSites[0]?.id : undefined);
+
+    if (!resolvedSiteId) {
       return {
-        statusCode: 503,
+        statusCode: 400,
         body: {
           status: 'error',
-          message: deps.apiMessage.health.dbUnavailable,
+          message: 'Selecione uma unidade ativa para lancar o contrato.',
         },
       };
     }
 
-    const companyName = deps.getCompanyFromJwt(request);
-    const actor = deps.getUserFromJwt(request);
+    const siteAccess = await deps.resolveAuthorizedSite(request, resolvedSiteId);
+    if (!siteAccess.allowed) {
+      return siteAccess;
+    }
+
     const contractId = deps.randomUUID();
     let extractedText: string | null = null;
 
@@ -916,26 +1198,84 @@ export const createContractsService = (deps: Deps) => {
       }
     }
 
+    if (!deps.prisma) {
+      const createdAt = new Date();
+      const contract: MemoryContract = {
+        id: contractId,
+        tenantId,
+        siteId: siteAccess.site.id,
+        siteName: siteAccess.site.name,
+        companyName,
+        title: payload.title,
+        sourceType: payload.sourceType,
+        status: extractedText ? 'rules_extracted' : 'processing',
+        extractedText,
+        inactivationReason: null,
+        inactivatedAt: null,
+        createdAt,
+        createdBy: actor.name,
+      };
+      contractMemory.set(contractId, contract);
+
+      return {
+        statusCode: 201,
+        body: {
+          status: 'ok',
+          contract: {
+            id: contract.id,
+            siteId: contract.siteId,
+            siteName: contract.siteName,
+            title: contract.title,
+            sourceType: contract.sourceType,
+            status: contract.status,
+            extractedText: contract.extractedText,
+            inactivationReason: contract.inactivationReason,
+            inactivatedAt: contract.inactivatedAt?.toISOString() ?? null,
+            createdAt: contract.createdAt.toISOString(),
+            createdBy: contract.createdBy,
+          },
+        },
+      };
+    }
+
     await deps.ensureDomainTables();
 
     await deps.prisma.$executeRaw`
-      INSERT INTO contracts (id, company_name, title, source_type, status, extracted_text, created_by)
-      VALUES (${contractId}, ${companyName}, ${payload.title}, ${payload.sourceType}, ${'processing'}, ${extractedText}, ${actor.id})
+      INSERT INTO contracts (id, tenant_id, site_id, company_name, title, source_type, status, created_by, created_at, updated_at)
+      VALUES (
+        ${contractId},
+        ${tenantId},
+        ${siteAccess.site.id},
+        ${companyName},
+        ${payload.title},
+        ${payload.sourceType},
+        ${'processing'},
+        ${actor.id},
+        NOW(),
+        NOW()
+      )
     `;
 
     if (extractedText) {
       void (async () => {
         try {
-          const ruleResult = await extractRulesFromPdf(deps, contractId, payload.fileBuffer as Buffer, companyName);
+          const ruleResult = await extractRulesFromPdf(
+            deps,
+            contractId,
+            payload.fileBuffer as Buffer,
+            companyName,
+            siteAccess.site,
+            knownSites,
+          );
 
           if (ruleResult.statusCode >= 400) {
-            await updateContractStatus(contractId, companyName, 'extraction_failed');
+            await updateContractStatus(contractId, tenantId, companyName, 'extraction_failed');
             return;
           }
 
-          await updateContractStatus(contractId, companyName, 'rules_extracted');
+          await updateContractStatus(contractId, tenantId, companyName, 'rules_extracted');
         } catch {
-          await updateContractStatus(contractId, companyName, 'extraction_failed');
+          await updateContractStatus(contractId, tenantId, companyName, 'extraction_failed');
         }
       })();
     }
@@ -943,18 +1283,19 @@ export const createContractsService = (deps: Deps) => {
     const rows = await deps.prisma.$queryRaw<
       Array<{
         id: string;
+        site_id: string;
+        site_name: string;
         title: string;
         source_type: string;
         status: string;
-        extracted_text: string | null;
-        inactivation_reason: string | null;
-        inactivated_at: Date | null;
         created_at: Date;
       }>
     >`
-      SELECT id, title, source_type, status, extracted_text, inactivation_reason, inactivated_at, created_at
-      FROM contracts
-      WHERE id = ${contractId}
+      SELECT contract.id, contract.site_id, site.name AS site_name, contract.title, contract.source_type,
+             contract.status, contract.created_at
+      FROM contracts contract
+      JOIN sites site ON site.id = contract.site_id
+      WHERE contract.id = ${contractId}
       LIMIT 1
     `;
 
@@ -964,12 +1305,14 @@ export const createContractsService = (deps: Deps) => {
         status: 'ok',
         contract: {
           id: rows[0]?.id ?? contractId,
+          siteId: rows[0]?.site_id ?? siteAccess.site.id,
+          siteName: rows[0]?.site_name ?? siteAccess.site.name,
           title: rows[0]?.title ?? payload.title,
           sourceType: rows[0]?.source_type ?? payload.sourceType,
           status: rows[0]?.status ?? 'processing',
-          extractedText: rows[0]?.extracted_text ?? extractedText,
-          inactivationReason: rows[0]?.inactivation_reason ?? null,
-          inactivatedAt: rows[0]?.inactivated_at?.toISOString() ?? null,
+          extractedText,
+          inactivationReason: null,
+          inactivatedAt: null,
           createdAt: (rows[0]?.created_at ?? new Date()).toISOString(),
           createdBy: actor.name,
         },
@@ -979,35 +1322,69 @@ export const createContractsService = (deps: Deps) => {
 
   const getContractById = async (request: FastifyRequest, contractId: string): Promise<RouteResult> => {
     if (!deps.prisma) {
+      const companyName = deps.getCompanyFromJwt(request);
+      const tenantId = deps.getTenantIdFromJwt(request);
+      const contract = contractMemory.get(contractId);
+
+      if (!contract || contract.companyName !== companyName || contract.tenantId !== tenantId) {
+        return {
+          statusCode: 404,
+          body: {
+            status: 'error',
+            message: 'Contrato nao encontrado para esta empresa.',
+          },
+        };
+      }
+
+      const siteAccess = await deps.resolveAuthorizedSite(request, contract.siteId);
+      if (!siteAccess.allowed) {
+        return siteAccess;
+      }
+
       return {
-        statusCode: 503,
+        statusCode: 200,
         body: {
-          status: 'error',
-          message: deps.apiMessage.health.dbUnavailable,
+          status: 'ok',
+          contract: {
+            id: contract.id,
+            siteId: contract.siteId,
+            siteName: contract.siteName,
+            title: contract.title,
+            sourceType: contract.sourceType,
+            status: contract.status,
+            extractedText: contract.extractedText,
+            inactivationReason: contract.inactivationReason,
+            inactivatedAt: contract.inactivatedAt?.toISOString() ?? null,
+            createdAt: contract.createdAt.toISOString(),
+          },
         },
       };
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = deps.getTenantIdFromJwt(request);
 
     await deps.ensureDomainTables();
 
     const rows = await deps.prisma.$queryRaw<
       Array<{
         id: string;
+        site_id: string;
+        site_name: string;
         title: string;
         source_type: string;
         status: string;
-        extracted_text: string | null;
-        inactivation_reason: string | null;
-        inactivated_at: Date | null;
         created_at: Date;
       }>
     >`
-      SELECT id, title, source_type, status, extracted_text, inactivation_reason, inactivated_at, created_at
-      FROM contracts
-      WHERE id = ${contractId}
-        AND company_name = ${companyName}
+      SELECT contract.id, contract.site_id, site.name AS site_name, contract.title, contract.source_type,
+             contract.status, contract.created_at
+      FROM contracts contract
+      JOIN sites site ON site.id = contract.site_id
+      WHERE contract.id = ${contractId}
+ AND contract.tenant_id = ${tenantId}
+ AND contract.company_name = ${companyName}
+        AND contract.tenant_id = ${tenantId}
       LIMIT 1
     `;
 
@@ -1022,56 +1399,120 @@ export const createContractsService = (deps: Deps) => {
       };
     }
 
+    const siteAccess = await deps.resolveAuthorizedSite(request, contract.site_id);
+    if (!siteAccess.allowed) {
+      return siteAccess;
+    }
+
     return {
       statusCode: 200,
       body: {
         status: 'ok',
         contract: {
           id: contract.id,
+          siteId: contract.site_id,
+          siteName: contract.site_name,
           title: contract.title,
           sourceType: contract.source_type,
           status: contract.status,
-          extractedText: contract.extracted_text,
-          inactivationReason: contract.inactivation_reason,
-          inactivatedAt: contract.inactivated_at?.toISOString() ?? null,
+          extractedText: null,
+          inactivationReason: null,
+          inactivatedAt: null,
           createdAt: contract.created_at.toISOString(),
         },
       },
     };
   };
 
-  const listContracts = async (request: FastifyRequest, limit: number): Promise<RouteResult> => {
+  const listContracts = async (
+    request: FastifyRequest,
+    query: { limit: number; siteId?: string },
+  ): Promise<RouteResult> => {
     if (!deps.prisma) {
+      const companyName = deps.getCompanyFromJwt(request);
+      const tenantId = deps.getTenantIdFromJwt(request);
+      const authorizedSites = query.siteId ? [] : await deps.listAuthorizedSites(request);
+
+      if (query.siteId) {
+        const siteAccess = await deps.resolveAuthorizedSite(request, query.siteId);
+        if (!siteAccess.allowed) {
+          return siteAccess;
+        }
+      }
+
+      const siteIds = query.siteId ? [query.siteId] : authorizedSites.map((site) => site.id);
+      const contracts = Array.from(contractMemory.values())
+        .filter((item) => item.companyName === companyName)
+        .filter((item) => item.tenantId === tenantId)
+        .filter((item) => siteIds.length === 0 || siteIds.includes(item.siteId))
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, query.limit);
+
       return {
-        statusCode: 503,
+        statusCode: 200,
         body: {
-          status: 'error',
-          message: deps.apiMessage.health.dbUnavailable,
+          status: 'ok',
+          contracts: contracts.map((item) => ({
+            id: item.id,
+            siteId: item.siteId,
+            siteName: item.siteName,
+            title: item.title,
+            sourceType: item.sourceType,
+            status: item.status,
+            extractedText: item.extractedText,
+            inactivationReason: item.inactivationReason,
+            inactivatedAt: item.inactivatedAt?.toISOString() ?? null,
+            createdAt: item.createdAt.toISOString(),
+          })),
         },
       };
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = deps.getTenantIdFromJwt(request);
 
     await deps.ensureDomainTables();
 
+    const authorizedSites = query.siteId
+      ? []
+      : await deps.listAuthorizedSites(request);
+
+    if (!query.siteId && authorizedSites.length === 0) {
+      return {
+        statusCode: 200,
+        body: { status: 'ok', contracts: [] },
+      };
+    }
+
+    if (query.siteId) {
+      const siteAccess = await deps.resolveAuthorizedSite(request, query.siteId);
+      if (!siteAccess.allowed) {
+        return siteAccess;
+      }
+    }
+
+    const siteIds = query.siteId ? [query.siteId] : authorizedSites.map((site) => site.id);
     const contracts = await deps.prisma.$queryRaw<
       Array<{
         id: string;
+        site_id: string;
+        site_name: string;
         title: string;
         source_type: string;
         status: string;
-        extracted_text: string | null;
-        inactivation_reason: string | null;
-        inactivated_at: Date | null;
         created_at: Date;
       }>
     >`
-      SELECT id, title, source_type, status, extracted_text, inactivation_reason, inactivated_at, created_at
-      FROM contracts
-      WHERE company_name = ${companyName}
-      ORDER BY created_at DESC
-      LIMIT ${limit}
+      SELECT contract.id, contract.site_id, site.name AS site_name, contract.title, contract.source_type,
+             contract.status, contract.created_at
+      FROM contracts contract
+      JOIN sites site ON site.id = contract.site_id
+ AND contract.tenant_id = ${tenantId}
+        AND contract.company_name = ${companyName}
+        AND contract.tenant_id = ${tenantId}
+        AND contract.site_id = ANY(${siteIds}::text[])
+      ORDER BY contract.created_at DESC
+      LIMIT ${query.limit}
     `;
 
     return {
@@ -1080,12 +1521,14 @@ export const createContractsService = (deps: Deps) => {
         status: 'ok',
         contracts: contracts.map((item) => ({
           id: item.id,
+          siteId: item.site_id,
+          siteName: item.site_name,
           title: item.title,
           sourceType: item.source_type,
           status: item.status,
-          extractedText: item.extracted_text,
-          inactivationReason: item.inactivation_reason,
-          inactivatedAt: item.inactivated_at?.toISOString() ?? null,
+          extractedText: null,
+          inactivationReason: null,
+          inactivatedAt: null,
           createdAt: item.created_at.toISOString(),
         })),
       },
@@ -1097,24 +1540,51 @@ export const createContractsService = (deps: Deps) => {
     payload: { contractId: string; status: 'active' | 'inactive'; inactivationReason?: string | null },
   ): Promise<RouteResult> => {
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = deps.getTenantIdFromJwt(request);
 
     if (!deps.prisma) {
-      return {
-        statusCode: 503,
-        body: {
-          status: 'error',
-          message: deps.apiMessage.health.dbUnavailable,
-        },
-      };
+      const contract = contractMemory.get(payload.contractId);
+      if (!contract || contract.companyName !== companyName || contract.tenantId !== tenantId) {
+        return {
+          statusCode: 404,
+          body: {
+            status: 'error',
+            message: 'Contrato nao encontrado para esta empresa.',
+          },
+        };
+      }
+
+      const siteAccess = await deps.resolveAuthorizedSite(request, contract.siteId);
+      if (!siteAccess.allowed) {
+        return siteAccess;
+      }
+
+      if (payload.status === 'inactive' && !payload.inactivationReason?.trim()) {
+        return {
+          statusCode: 400,
+          body: {
+            status: 'error',
+            message: 'Motivo de inativacao e obrigatorio.',
+          },
+        };
+      }
+
+      contract.status = payload.status;
+      contract.inactivationReason = payload.status === 'inactive' ? payload.inactivationReason?.trim() ?? null : null;
+      contract.inactivatedAt = payload.status === 'inactive' ? new Date() : null;
+      contractMemory.set(contract.id, contract);
+      return getContractById(request, payload.contractId);
     }
 
     await deps.ensureDomainTables();
 
-    const existing = await deps.prisma.$queryRaw<Array<{ id: string }>>`
-      SELECT id
+    const existing = await deps.prisma.$queryRaw<Array<{ id: string; site_id: string }>>`
+      SELECT id, site_id
       FROM contracts
       WHERE id = ${payload.contractId}
-        AND company_name = ${companyName}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
       LIMIT 1
     `;
 
@@ -1126,6 +1596,11 @@ export const createContractsService = (deps: Deps) => {
           message: 'Contrato nao encontrado para esta empresa.',
         },
       };
+    }
+
+    const siteAccess = await deps.resolveAuthorizedSite(request, existing[0].site_id);
+    if (!siteAccess.allowed) {
+      return siteAccess;
     }
 
     if (payload.status === 'inactive' && !payload.inactivationReason?.trim()) {
@@ -1140,6 +1615,7 @@ export const createContractsService = (deps: Deps) => {
 
     await updateContractStatus(
       payload.contractId,
+      tenantId,
       companyName,
       payload.status,
       payload.status === 'inactive' ? payload.inactivationReason?.trim() ?? null : null,

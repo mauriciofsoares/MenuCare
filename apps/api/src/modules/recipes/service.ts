@@ -14,6 +14,32 @@ type RouteResult = {
   body: unknown;
 };
 
+export type MemoryRecipe = {
+  id: string;
+  tenantId: string;
+  companyName: string;
+  sourceFileName: string;
+  sourceReference: string | null;
+  name: string;
+  normalizedName: string;
+  category: string;
+  subcategory: string;
+  foodGroup: string;
+  costPerCapita: number | null;
+  servingYield: number | null;
+  preparationMethod: string | null;
+  nutritionalInfo: unknown;
+  compatibleDiets: string[];
+  allergens: string[];
+  aiClassification: unknown;
+  aiProvider: string;
+  isActive: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+};
+
+export const recipeMemory = new Map<string, MemoryRecipe>();
+
 export interface Deps {
   apiMessage: { health: { dbUnavailable: string } };
   authenticate: any;
@@ -133,14 +159,9 @@ export const createRecipesService = (deps: Deps) => {
       }>;
     },
   ): Promise<RouteResult> => {
-    if (!deps.prisma) {
-      return { statusCode: 503, body: { status: 'error', message: deps.apiMessage.health.dbUnavailable } };
-    }
-
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
     const actor = deps.getUserFromJwt(request);
-
-    await deps.ensureDomainTables();
 
     const aiContext = deps.buildRecipeImportContext({
       companyName,
@@ -159,7 +180,71 @@ export const createRecipesService = (deps: Deps) => {
       })),
     });
 
+    if (!deps.prisma) {
+      const importEventId = deps.randomUUID();
+      const importedItems = payload.recipes.map((recipe) => {
+        const classification = deps.classifyRecipeFromText(recipe.name, recipe.ingredients);
+        const recipeId = deps.randomUUID();
+        const now = new Date();
+        const memoryRecipe: MemoryRecipe = {
+          id: recipeId,
+          tenantId,
+          companyName,
+          sourceFileName: payload.fileName.trim(),
+          sourceReference: payload.sourceReference?.trim() || null,
+          name: recipe.name.trim(),
+          normalizedName: deps.normalizeTerm(recipe.name),
+          category: classification.category,
+          subcategory: classification.subcategory,
+          foodGroup: classification.foodGroup,
+          costPerCapita: recipe.cost ?? null,
+          servingYield: recipe.yield ?? null,
+          preparationMethod: recipe.preparationMethod ?? null,
+          nutritionalInfo: recipe.nutritionalInfo ?? null,
+          compatibleDiets: recipe.compatibleDiets ?? [],
+          allergens: recipe.allergens ?? [],
+          aiClassification: { classification, source: 'heuristic-ready' },
+          aiProvider: 'heuristic-ready',
+          isActive: true,
+          createdAt: now,
+          updatedAt: now,
+        };
+        recipeMemory.set(recipeId, memoryRecipe);
+
+        return {
+          id: recipeId,
+          name: memoryRecipe.name,
+          category: classification.category,
+          subcategory: classification.subcategory,
+          foodGroup: classification.foodGroup,
+          confidence: classification.confidence,
+        };
+      });
+
+      void actor;
+
+      return {
+        statusCode: 201,
+        body: {
+          status: 'ok',
+          recipeImport: {
+            id: importEventId,
+            fileName: payload.fileName.trim(),
+            sourceReference: payload.sourceReference?.trim() || null,
+            importedCount: importedItems.length,
+            classifiedCount: importedItems.length,
+            recipes: importedItems,
+            createdAt: new Date().toISOString(),
+            aiPreparation: aiContext,
+          },
+        },
+      };
+    }
+
+    await deps.ensureDomainTables();
+
     await deps.recordAiPreparationEvent({
+      tenantId,
       companyName,
       moduleKey: 'recipes',
       sourceKind: 'pdf-import',
@@ -182,9 +267,10 @@ export const createRecipesService = (deps: Deps) => {
       const normalizedName = deps.normalizeTerm(recipe.name);
       const recipeId = deps.randomUUID();
 
-      await deps.prisma.$executeRaw`
+      const persistedRecipeRows = await deps.prisma.$queryRaw<Array<{ id: string }>>`
         INSERT INTO recipe_library_items (
           id,
+          tenant_id,
           company_name,
           source_file_name,
           source_reference,
@@ -201,10 +287,13 @@ export const createRecipesService = (deps: Deps) => {
           allergens_json,
           ai_classification_json,
           ai_provider,
-          is_active
+          is_active,
+          created_at,
+          updated_at
         )
         VALUES (
           ${recipeId},
+          ${tenantId},
           ${companyName},
           ${payload.fileName.trim()},
           ${payload.sourceReference?.trim() || null},
@@ -221,12 +310,16 @@ export const createRecipesService = (deps: Deps) => {
           ${JSON.stringify(recipe.allergens ?? [])},
           ${JSON.stringify({ classification, source: 'heuristic-ready' })},
           ${'heuristic-ready'},
-          TRUE
+          TRUE,
+          NOW(),
+          NOW()
         )
-        ON CONFLICT (company_name, normalized_name)
+        ON CONFLICT (tenant_id, normalized_name)
         DO UPDATE SET
+          tenant_id = EXCLUDED.tenant_id,
           source_file_name = EXCLUDED.source_file_name,
           source_reference = EXCLUDED.source_reference,
+          name = EXCLUDED.name,
           category = EXCLUDED.category,
           subcategory = EXCLUDED.subcategory,
           food_group = EXCLUDED.food_group,
@@ -240,65 +333,75 @@ export const createRecipesService = (deps: Deps) => {
           ai_provider = EXCLUDED.ai_provider,
           is_active = TRUE,
           updated_at = NOW()
+        RETURNING id
       `;
+
+      const persistedRecipeId = persistedRecipeRows[0]?.id ?? recipeId;
 
       for (const ingredientName of recipe.ingredients) {
         const normalizedIngredientName = deps.normalizeTerm(ingredientName);
         const ingredientId = deps.randomUUID();
 
-        await deps.prisma.$executeRaw`
+        const ingredientRows = await deps.prisma.$queryRaw<Array<{ id: string }>>`
           INSERT INTO recipe_ingredients (
             id,
+            tenant_id,
             company_name,
             name,
             normalized_name,
-            ingredient_group
+            ingredient_group,
+            created_at,
+            updated_at
           )
           VALUES (
             ${ingredientId},
+            ${tenantId},
             ${companyName},
             ${ingredientName.trim()},
             ${normalizedIngredientName},
-            ${classification.foodGroup}
+            ${classification.foodGroup},
+            NOW(),
+            NOW()
           )
-          ON CONFLICT (company_name, normalized_name)
+          ON CONFLICT (tenant_id, normalized_name)
           DO UPDATE SET
+            tenant_id = EXCLUDED.tenant_id,
             name = EXCLUDED.name,
-            ingredient_group = EXCLUDED.ingredient_group
+            ingredient_group = EXCLUDED.ingredient_group,
+            updated_at = NOW()
+          RETURNING id
         `;
 
-        const linkedIngredientRows = await deps.prisma.$queryRaw<Array<{ id: string }>>`
-          SELECT id
-          FROM recipe_ingredients
-          WHERE company_name = ${companyName}
-            AND normalized_name = ${normalizedIngredientName}
-          LIMIT 1
-        `;
-
-        const linkedIngredientId = linkedIngredientRows[0]?.id ?? ingredientId;
+        const linkedIngredientId = ingredientRows[0]?.id ?? ingredientId;
 
         await deps.prisma.$executeRaw`
           INSERT INTO recipe_item_ingredients (
             id,
+            tenant_id,
             company_name,
             recipe_id,
             ingredient_id,
             quantity,
-            unit
+            unit,
+            created_at,
+            updated_at
           )
           VALUES (
             ${deps.randomUUID()},
+            ${tenantId},
             ${companyName},
-            ${recipeId},
+            ${persistedRecipeId},
             ${linkedIngredientId},
             ${null},
-            ${null}
+            ${null},
+            NOW(),
+            NOW()
           )
         `;
       }
 
       importedItems.push({
-        id: recipeId,
+        id: persistedRecipeId,
         name: recipe.name.trim(),
         category: classification.category,
         subcategory: classification.subcategory,
@@ -310,23 +413,29 @@ export const createRecipesService = (deps: Deps) => {
     await deps.prisma.$executeRaw`
       INSERT INTO recipe_import_events (
         id,
+        tenant_id,
         company_name,
         file_name,
         imported_count,
         classified_count,
         warnings_json,
         actor_id,
-        actor_name
+        actor_name,
+        created_at,
+        updated_at
       )
       VALUES (
         ${importEventId},
+        ${tenantId},
         ${companyName},
         ${payload.fileName.trim()},
         ${payload.recipes.length},
         ${importedItems.length},
         ${JSON.stringify([])},
         ${actor.id},
-        ${actor.name}
+        ${actor.name},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -359,10 +468,48 @@ export const createRecipesService = (deps: Deps) => {
     },
   ): Promise<RouteResult> => {
     if (!deps.prisma) {
-      return { statusCode: 503, body: { status: 'error', message: deps.apiMessage.health.dbUnavailable } };
+      const companyName = deps.getCompanyFromJwt(request);
+      const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+      const recipes = Array.from(recipeMemory.values())
+        .filter((item) => item.companyName === companyName && item.tenantId === tenantId)
+        .filter((item) => query.active === 'all' || (query.active === 'active' ? item.isActive : !item.isActive))
+        .filter((item) => !query.category || item.category === query.category)
+        .filter((item) => !query.subcategory || item.subcategory === query.subcategory)
+        .filter((item) => !query.foodGroup || item.foodGroup === query.foodGroup)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, query.limit);
+
+      return {
+        statusCode: 200,
+        body: {
+          status: 'ok',
+          recipes: recipes.map((item) => ({
+            id: item.id,
+            sourceFileName: item.sourceFileName,
+            sourceReference: item.sourceReference,
+            name: item.name,
+            normalizedName: item.normalizedName,
+            category: item.category,
+            subcategory: item.subcategory,
+            foodGroup: item.foodGroup,
+            costPerCapita: item.costPerCapita,
+            servingYield: item.servingYield,
+            preparationMethod: item.preparationMethod,
+            nutritionalInfo: item.nutritionalInfo,
+            compatibleDiets: item.compatibleDiets,
+            allergens: item.allergens,
+            aiClassification: item.aiClassification,
+            aiProvider: item.aiProvider,
+            isActive: item.isActive,
+            createdAt: item.createdAt.toISOString(),
+            updatedAt: item.updatedAt.toISOString(),
+          })),
+        },
+      };
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
 
     await deps.ensureDomainTables();
 
@@ -410,10 +557,11 @@ export const createRecipesService = (deps: Deps) => {
         created_at,
         updated_at
       FROM recipe_library_items
-      WHERE company_name = ${companyName}
-        AND (${query.category ?? null} IS NULL OR category = ${query.category ?? null})
-        AND (${query.subcategory ?? null} IS NULL OR subcategory = ${query.subcategory ?? null})
-        AND (${query.foodGroup ?? null} IS NULL OR food_group = ${query.foodGroup ?? null})
+      WHERE tenant_id = ${tenantId}
+        AND company_name = ${companyName}
+        AND category = COALESCE(CAST(${query.category ?? null} AS text), category)
+        AND subcategory = COALESCE(CAST(${query.subcategory ?? null} AS text), subcategory)
+        AND food_group = COALESCE(CAST(${query.foodGroup ?? null} AS text), food_group)
         AND (
           ${query.active} = 'all'
           OR (${query.active} = 'active' AND is_active = TRUE)
@@ -454,10 +602,35 @@ export const createRecipesService = (deps: Deps) => {
 
   const getCoverage = async (request: FastifyRequest): Promise<RouteResult> => {
     if (!deps.prisma) {
-      return { statusCode: 503, body: { status: 'error', message: deps.apiMessage.health.dbUnavailable } };
+      const companyName = deps.getCompanyFromJwt(request);
+      const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+      const recipes = Array.from(recipeMemory.values())
+        .filter((item) => item.companyName === companyName && item.tenantId === tenantId);
+      const activeRecipes = recipes.filter((item) => item.isActive).length;
+      const manualReviewedRecipes = recipes.filter((item) => item.aiProvider === 'manual-reviewed').length;
+      const categoryDistribution = Array.from(
+        recipes.reduce((acc, item) => acc.set(item.category, (acc.get(item.category) ?? 0) + 1), new Map<string, number>()),
+      ).map(([category, total]) => ({ category, total }));
+
+      return {
+        statusCode: 200,
+        body: {
+          status: 'ok',
+          coverage: {
+            totalRecipes: recipes.length,
+            activeRecipes,
+            classifiedRecipes: recipes.length,
+            manualReviewedRecipes,
+            heuristicRecipes: Math.max(0, recipes.length - manualReviewedRecipes),
+            coveragePercent: recipes.length > 0 ? 100 : 0,
+            categoryDistribution,
+          },
+        },
+      };
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
 
     await deps.ensureDomainTables();
 
@@ -475,13 +648,15 @@ export const createRecipesService = (deps: Deps) => {
         SUM(CASE WHEN category <> 'Outros' AND subcategory <> 'Nao classificado' THEN 1 ELSE 0 END) AS classified_recipes,
         SUM(CASE WHEN ai_provider = 'manual-reviewed' THEN 1 ELSE 0 END) AS manual_reviewed_recipes
       FROM recipe_library_items
-      WHERE company_name = ${companyName}
+      WHERE tenant_id = ${tenantId}
+        AND company_name = ${companyName}
     `;
 
     const categoryRows = await deps.prisma.$queryRaw<Array<{ category: string; total: number | string }>>`
       SELECT category, COUNT(*) AS total
       FROM recipe_library_items
-      WHERE company_name = ${companyName}
+      WHERE tenant_id = ${tenantId}
+        AND company_name = ${companyName}
       GROUP BY category
       ORDER BY total DESC
       LIMIT 8
@@ -530,12 +705,54 @@ export const createRecipesService = (deps: Deps) => {
       reason?: string;
     },
   ): Promise<RouteResult> => {
-    if (!deps.prisma) {
-      return { statusCode: 503, body: { status: 'error', message: deps.apiMessage.health.dbUnavailable } };
-    }
-
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
     const actor = deps.getUserFromJwt(request);
+
+    if (!deps.prisma) {
+      const recipe = recipeMemory.get(params.recipeId);
+
+      if (!recipe || recipe.companyName !== companyName || recipe.tenantId !== tenantId) {
+        return { statusCode: 404, body: { status: 'error', message: 'Receita nao encontrada para reclassificacao.' } };
+      }
+
+      const nextClassification = {
+        category: payload.category,
+        subcategory: payload.subcategory,
+        foodGroup: payload.foodGroup,
+        confidence: payload.confidence ?? 0,
+        tags: payload.tags ?? [],
+      };
+
+      recipe.category = nextClassification.category;
+      recipe.subcategory = nextClassification.subcategory;
+      recipe.foodGroup = nextClassification.foodGroup;
+      recipe.aiClassification = {
+        classification: nextClassification,
+        source: 'manual-reviewed',
+        reason: payload.reason ?? null,
+      };
+      recipe.aiProvider = 'manual-reviewed';
+      recipe.updatedAt = new Date();
+      recipeMemory.set(recipe.id, recipe);
+      void actor;
+
+      return {
+        statusCode: 200,
+        body: {
+          status: 'ok',
+          recipe: {
+            id: recipe.id,
+            name: recipe.name,
+            category: nextClassification.category,
+            subcategory: nextClassification.subcategory,
+            foodGroup: nextClassification.foodGroup,
+            aiClassification: nextClassification,
+            aiProvider: 'manual-reviewed',
+          },
+        },
+      };
+    }
 
     await deps.ensureDomainTables();
 
@@ -552,6 +769,7 @@ export const createRecipesService = (deps: Deps) => {
       SELECT id, name, category, subcategory, food_group, ai_classification_json
       FROM recipe_library_items
       WHERE id = ${params.recipeId}
+        AND tenant_id = ${tenantId}
         AND company_name = ${companyName}
       LIMIT 1
     `;
@@ -593,33 +811,41 @@ export const createRecipesService = (deps: Deps) => {
         ai_provider = ${'manual-reviewed'},
         updated_at = NOW()
       WHERE id = ${recipe.id}
+        AND tenant_id = ${tenantId}
         AND company_name = ${companyName}
     `;
 
     await deps.prisma.$executeRaw`
       INSERT INTO recipe_classification_events (
         id,
+        tenant_id,
         company_name,
         recipe_id,
         previous_classification_json,
         next_classification_json,
         reason,
         actor_id,
-        actor_name
+        actor_name,
+        created_at,
+        updated_at
       )
       VALUES (
         ${deps.randomUUID()},
+        ${tenantId},
         ${companyName},
         ${recipe.id},
         ${JSON.stringify(previousClassification)},
         ${JSON.stringify(nextClassification)},
         ${payload.reason ?? null},
         ${actor.id},
-        ${actor.name}
+        ${actor.name},
+        NOW(),
+        NOW()
       )
     `;
 
     await deps.recordAiPreparationEvent({
+      tenantId,
       companyName,
       moduleKey: 'recipes',
       sourceKind: 'manual-reclassification',

@@ -88,6 +88,7 @@ app.get('/rules', { preHandler: authenticate }, async (request, reply) => {
   const query = z
     .object({
       contractId: z.string().min(1).optional(),
+      siteId: z.string().min(1).optional(),
       status: z.enum(['pending', 'approved', 'rejected']).optional(),
       limit: z.coerce.number().int().min(1).max(100).default(50),
     })
@@ -96,8 +97,9 @@ app.get('/rules', { preHandler: authenticate }, async (request, reply) => {
   const limit = query.success ? query.data.limit : 50;
   const status = query.success ? query.data.status : undefined;
   const contractId = query.success ? query.data.contractId : undefined;
+  const siteId = query.success ? query.data.siteId : undefined;
 
-  const result = await service.listRules(request, { limit, status, contractId });
+  const result = await service.listRules(request, { limit, status, contractId, siteId });
   return reply.code(result.statusCode).send(result.body);
 });
 };

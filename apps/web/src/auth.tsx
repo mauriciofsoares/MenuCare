@@ -11,9 +11,19 @@ type SessionUser = {
   accessProfile: string
 }
 
+export type AuthorizedSite = {
+  id: string
+  tenantId: string
+  name: string
+  city: string | null
+  state: string | null
+  role: string
+}
+
 type AuthState = {
   token: string
   user: SessionUser
+  authorizedSites: AuthorizedSite[]
 }
 
 type AuthContextValue = {
@@ -48,8 +58,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           throw new Error('Sessão expirada')
         }
 
-        const payload = (await response.json()) as { user: SessionUser }
-        const nextState = { token: parsed.token, user: payload.user }
+        const payload = (await response.json()) as { user: SessionUser; authorizedSites?: AuthorizedSite[] }
+        const nextState = { token: parsed.token, user: payload.user, authorizedSites: payload.authorizedSites ?? [] }
         setAuthState(nextState)
         window.localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState))
       } catch {
@@ -75,9 +85,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     const payload = (await response.json()) as { token: string; user: SessionUser }
+    const meResponse = await fetch(`${API_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${payload.token}` },
+    })
+    const mePayload = meResponse.ok
+      ? ((await meResponse.json()) as { authorizedSites?: AuthorizedSite[] })
+      : { authorizedSites: [] }
     const nextState = {
       token: payload.token,
       user: payload.user,
+      authorizedSites: mePayload.authorizedSites ?? [],
     }
 
     setAuthState(nextState)

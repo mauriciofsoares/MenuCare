@@ -62,6 +62,7 @@ export const createEvaluationsService = (deps: Deps) => {
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
     const evaluationId = deps.randomUUID();
 
     await deps.ensureDomainTables();
@@ -69,6 +70,7 @@ export const createEvaluationsService = (deps: Deps) => {
     await deps.prisma.$executeRaw`
       INSERT INTO menu_evaluation_imports (
         id,
+        tenant_id,
         company_name,
         file_name,
         unit_name,
@@ -76,18 +78,23 @@ export const createEvaluationsService = (deps: Deps) => {
         reference_date,
         score,
         evaluations_count,
-        comments
+        comments,
+        created_at,
+        updated_at
       )
       VALUES (
         ${evaluationId},
+        ${tenantId},
         ${companyName},
         ${payload.fileName.trim()},
         ${payload.unitName.trim()},
         ${payload.serviceName.trim()},
-        ${payload.referenceDate},
+        CAST(${payload.referenceDate} AS date),
         ${payload.score},
         ${payload.evaluationsCount},
-        ${payload.comments?.trim() || null}
+        ${payload.comments?.trim() || null},
+        NOW(),
+        NOW()
       )
     `;
 
@@ -119,6 +126,7 @@ export const createEvaluationsService = (deps: Deps) => {
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
     await deps.ensureDomainTables();
 
     const rows = await deps.prisma.$queryRaw<
@@ -145,7 +153,8 @@ export const createEvaluationsService = (deps: Deps) => {
         comments,
         created_at
       FROM menu_evaluation_imports
-      WHERE company_name = ${companyName}
+      WHERE tenant_id = ${tenantId}
+        AND company_name = ${companyName}
       ORDER BY created_at DESC
       LIMIT ${query.limit}
     `;
@@ -175,6 +184,7 @@ export const createEvaluationsService = (deps: Deps) => {
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
 
     await deps.ensureDomainTables();
 
@@ -199,17 +209,20 @@ export const createEvaluationsService = (deps: Deps) => {
         menu.recipes_json
       FROM menu_evaluation_imports eval
       LEFT JOIN menu_pdf_imports menu
-        ON menu.company_name = eval.company_name
+        ON menu.tenant_id = eval.tenant_id
+        AND menu.company_name = eval.company_name
         AND menu.unit_name = eval.unit_name
         AND menu.service_name = eval.service_name
         AND menu.reference_date = eval.reference_date
-      WHERE eval.company_name = ${companyName}
+      WHERE eval.tenant_id = ${tenantId}
+        AND eval.company_name = ${companyName}
       ORDER BY eval.reference_date DESC
     `;
 
     await deps.prisma.$executeRaw`
       DELETE FROM menu_combination_intelligence
-      WHERE company_name = ${companyName}
+      WHERE tenant_id = ${tenantId}
+        AND company_name = ${companyName}
     `;
 
     const grouped = new Map<string, {
@@ -262,6 +275,7 @@ export const createEvaluationsService = (deps: Deps) => {
       await deps.prisma.$executeRaw`
         INSERT INTO menu_combination_intelligence (
           id,
+          tenant_id,
           company_name,
           combination_key,
           recipes_json,
@@ -271,10 +285,13 @@ export const createEvaluationsService = (deps: Deps) => {
           evaluations_count,
           mapped_records,
           last_reference_date,
-          trend
+            trend,
+            created_at,
+            updated_at
         )
         VALUES (
           ${deps.randomUUID()},
+          ${tenantId},
           ${companyName},
           ${combinationKey},
           ${aggregate.recipesJson},
@@ -283,8 +300,10 @@ export const createEvaluationsService = (deps: Deps) => {
           ${averageRating},
           ${aggregate.evaluationsCount},
           ${aggregate.mappedRecords},
-          ${aggregate.lastReferenceDate.toISOString().slice(0, 10)},
-          ${trend}
+          CAST(${aggregate.lastReferenceDate.toISOString().slice(0, 10)} AS date),
+            ${trend},
+            NOW(),
+            NOW()
         )
       `;
 
@@ -312,6 +331,7 @@ export const createEvaluationsService = (deps: Deps) => {
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
     await deps.ensureDomainTables();
 
     const rows = await deps.prisma.$queryRaw<
@@ -342,7 +362,8 @@ export const createEvaluationsService = (deps: Deps) => {
         trend,
         created_at
       FROM menu_combination_intelligence
-      WHERE company_name = ${companyName}
+      WHERE tenant_id = ${tenantId}
+        AND company_name = ${companyName}
       ORDER BY average_rating DESC, evaluations_count DESC
       LIMIT ${query.limit}
     `;

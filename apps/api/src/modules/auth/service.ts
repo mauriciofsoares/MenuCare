@@ -28,6 +28,7 @@ type RouteResult = {
 };
 
 type InviteAuditPayload = {
+  tenantId: string;
   companyName: string;
   inviteToken: string;
   inviteEmail: string;
@@ -100,7 +101,7 @@ export interface Deps {
     $queryRaw: <T>(query: TemplateStringsArray, ...params: unknown[]) => Promise<T>;
     $executeRaw: (query: TemplateStringsArray, ...params: unknown[]) => Promise<unknown>;
   } | null;
-  readPasswordOverride: (email: string, companyName: string) => Promise<string | null>;
+  readPasswordOverride: (email: string, companyName: string, tenantId: string) => Promise<string | null>;
   verifyPassword: (plainText: string, hash: string) => Promise<boolean>;
   issueAccessToken: (...args: any[]) => Promise<string>;
   getRefreshSessionDeviceContext: (request: FastifyRequest) => {
@@ -123,9 +124,17 @@ export interface Deps {
   clearRefreshTokenCookie: (reply: FastifyReply) => void;
   touchRefreshSession: (sessionId: string) => Promise<void>;
   getCompanyFromJwt: (request: FastifyRequest) => string;
-  readOperationalProfile: (companyName: string) => Promise<unknown>;
+  listAuthorizedSites: (request: FastifyRequest) => Promise<Array<{
+    id: string;
+    tenantId: string;
+    name: string;
+    city: string | null;
+    state: string | null;
+    role: string;
+  }>>;
+  readOperationalProfile: (companyName: string, tenantId: string) => Promise<unknown>;
   operationalProfileSchema: SchemaLike<Record<string, unknown>>;
-  saveOperationalProfile: (companyName: string, profile: Record<string, unknown>) => Promise<void>;
+  saveOperationalProfile: (companyName: string, tenantId: string, profile: Record<string, unknown>) => Promise<void>;
   inviteActivationSchema: SchemaLike<{ token: string; password: string }>;
   ensureAuthTables: () => Promise<void>;
   hashPassword: (value: string) => Promise<string>;
@@ -138,8 +147,8 @@ export interface Deps {
   localeByCompany: Map<string, string>;
   loginAttemptByKey: Map<string, unknown>;
   normalizeLocale: (locale?: string) => string;
-  readLocaleFromDatabase: (companyName: string) => Promise<string | null>;
-  saveLocaleInDatabase: (companyName: string, locale: string) => Promise<void>;
+  readLocaleFromDatabase: (companyName: string, tenantId: string) => Promise<string | null>;
+  saveLocaleInDatabase: (companyName: string, tenantId: string, locale: string) => Promise<void>;
   localeSchema: SchemaLike<{ locale: string }>;
   randomUUID: () => string;
 }
@@ -192,7 +201,11 @@ export const createAuthService = (deps: Deps) => {
 
     if (deps.prisma) {
       try {
-        const storedHash = await deps.readPasswordOverride(normalizedEmail, deps.demoUser.companyName);
+        const storedHash = await deps.readPasswordOverride(
+          normalizedEmail,
+          deps.demoUser.companyName,
+          deps.demoContext.tenantId ?? 'demo-tenant',
+        );
         if (storedHash) {
           isValidPassword = await deps.verifyPassword(payload.password, storedHash);
         }
@@ -341,7 +354,7 @@ export const createAuthService = (deps: Deps) => {
       email: session.email,
       companyName: session.company_name,
       accessProfile: session.access_profile,
-      tenantId: session.tenant_id,
+      tenantId: session.tenant_id ?? deps.demoContext.tenantId ?? 'demo-tenant',
       roleKey: session.role_key,
       userName: session.user_name,
       authFlowId,
@@ -363,7 +376,7 @@ export const createAuthService = (deps: Deps) => {
       name: session.user_name,
       companyName: session.company_name,
       accessProfile: session.access_profile,
-      tenantId: session.tenant_id,
+      tenantId: session.tenant_id ?? deps.demoContext.tenantId ?? 'demo-tenant',
       roleKey: session.role_key,
     });
 
@@ -392,9 +405,12 @@ export const createAuthService = (deps: Deps) => {
       accessProfile?: string;
     };
 
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? deps.demoContext.tenantId ?? 'demo-tenant';
     const operationalProfile = await deps.readOperationalProfile(
       payload.companyName ?? deps.demoUser.companyName,
+      tenantId,
     );
+    const authorizedSites = await deps.listAuthorizedSites(request);
 
     return {
       statusCode: 200,
@@ -407,6 +423,7 @@ export const createAuthService = (deps: Deps) => {
           companyName: payload.companyName ?? deps.demoUser.companyName,
           accessProfile: payload.accessProfile ?? deps.demoUser.accessProfile,
         },
+        authorizedSites,
         operationalProfile,
       },
     };
@@ -414,7 +431,8 @@ export const createAuthService = (deps: Deps) => {
 
   const getOnboardingOperationalProfile = async (request: FastifyRequest): Promise<RouteResult> => {
     const companyName = deps.getCompanyFromJwt(request);
-    const operationalProfile = await deps.readOperationalProfile(companyName);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? deps.demoContext.tenantId ?? 'demo-tenant';
+    const operationalProfile = await deps.readOperationalProfile(companyName, tenantId);
 
     return {
       statusCode: 200,
@@ -430,8 +448,9 @@ export const createAuthService = (deps: Deps) => {
     profile: Record<string, unknown>,
   ): Promise<RouteResult> => {
     const companyName = deps.getCompanyFromJwt(request);
-    await deps.saveOperationalProfile(companyName, profile);
-    const operationalProfile = await deps.readOperationalProfile(companyName);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? deps.demoContext.tenantId ?? 'demo-tenant';
+    await deps.saveOperationalProfile(companyName, tenantId, profile);
+    const operationalProfile = await deps.readOperationalProfile(companyName, tenantId);
 
     return {
       statusCode: 201,
@@ -485,8 +504,8 @@ export const createAuthService = (deps: Deps) => {
     await deps.ensureAuthTables();
 
     const normalizedToken = payload.token.trim();
-    const inviteRows = await deps.prisma.$queryRaw<Array<{ email: string; company_name: string }>>`
-      SELECT email, company_name
+    const inviteRows = await deps.prisma.$queryRaw<Array<{ email: string; company_name: string; tenant_id: string }>>`
+      SELECT email, company_name, tenant_id
       FROM first_access_invites
       WHERE token = ${normalizedToken}
         AND is_active = TRUE
@@ -508,9 +527,9 @@ export const createAuthService = (deps: Deps) => {
     const passwordHash = await deps.hashPassword(payload.password);
 
     await deps.prisma.$executeRaw`
-      INSERT INTO auth_password_overrides (email, company_name, password_hash)
-      VALUES (${invite.email}, ${invite.company_name}, ${passwordHash})
-      ON CONFLICT (email)
+      INSERT INTO auth_password_overrides (tenant_id, email, company_name, password_hash, created_at, updated_at)
+      VALUES (${invite.tenant_id}, ${invite.email}, ${invite.company_name}, ${passwordHash}, NOW(), NOW())
+      ON CONFLICT (tenant_id, email)
       DO UPDATE SET
         company_name = EXCLUDED.company_name,
         password_hash = EXCLUDED.password_hash,
@@ -525,6 +544,7 @@ export const createAuthService = (deps: Deps) => {
     `;
 
     await deps.registerInviteAuditEvent({
+      tenantId: invite.tenant_id,
       companyName: invite.company_name,
       inviteToken: normalizedToken,
       inviteEmail: invite.email,
@@ -561,6 +581,7 @@ export const createAuthService = (deps: Deps) => {
     await deps.ensureAuthTables();
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? deps.demoContext.tenantId ?? 'demo-tenant';
     const actor = deps.getUserFromJwt(request);
     const normalizedEmail = payload.email.trim().toLowerCase();
     const inviteToken = `INV-${deps.randomUUID().replace(/-/g, '').slice(0, 20).toUpperCase()}`;
@@ -570,16 +591,19 @@ export const createAuthService = (deps: Deps) => {
       SET is_active = FALSE,
           used_at = NOW()
       WHERE email = ${normalizedEmail}
-        AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
         AND is_active = TRUE
     `;
 
     await deps.prisma.$executeRaw`
-      INSERT INTO first_access_invites (token, email, company_name, is_active)
-      VALUES (${inviteToken}, ${normalizedEmail}, ${companyName}, TRUE)
+      INSERT INTO first_access_invites (tenant_id, token, email, company_name, is_active, created_at, updated_at)
+      VALUES (${tenantId}, ${inviteToken}, ${normalizedEmail}, ${companyName}, TRUE, NOW(), NOW())
     `;
 
     await deps.registerInviteAuditEvent({
+      tenantId,
       companyName,
       inviteToken,
       inviteEmail: normalizedEmail,
@@ -619,6 +643,7 @@ export const createAuthService = (deps: Deps) => {
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? deps.demoContext.tenantId ?? 'demo-tenant';
     await deps.ensureAuthTables();
 
     const events = await deps.prisma.$queryRaw<
@@ -634,7 +659,9 @@ export const createAuthService = (deps: Deps) => {
     >`
       SELECT id, invite_token, invite_email, action, note, actor_name, created_at
       FROM invite_audit_events
-      WHERE company_name = ${companyName}
+      WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       ORDER BY created_at DESC
       LIMIT ${query.limit}
     `;
@@ -671,6 +698,7 @@ export const createAuthService = (deps: Deps) => {
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? deps.demoContext.tenantId ?? 'demo-tenant';
     await deps.ensureAuthTables();
 
     const invites =
@@ -686,7 +714,9 @@ export const createAuthService = (deps: Deps) => {
           >`
             SELECT token, email, is_active, used_at, created_at
             FROM first_access_invites
-            WHERE company_name = ${companyName}
+            WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
             ORDER BY created_at DESC
             LIMIT ${query.limit}
           `
@@ -701,7 +731,9 @@ export const createAuthService = (deps: Deps) => {
           >`
             SELECT token, email, is_active, used_at, created_at
             FROM first_access_invites
-            WHERE company_name = ${companyName}
+            WHERE tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
               AND is_active = ${query.status === 'active'}
             ORDER BY created_at DESC
             LIMIT ${query.limit}
@@ -737,12 +769,15 @@ export const createAuthService = (deps: Deps) => {
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? deps.demoContext.tenantId ?? 'demo-tenant';
     const actor = deps.getUserFromJwt(request);
     const inviteRows = await deps.prisma.$queryRaw<Array<{ token: string; is_active: boolean }>>`
       SELECT token, is_active
       FROM first_access_invites
       WHERE token = ${payload.token}
-        AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       LIMIT 1
     `;
 
@@ -773,18 +808,23 @@ export const createAuthService = (deps: Deps) => {
       SET is_active = FALSE,
           used_at = NOW()
       WHERE token = ${payload.token}
-        AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
     `;
 
     const emailRows = await deps.prisma.$queryRaw<Array<{ email: string }>>`
       SELECT email
       FROM first_access_invites
       WHERE token = ${payload.token}
-        AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       LIMIT 1
     `;
 
     await deps.registerInviteAuditEvent({
+      tenantId,
       companyName,
       inviteToken: payload.token,
       inviteEmail: emailRows[0]?.email ?? 'desconhecido',
@@ -818,12 +858,15 @@ export const createAuthService = (deps: Deps) => {
     }
 
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? deps.demoContext.tenantId ?? 'demo-tenant';
     const actor = deps.getUserFromJwt(request);
     const inviteRows = await deps.prisma.$queryRaw<Array<{ email: string }>>`
       SELECT email
       FROM first_access_invites
       WHERE token = ${payload.token}
-        AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
       LIMIT 1
     `;
 
@@ -848,16 +891,19 @@ export const createAuthService = (deps: Deps) => {
       SET is_active = FALSE,
           used_at = NOW()
       WHERE email = ${invite.email}
-        AND company_name = ${companyName}
+        AND tenant_id = ${tenantId}
+ AND tenant_id = ${tenantId}
+ AND company_name = ${companyName}
         AND is_active = TRUE
     `;
 
     await deps.prisma.$executeRaw`
-      INSERT INTO first_access_invites (token, email, company_name, is_active)
-      VALUES (${inviteToken}, ${invite.email}, ${companyName}, TRUE)
+      INSERT INTO first_access_invites (tenant_id, token, email, company_name, is_active, created_at, updated_at)
+      VALUES (${tenantId}, ${inviteToken}, ${invite.email}, ${companyName}, TRUE, NOW(), NOW())
     `;
 
     await deps.registerInviteAuditEvent({
+      tenantId,
       companyName,
       inviteToken,
       inviteEmail: invite.email,
@@ -887,11 +933,12 @@ export const createAuthService = (deps: Deps) => {
     logger: FastifyBaseLogger,
   ): Promise<RouteResult> => {
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? deps.demoContext.tenantId ?? 'demo-tenant';
     const fallbackLocale =
       deps.localeByCompany.get(companyName) ?? deps.normalizeLocale(process.env.API_LOCALE);
 
     try {
-      const persistedLocale = await deps.readLocaleFromDatabase(companyName);
+      const persistedLocale = await deps.readLocaleFromDatabase(companyName, tenantId);
 
       if (persistedLocale) {
         deps.localeByCompany.set(companyName, persistedLocale);
@@ -922,11 +969,12 @@ export const createAuthService = (deps: Deps) => {
     logger: FastifyBaseLogger,
   ): Promise<RouteResult> => {
     const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = (request.user as { tenantId?: string }).tenantId ?? deps.demoContext.tenantId ?? 'demo-tenant';
     const resolvedLocale = deps.normalizeLocale(payload.locale);
     deps.localeByCompany.set(companyName, resolvedLocale);
 
     try {
-      await deps.saveLocaleInDatabase(companyName, resolvedLocale);
+      await deps.saveLocaleInDatabase(companyName, tenantId, resolvedLocale);
     } catch (error) {
       logger.warn({ error }, 'Falha ao salvar preferencia de idioma no PostgreSQL.');
     }

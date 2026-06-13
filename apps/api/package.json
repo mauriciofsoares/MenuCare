@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "test": "cross-env NODE_ENV=test MENUCARE_DISABLE_LISTEN=1 LOGIN_RATE_LIMIT_MAX_ATTEMPTS=5 LOGIN_RATE_LIMIT_WINDOW_MS=600000 tsx --test src/**/*.test.ts",
+    "test:db:local": "cross-env DATABASE_URL=postgresql://menucare:menucare@localhost:5432/menucare?schema=public NODE_ENV=test MENUCARE_DISABLE_LISTEN=1 LOGIN_RATE_LIMIT_MAX_ATTEMPTS=5 LOGIN_RATE_LIMIT_WINDOW_MS=600000 tsx --test src/**/*.test.ts",
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
