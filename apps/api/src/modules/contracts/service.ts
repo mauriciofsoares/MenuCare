@@ -30,13 +30,20 @@ type ExtractedRule = {
   sourceItem: string | null;
   sourceExcerpt: string | null;
   sourcePage: number | null;
+  sourceBlockId?: string | null;
   evidenceConfidence: number | null;
 };
 
 type RuleWithEvidence = ExtractedRule & {
   sourceExcerpt: string | null;
   sourcePage: number | null;
+  sourceBlockId?: string | null;
   evidenceConfidence: number | null;
+};
+
+type SqlClient = {
+  $queryRaw: <T>(query: TemplateStringsArray, ...params: unknown[]) => Promise<T>;
+  $executeRaw: (query: TemplateStringsArray, ...params: unknown[]) => Promise<unknown>;
 };
 
 export interface Deps {
@@ -50,10 +57,9 @@ export interface Deps {
   };
   authenticate: any;
   contractSchema: SchemaLike<{ title: string; sourceType: string; siteId?: string }>;
-  prisma: {
-    $queryRaw: <T>(query: TemplateStringsArray, ...params: unknown[]) => Promise<T>;
-    $executeRaw: (query: TemplateStringsArray, ...params: unknown[]) => Promise<unknown>;
-  } | null;
+  prisma: (SqlClient & {
+    $transaction?: <T>(callback: (tx: SqlClient) => Promise<T>) => Promise<T>;
+  }) | null;
   getCompanyFromJwt: (request: FastifyRequest) => string;
   getTenantIdFromJwt: (request: FastifyRequest) => string;
   getUserFromJwt: (request: FastifyRequest) => { id: string; name: string };
@@ -245,7 +251,18 @@ type ContractBlockType =
   | 'IGNORE';
 
 type ContractBlock = ContractSegment & {
+  id: string;
   blockType: ContractBlockType;
+  pageNumber: number;
+  blockIndex: number;
+  contractPageId: string;
+  sourceItem: string;
+  normalizedText: string;
+  normalizedTableMarkdown: string | null;
+  normalizedTableJson: string | null;
+  detectedUnitsJson: string;
+  isRelevantForExtraction: boolean;
+  discardReason: string | null;
 };
 
 export type MemoryContract = {
@@ -368,6 +385,241 @@ const buildEvidencePages = (fullText: string, pageChunkChars: number): EvidenceP
   }
 
   return pages;
+};
+
+const normalizeWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim();
+
+const inferTextQuality = (text: string) => {
+  const normalized = normalizeWhitespace(text);
+  if (!normalized) {
+    return 'LOW';
+  }
+
+  if (normalized.length < 120) {
+    return 'PARTIAL';
+  }
+
+  const alphaNumericChars = normalized.match(/[A-Za-z0-9]/g)?.length ?? 0;
+  const ratio = alphaNumericChars / normalized.length;
+
+  if (ratio < 0.45) {
+    return 'LOW';
+  }
+
+  return ratio < 0.65 ? 'PARTIAL' : 'GOOD';
+};
+
+const isTableBlockType = (blockType: ContractBlockType) => blockType.startsWith('TABLE_');
+
+const normalizeTableFromText = (text: string, blockType: ContractBlockType) => {
+  if (!isTableBlockType(blockType)) {
+    return { markdown: null, json: null };
+  }
+
+  const rows = text
+    .split(/\r?\n/)
+    .map((line) => normalizeWhitespace(line))
+    .filter((line) => line.length > 0)
+    .slice(0, 80);
+
+  if (!rows.length) {
+    return { markdown: null, json: null };
+  }
+
+  const markdown = [
+    '| Linha |',
+    '| --- |',
+    ...rows.map((row) => `| ${row.replace(/\|/g, '\\|')} |`),
+  ].join('\n');
+
+  return {
+    markdown,
+    json: JSON.stringify({ rows: rows.map((text, index) => ({ index: index + 1, text })) }),
+  };
+};
+
+const detectKnownUnitsInText = (
+  text: string,
+  knownSites: Array<{ id: string; name: string }>,
+) => {
+  const content = normalizeText(text);
+  return knownSites
+    .filter((site) => content.includes(normalizeText(site.name)))
+    .map((site) => ({ id: site.id, name: site.name }));
+};
+
+const findPageNumberForSegment = (segment: ContractSegment, pages: EvidencePage[]) => {
+  if (segment.strategy === 'pages') {
+    return segment.chunkId;
+  }
+
+  const normalizedSegment = normalizeWhitespace(segment.text).slice(0, 240);
+  if (!normalizedSegment) {
+    return 1;
+  }
+
+  const match = pages.find((page) => normalizeWhitespace(page.text).includes(normalizedSegment));
+  return match?.page ?? 1;
+};
+
+const getBlockDiscardReason = (
+  block: Pick<ContractBlock, 'blockType' | 'text'>,
+  siteName: string,
+  knownSites: Array<{ id: string; name: string }>,
+) => {
+  if (['COMMERCIAL', 'ADMINISTRATIVE', 'HSE', 'IGNORE'].includes(block.blockType)) {
+    return `irrelevant_block_type:${block.blockType}`;
+  }
+
+  if (!mentionsSelectedSiteOrGeneralScope(block.text, siteName, knownSites)) {
+    return 'not_applicable_to_selected_site';
+  }
+
+  if (block.blockType === 'TABLE_KPI_SLA' && !containsAnyNormalized(block.text, directFoodServiceImpactKeywords)) {
+    return 'generic_kpi_sla_without_direct_food_service_impact';
+  }
+
+  if (block.blockType === 'TEXT_SECTION' && !containsAnyNormalized(block.text, strongMenuBlockKeywords)) {
+    return 'text_section_without_strong_menu_signal';
+  }
+
+  return null;
+};
+
+const buildContractBlocks = (
+  segments: ContractSegment[],
+  pages: EvidencePage[],
+  siteName: string,
+  knownSites: Array<{ id: string; name: string }>,
+  randomUUID: () => string,
+) => segments.map((segment, index): ContractBlock => {
+  const blockType = classifyContractBlock(segment.text);
+  const pageNumber = findPageNumberForSegment(segment, pages);
+  const table = normalizeTableFromText(segment.text, blockType);
+  const preliminaryBlock = { ...segment, blockType };
+  const discardReason = getBlockDiscardReason(preliminaryBlock, siteName, knownSites);
+
+  return {
+    ...segment,
+    id: randomUUID(),
+    blockType,
+    pageNumber,
+    blockIndex: index + 1,
+    contractPageId: '',
+    sourceItem: segment.chunkLabel,
+    normalizedText: normalizeWhitespace(segment.text),
+    normalizedTableMarkdown: table.markdown,
+    normalizedTableJson: table.json,
+    detectedUnitsJson: JSON.stringify(detectKnownUnitsInText(segment.text, knownSites)),
+    isRelevantForExtraction: discardReason === null,
+    discardReason,
+  };
+});
+
+const persistContractPagesAndBlocks = async (
+  client: SqlClient,
+  params: {
+    tenantId: string;
+    siteId: string;
+    contractId: string;
+    pages: EvidencePage[];
+    blocks: ContractBlock[];
+    randomUUID: () => string;
+  },
+) => {
+  await client.$executeRaw`
+    DELETE FROM contract_blocks
+    WHERE tenant_id = ${params.tenantId}
+      AND contract_id = ${params.contractId}
+  `;
+
+  await client.$executeRaw`
+    DELETE FROM contract_pages
+    WHERE tenant_id = ${params.tenantId}
+      AND contract_id = ${params.contractId}
+  `;
+
+  const pageIds = new Map<number, string>();
+
+  for (const page of params.pages) {
+    const pageId = params.randomUUID();
+    pageIds.set(page.page, pageId);
+
+    await client.$executeRaw`
+      INSERT INTO contract_pages (
+        id,
+        tenant_id,
+        site_id,
+        contract_id,
+        page_number,
+        raw_text,
+        text_quality,
+        created_at
+      )
+      VALUES (
+        ${pageId},
+        ${params.tenantId},
+        ${params.siteId},
+        ${params.contractId},
+        ${page.page},
+        ${page.text},
+        ${inferTextQuality(page.text)},
+        ${new Date()}
+      )
+    `;
+  }
+
+  for (const block of params.blocks) {
+    const contractPageId = pageIds.get(block.pageNumber) ?? pageIds.get(1);
+    if (!contractPageId) {
+      continue;
+    }
+
+    block.contractPageId = contractPageId;
+
+    await client.$executeRaw`
+      INSERT INTO contract_blocks (
+        id,
+        tenant_id,
+        site_id,
+        contract_id,
+        contract_page_id,
+        page_number,
+        block_index,
+        block_type,
+        source_item,
+        raw_text,
+        normalized_text,
+        normalized_table_markdown,
+        normalized_table_json,
+        detected_units_json,
+        is_relevant_for_extraction,
+        discard_reason,
+        created_at
+      )
+      VALUES (
+        ${block.id},
+        ${params.tenantId},
+        ${params.siteId},
+        ${params.contractId},
+        ${contractPageId},
+        ${block.pageNumber},
+        ${block.blockIndex},
+        ${block.blockType},
+        ${block.sourceItem},
+        ${block.text},
+        ${block.normalizedText},
+        ${block.normalizedTableMarkdown},
+        ${block.normalizedTableJson},
+        ${block.detectedUnitsJson},
+        ${block.isRelevantForExtraction},
+        ${block.discardReason},
+        ${new Date()}
+      )
+    `;
+  }
+
+  return params.blocks;
 };
 
 const findDeterministicEvidence = (rule: ExtractedRule, pages: EvidencePage[]): RuleWithEvidence => {
@@ -992,11 +1244,29 @@ export const extractRulesFromPdf = async (
     ? baseSegments
     : [{ chunkId: 1, chunkLabel: 'Documento completo', strategy: 'pages' as const, text: contractText }]
   ).slice(0, maxSegments);
-  const classifiedBlocks: ContractBlock[] = candidateSegments.map((segment) => ({
-    ...segment,
-    blockType: classifyContractBlock(segment.text),
-  }));
-  const segments = classifiedBlocks.filter((block) => shouldSendBlockToAi(block, site.name, knownSites));
+  const evidencePages = buildEvidencePages(contractText, pageChunkChars);
+  const classifiedBlocks = buildContractBlocks(candidateSegments, evidencePages, site.name, knownSites, deps.randomUUID);
+  const persistedBlocks = await (deps.prisma.$transaction
+    ? deps.prisma.$transaction((tx) => persistContractPagesAndBlocks(tx, {
+      tenantId: site.tenantId,
+      siteId: site.id,
+      contractId,
+      pages: evidencePages,
+      blocks: classifiedBlocks,
+      randomUUID: deps.randomUUID,
+    }))
+    : persistContractPagesAndBlocks(deps.prisma, {
+      tenantId: site.tenantId,
+      siteId: site.id,
+      contractId,
+      pages: evidencePages,
+      blocks: classifiedBlocks,
+      randomUUID: deps.randomUUID,
+    })
+  );
+  const segments = persistedBlocks.filter((block) => (
+    block.isRelevantForExtraction && shouldSendBlockToAi(block, site.name, knownSites)
+  ));
 
   const knownSiteNames = knownSites.map((knownSite) => knownSite.name).join(', ');
   const promptTemplate = `Voce esta extraindo regras operacionais de cardapio para:
@@ -1161,7 +1431,8 @@ Responda apenas com JSON:`;
       const candidates = Array.isArray(extractedPayload) ? extractedPayload.length : 0;
       diagnostics.candidatesReceived += candidates;
 
-      const normalizedChunkRules = normalizeExtractedRules(extractedPayload);
+      const normalizedChunkRules = normalizeExtractedRules(extractedPayload)
+        .map((rule) => ({ ...rule, sourceBlockId: segment.id }));
       diagnostics.discardedBySchema += Math.max(0, candidates - normalizedChunkRules.length);
       allRules.push(...normalizedChunkRules);
 
@@ -1195,7 +1466,6 @@ Responda apenas com JSON:`;
   }
 
   const normalizedRules = Array.from(dedupedRulesMap.values());
-  const evidencePages = buildEvidencePages(contractText, pageChunkChars);
   let rulesWithEvidence = normalizedRules.map((rule) => findDeterministicEvidence(rule, evidencePages));
 
   const evidenceFallbackEnabled = process.env.OLLAMA_EVIDENCE_FALLBACK_ENABLED === 'true';
@@ -1383,6 +1653,7 @@ ${contractText.slice(0, 12000)}`;
         source_item,
         source_excerpt,
         source_page,
+        source_block_id,
         evidence_confidence,
         status,
         created_at,
@@ -1408,6 +1679,7 @@ ${contractText.slice(0, 12000)}`;
         ${rule.sourceItem},
         ${rule.sourceExcerpt},
         ${rule.sourcePage},
+        ${rule.sourceBlockId ?? null},
         ${rule.evidenceConfidence},
         ${'pending'},
         ${createdAt},

@@ -28,19 +28,37 @@ type Captures = {
   prompts: string[];
   writes: SqlWrite[];
   preparationEvents: Array<{ sourceKind: string; data: unknown }>;
+  operations: string[];
+  nextId: number;
 };
 
 const createCaptures = (): Captures => ({
   prompts: [],
   writes: [],
   preparationEvents: [],
+  operations: [],
+  nextId: 1,
 });
 
+const sqlIncludes = (write: SqlWrite, value: string) => write.sql.replace(/\s+/g, ' ').includes(value);
+
 const ruleWrites = (captures: Captures) => captures.writes
-  .filter((write) => write.sql.includes('INSERT INTO extracted_rules'));
+  .filter((write) => sqlIncludes(write, 'INSERT INTO extracted_rules'));
 
 const eventWrites = (captures: Captures) => captures.writes
-  .filter((write) => write.sql.includes('INSERT INTO rule_validation_events'));
+  .filter((write) => sqlIncludes(write, 'INSERT INTO rule_validation_events'));
+
+const pageWrites = (captures: Captures) => captures.writes
+  .filter((write) => sqlIncludes(write, 'INSERT INTO contract_pages'));
+
+const blockWrites = (captures: Captures) => captures.writes
+  .filter((write) => sqlIncludes(write, 'INSERT INTO contract_blocks'));
+
+const blockDeleteWrites = (captures: Captures) => captures.writes
+  .filter((write) => sqlIncludes(write, 'DELETE FROM contract_blocks'));
+
+const pageDeleteWrites = (captures: Captures) => captures.writes
+  .filter((write) => sqlIncludes(write, 'DELETE FROM contract_pages'));
 
 const diagnosticsOf = (captures: Captures) => captures.preparationEvents[0]?.data as {
   discardedBySchema?: number;
@@ -59,8 +77,17 @@ const buildDeps = (captures: Captures): Deps => ({
     $queryRaw: async <T>() => [{ id: 'contract-1' }] as T,
     $executeRaw: async (query, ...params) => {
       captures.writes.push({ sql: query.join('?'), params });
+      captures.operations.push(query.join(' ').replace(/\s+/g, ' ').trim());
       return 1;
     },
+    $transaction: async (callback) => callback({
+      $queryRaw: async <T>() => [{ id: 'contract-1' }] as T,
+      $executeRaw: async (query, ...params) => {
+        captures.writes.push({ sql: query.join('?'), params });
+        captures.operations.push(query.join(' ').replace(/\s+/g, ' ').trim());
+        return 1;
+      },
+    }),
   },
   getCompanyFromJwt: () => 'OneSubSea',
   getTenantIdFromJwt: () => 'tenant-1',
@@ -77,7 +104,7 @@ const buildDeps = (captures: Captures): Deps => ({
     },
   }),
   listAuthorizedSites: async () => [],
-  randomUUID: () => `id-${captures.writes.length + 1}`,
+  randomUUID: () => `id-${captures.nextId++}`,
   ensureDomainTables: async () => undefined,
   PDFParse: FakePDFParse,
   recordAiPreparationEvent: async (payload) => {
@@ -102,6 +129,7 @@ const runExtraction = async (
   globalThis.fetch = async (_input, init) => {
     const body = JSON.parse(init?.body as string) as { prompt: string };
     captures.prompts.push(body.prompt);
+    captures.operations.push('FETCH_OLLAMA');
 
     return new Response(JSON.stringify({
       response: JSON.stringify({ rules: options.rules ?? [] }),
@@ -162,6 +190,10 @@ describe('contract rule extraction', () => {
     assert.equal(result.statusCode, 200);
     assert.equal(captures.prompts.length, 0);
     assert.equal(ruleWrites(captures).length, 0);
+    assert.equal(pageWrites(captures).length, 1);
+    assert.equal(blockWrites(captures).length, 1);
+    assert.equal(blockWrites(captures)[0].params[14], false);
+    assert.equal(blockWrites(captures)[0].params[15], 'irrelevant_block_type:COMMERCIAL');
   });
 
   it('ignores ADMINISTRATIVE blocks without calling AI', async () => {
@@ -175,6 +207,9 @@ describe('contract rule extraction', () => {
     assert.equal(result.statusCode, 200);
     assert.equal(captures.prompts.length, 0);
     assert.equal(ruleWrites(captures).length, 0);
+    assert.equal(blockWrites(captures).length, 1);
+    assert.equal(blockWrites(captures)[0].params[14], false);
+    assert.equal(blockWrites(captures)[0].params[15], 'irrelevant_block_type:ADMINISTRATIVE');
   });
 
   it('ignores generic HSE blocks without calling AI', async () => {
@@ -188,6 +223,9 @@ describe('contract rule extraction', () => {
     assert.equal(result.statusCode, 200);
     assert.equal(captures.prompts.length, 0);
     assert.equal(ruleWrites(captures).length, 0);
+    assert.equal(blockWrites(captures).length, 1);
+    assert.equal(blockWrites(captures)[0].params[14], false);
+    assert.equal(blockWrites(captures)[0].params[15], 'irrelevant_block_type:HSE');
   });
 
   it('ignores generic TABLE_KPI_SLA blocks without calling AI', async () => {
@@ -201,6 +239,9 @@ describe('contract rule extraction', () => {
     assert.equal(result.statusCode, 200);
     assert.equal(captures.prompts.length, 0);
     assert.equal(ruleWrites(captures).length, 0);
+    assert.equal(blockWrites(captures).length, 1);
+    assert.equal(blockWrites(captures)[0].params[14], false);
+    assert.equal(blockWrites(captures)[0].params[15], 'generic_kpi_sla_without_direct_food_service_impact');
   });
 
   it('allows TABLE_KPI_SLA only with direct food-service impact', async () => {
@@ -226,6 +267,8 @@ describe('contract rule extraction', () => {
     assert.equal(result.statusCode, 201);
     assert.match(captures.prompts[0] ?? '', /Bloco classificado: TABLE_KPI_SLA/);
     assert.equal(ruleWrites(captures).length, 1);
+    assert.equal(blockWrites(captures).length, 1);
+    assert.equal(blockWrites(captures)[0].params[14], true);
   });
 
   it('accepts TABLE_MENU_INCIDENCE with literal evidence and persists pending rule', async () => {
@@ -254,6 +297,23 @@ describe('contract rule extraction', () => {
     const events = eventWrites(captures);
 
     assert.equal(result.statusCode, 201);
+    assert.equal(pageWrites(captures).length, 1);
+    assert.equal(pageWrites(captures)[0].params[1], 'tenant-1');
+    assert.equal(pageWrites(captures)[0].params[2], 'site-sjp');
+    assert.equal(pageWrites(captures)[0].params[3], 'contract-1');
+    assert.equal(pageWrites(captures)[0].params[4], 1);
+    assert.equal(blockWrites(captures).length, 1);
+    assert.equal(blockWrites(captures)[0].params[1], 'tenant-1');
+    assert.equal(blockWrites(captures)[0].params[2], 'site-sjp');
+    assert.equal(blockWrites(captures)[0].params[3], 'contract-1');
+    assert.equal(blockWrites(captures)[0].params[5], 1);
+    assert.equal(blockWrites(captures)[0].params[6], 1);
+    assert.equal(blockWrites(captures)[0].params[7], 'TABLE_MENU_INCIDENCE');
+    assert.equal(blockWrites(captures)[0].params[14], true);
+    assert.ok(
+      captures.operations.findIndex((operation) => operation.includes('INSERT INTO contract_blocks')) <
+        captures.operations.findIndex((operation) => operation === 'FETCH_OLLAMA'),
+    );
     assert.match(captures.prompts[0] ?? '', /Cliente: OneSubSea/);
     assert.match(captures.prompts[0] ?? '', /Unidade selecionada: Sao Jose dos Pinhais/);
     assert.match(captures.prompts[0] ?? '', /Bloco classificado: TABLE_MENU_INCIDENCE/);
@@ -268,7 +328,8 @@ describe('contract rule extraction', () => {
     assert.equal(rules[0].params[11], 'incidences');
     assert.equal(rules[0].params[13], 'site_group');
     assert.equal(rules[0].params[15], JSON.stringify(['Sao Jose dos Pinhais', 'Taubate']));
-    assert.equal(rules[0].params[20], 'pending');
+    assert.equal(rules[0].params[19], blockWrites(captures)[0].params[0]);
+    assert.equal(rules[0].params[21], 'pending');
     assert.equal(events[0].params[5], 'pending');
     assert.equal(events[0].params[6], 'pending');
 
@@ -299,6 +360,44 @@ describe('contract rule extraction', () => {
     assert.equal(result.statusCode, 201);
     assert.match(captures.prompts[0] ?? '', /Bloco classificado: MENU_COMPOSITION/);
     assert.equal(ruleWrites(captures).length, 1);
+    assert.equal(ruleWrites(captures)[0].params[19], blockWrites(captures)[0].params[0]);
+  });
+
+  it('cleans previous pages and blocks for the same tenant and contract before reprocessing', async () => {
+    const captures = createCaptures();
+
+    await runExtraction(captures, {
+      pdfText: 'Item 19 - Sao Jose dos Pinhais: carne bovina no buffet livre 14 incidencias mensais.',
+      rules: [validRule({
+        detectedUnits: ['Sao Jose dos Pinhais'],
+        originGroupText: null,
+        sourceExcerpt: 'Sao Jose dos Pinhais: carne bovina no buffet livre 14 incidencias mensais.',
+      })],
+    });
+
+    await runExtraction(captures, {
+      pdfText: 'Item 23 - Composicao do cardapio: buffet livre com arroz e feijao para Sao Jose dos Pinhais.',
+      rules: [validRule({
+        title: 'Composicao do buffet',
+        description: 'Buffet livre deve conter arroz e feijao.',
+        category: 'MENU_COMPOSITION',
+        periodicity: 'DAILY',
+        quantity: null,
+        unitMeasure: null,
+        applicability: 'direct_site',
+        detectedUnits: ['Sao Jose dos Pinhais'],
+        originGroupText: null,
+        sourceItem: '23',
+        sourceExcerpt: 'buffet livre com arroz e feijao para Sao Jose dos Pinhais.',
+      })],
+    });
+
+    assert.equal(blockDeleteWrites(captures).length, 2);
+    assert.equal(pageDeleteWrites(captures).length, 2);
+    assert.deepEqual(blockDeleteWrites(captures)[1].params, ['tenant-1', 'contract-1']);
+    assert.deepEqual(pageDeleteWrites(captures)[1].params, ['tenant-1', 'contract-1']);
+    assert.equal(pageWrites(captures).length, 2);
+    assert.equal(blockWrites(captures).length, 2);
   });
 
   it('does not persist rules without sourceExcerpt', async () => {
@@ -311,6 +410,7 @@ describe('contract rule extraction', () => {
 
     assert.equal(result.statusCode, 200);
     assert.equal(ruleWrites(captures).length, 0);
+    assert.equal(blockWrites(captures).length, 1);
     assert.ok(diagnosticsOf(captures).discardedRules?.some((rule) => rule.reason === 'missing_evidence'));
   });
 
