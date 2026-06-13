@@ -104,6 +104,17 @@ export function CompliancePage() {
     return 'info'
   }
 
+  const inferCategory = (ruleTitle?: string | null) => {
+    const text = String(ruleTitle ?? '').toLowerCase()
+
+    if (text.includes('prote')) return 'Proteinas'
+    if (text.includes('salada') || text.includes('veget')) return 'Vegetais'
+    if (text.includes('fruta') || text.includes('citric')) return 'Frutas'
+    if (text.includes('feijoada') || text.includes('incid')) return 'Incidencia'
+
+    return 'Geral'
+  }
+
   const load = async () => {
     if (!authState) {
       return
@@ -160,17 +171,6 @@ export function CompliancePage() {
     return () => window.clearTimeout(timeoutId)
   }, [successMessage])
 
-  const openExecutionModal = (control: ComplianceControlItem) => {
-    setSelectedControl(control)
-    setExecutionForm({
-      executionDate: new Date().toISOString().slice(0, 10),
-      status: 'completed',
-      evidenceSummary: '',
-      evidenceReference: '',
-    })
-    setError(null)
-  }
-
   const closeExecutionModal = () => {
     setSelectedControl(null)
     setSubmittingExecution(false)
@@ -220,24 +220,28 @@ export function CompliancePage() {
     <AppShell onLogout={logout}>
       <section className="mc-compliance-grid">
         <article className="card mc-compliance-summary-card">
-          <p>Controles ativos</p>
-          <strong>{summary?.activeControls ?? 0}</strong>
+          <p>Regras avaliadas</p>
+          <strong>{summary?.totalControls ?? 0}</strong>
         </article>
         <article className="card mc-compliance-summary-card">
-          <p>Aguardando ativação</p>
-          <strong>{summary?.pendingControls ?? 0}</strong>
+          <p>Conformes</p>
+          <strong>{summary?.completedControls ?? 0}</strong>
         </article>
         <article className="card mc-compliance-summary-card">
-          <p>Controles pausados</p>
-          <strong>{summary?.pausedControls ?? 0}</strong>
-        </article>
-        <article className="card mc-compliance-summary-card">
-          <p>Controles em risco</p>
+          <p>Nao conformes</p>
           <strong>{summary?.nonCompliantControls ?? 0}</strong>
         </article>
         <article className="card mc-compliance-summary-card">
-          <p>Findings abertos</p>
-          <strong>{summary?.openFindings ?? 0}</strong>
+          <p>Parciais</p>
+          <strong>{summary?.pausedControls ?? 0}</strong>
+        </article>
+        <article className="card mc-compliance-summary-card">
+          <p>Nao avaliadas</p>
+          <strong>{(summary?.pendingControls ?? 0) + (summary?.draftControls ?? 0)}</strong>
+        </article>
+        <article className="card mc-compliance-summary-card">
+          <p>Recomendacoes pendentes</p>
+          <strong>{summary?.failedExecutions ?? 0}</strong>
         </article>
       </section>
 
@@ -245,50 +249,43 @@ export function CompliancePage() {
       {successMessage ? <p className="mc-success-text">{successMessage}</p> : null}
 
       <section className="card mc-table-card">
-        <div className="mc-card-head"><h2>Controles operacionais</h2></div>
+        <div className="mc-card-head"><h2>Avaliacao do Cardapio</h2></div>
         <table>
           <thead>
             <tr>
-              <th>Título</th>
-              <th>Responsável</th>
-              <th>Status</th>
-              <th>Frequência</th>
-              <th>Última execução</th>
-              <th>Findings</th>
+              <th>Regra contratual</th>
+              <th>Categoria</th>
+              <th>Unidade</th>
+              <th>Contrato</th>
+              <th>Resultado</th>
+              <th>Evidência</th>
+              <th>Última avaliação</th>
               <th>Ações</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7}>Carregando controles...</td></tr>
+              <tr><td colSpan={8}>Carregando avaliacao...</td></tr>
             ) : controls.length ? controls.map((item) => (
               <tr key={item.id} className="mc-row-clickable" onClick={() => navigate(`/compliance/${item.id}`)}>
                 <td>
-                  <strong>{item.title}</strong>
+                  <strong>{item.ruleTitle ?? item.title}</strong>
                   <p className="mc-rule-description">{item.operationalDescription}</p>
-                  <p className="mc-muted-text">Origem: {item.contractTitle ?? 'Contrato não identificado'} · {item.ruleTitle ?? 'Regra aprovada'}</p>
                 </td>
-                <td>{item.responsible}</td>
+                <td>{inferCategory(item.ruleTitle)}</td>
+                <td>{authState?.user.companyName ?? 'Unidade nao identificada'}</td>
+                <td>{item.contractTitle ?? 'Contrato nao identificado'}</td>
                 <td>
                   <span className={`mc-status ${controlStatusClassName(item.status)}`}>
                     {controlStatusLabel(item.status)}
                   </span>
                 </td>
-                <td>{frequencyLabel(item.frequency)}</td>
                 <td>
-                  {item.lastExecutionAt ? (
-                    <>
-                      <span className={`mc-status ${item.lastExecutionStatus === 'completed' ? 'ok' : item.lastExecutionStatus === 'failed' ? 'err' : 'info'}`}>
-                        {item.lastExecutionStatus === 'completed' ? 'Conforme' : item.lastExecutionStatus === 'failed' ? 'Não conforme' : 'Sem status'}
-                      </span>
-                      <p className="mc-muted-text">{new Date(item.lastExecutionAt).toLocaleDateString('pt-BR')}</p>
-                    </>
-                  ) : <span className="mc-muted-text">Sem execução</span>}
+                  <strong>{item.expectedEvidence || 'Sem evidencia esperada'}</strong>
+                  <p className="mc-muted-text">Responsavel: {item.responsible} · Frequencia: {frequencyLabel(item.frequency)}</p>
                 </td>
                 <td>
-                  <span className={`mc-status ${(item.openFindingsCount ?? 0) > 0 ? 'err' : 'ok'}`}>
-                    {(item.openFindingsCount ?? 0) > 0 ? `${item.openFindingsCount} aberto(s)` : 'Sem abertos'}
-                  </span>
+                  {item.lastExecutionAt ? new Date(item.lastExecutionAt).toLocaleDateString('pt-BR') : 'Nao avaliada'}
                 </td>
                 <td>
                   <div className="mc-rule-actions">
@@ -296,31 +293,42 @@ export function CompliancePage() {
                       event.stopPropagation()
                       navigate(`/compliance/${item.id}`)
                     }}>
-                      Ver histórico
+                      Ver detalhe
+                    </button>
+                    <button type="button" className="mc-action-run" onClick={(event) => {
+                      event.stopPropagation()
+                      navigate(`/compliance/${item.id}`)
+                    }}>
+                      Ver evidencia
                     </button>
                     {item.status === 'ACTIVE' || item.status === 'NON_COMPLIANT' ? (
                       <button type="button" className="mc-action-approve" onClick={(event) => {
                         event.stopPropagation()
-                        openExecutionModal(item)
+                        navigate('/menus')
                       }}>
-                        Registrar execução
+                        {(item.openFindingsCount ?? 0) > 0 || item.lastExecutionStatus === 'failed' ? 'Gerar recomendacao' : 'Ver recomendacao'}
+                      </button>
+                    ) : null}
+                    {(item.openFindingsCount ?? 0) > 0 ? (
+                      <button type="button" className="mc-action-reject" onClick={(event) => {
+                        event.stopPropagation()
+                        navigate(`/compliance/${item.id}`)
+                      }}>
+                        Abrir pendencia
                       </button>
                     ) : null}
                   </div>
-                  {item.status !== 'ACTIVE' && item.status !== 'NON_COMPLIANT' ? (
-                    <p className="mc-muted-text">Acompanhe o histórico antes da próxima execução.</p>
-                  ) : null}
                 </td>
               </tr>
             )) : (
-              <tr><td colSpan={7}>Nenhum controle operacional criado.</td></tr>
+              <tr><td colSpan={8}>Nenhuma regra avaliada para o cardapio selecionado.</td></tr>
             )}
           </tbody>
         </table>
       </section>
 
       <section className="card mc-table-card">
-        <div className="mc-card-head"><h2>Últimas execuções</h2></div>
+        <div className="mc-card-head"><h2>Ultimas avaliacoes</h2></div>
         <table>
           <thead>
             <tr>
@@ -341,19 +349,19 @@ export function CompliancePage() {
                 </td>
                 <td>
                   <strong>{item.evidenceSummary}</strong>
-                  <p className="mc-muted-text">{item.evidenceReference ?? 'Sem referência adicional'}</p>
+                  <p className="mc-muted-text">{item.evidenceReference ?? 'Sem referencia adicional'}</p>
                 </td>
                 <td>{new Date(item.executedAt).toLocaleDateString('pt-BR')}</td>
               </tr>
             )) : (
-              <tr><td colSpan={4}>Nenhuma execução registrada.</td></tr>
+              <tr><td colSpan={4}>Nenhuma avaliacao registrada.</td></tr>
             )}
           </tbody>
         </table>
       </section>
 
       <section className="card mc-table-card">
-        <div className="mc-card-head"><h2>Falhas recentes</h2></div>
+        <div className="mc-card-head"><h2>Nao conformidades recentes</h2></div>
         <table>
           <thead>
             <tr>
@@ -372,7 +380,7 @@ export function CompliancePage() {
                 <td>{new Date(item.executedAt).toLocaleDateString('pt-BR')}</td>
               </tr>
             )) : (
-              <tr><td colSpan={4}>Nenhuma falha registrada nas últimas execuções.</td></tr>
+              <tr><td colSpan={4}>Nenhuma nao conformidade recente registrada.</td></tr>
             )}
           </tbody>
         </table>

@@ -9,7 +9,7 @@ const navItems = [
   { label: 'Contratos', to: '/contracts', icon: '📁' },
   { label: 'Regras Contratuais', to: '/rules', icon: '📋' },
   { label: 'Cardápios', to: '/menus', icon: '🍽️' },
-  { label: 'Conformidade', to: '/compliance', icon: '✅' },
+  { label: 'Avaliacao do Cardapio', to: '/compliance', icon: '✅' },
   { label: 'Análises', to: '/settings', icon: '📊', disabled: true },
   { label: 'Configurações', to: '/settings', icon: '⚙️' },
 ]
