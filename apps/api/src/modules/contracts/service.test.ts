@@ -8,12 +8,17 @@ const originalOllamaMaxSegments = process.env.OLLAMA_MAX_SEGMENTS;
 const originalEvidenceFallbackEnabled = process.env.OLLAMA_EVIDENCE_FALLBACK_ENABLED;
 
 let fakePdfText = '';
+let fakePdfPages: Array<{ text: string; num: number }> | null = null;
 
 class FakePDFParse {
   constructor(_input: { data: Buffer }) {}
 
   async getText() {
-    return { text: fakePdfText };
+    return {
+      text: fakePdfText,
+      total: fakePdfPages?.length,
+      pages: fakePdfPages ?? undefined,
+    };
   }
 
   async destroy() {}
@@ -119,12 +124,14 @@ const runExtraction = async (
     pdfText: string;
     rules?: Array<Record<string, unknown>>;
     knownSites?: Array<{ id: string; name: string }>;
+    pdfPages?: Array<{ text: string; num: number }>;
   },
 ) => {
   process.env.OLLAMA_TIMEOUT_MS = '500';
   process.env.OLLAMA_MAX_SEGMENTS = '1';
   process.env.OLLAMA_EVIDENCE_FALLBACK_ENABLED = 'false';
   fakePdfText = options.pdfText;
+  fakePdfPages = options.pdfPages ?? null;
 
   globalThis.fetch = async (_input, init) => {
     const body = JSON.parse(init?.body as string) as { prompt: string };
@@ -177,6 +184,7 @@ describe('contract rule extraction', () => {
     process.env.OLLAMA_MAX_SEGMENTS = originalOllamaMaxSegments;
     process.env.OLLAMA_EVIDENCE_FALLBACK_ENABLED = originalEvidenceFallbackEnabled;
     fakePdfText = '';
+    fakePdfPages = null;
   });
 
   it('ignores COMMERCIAL blocks without calling AI', async () => {
@@ -361,6 +369,87 @@ describe('contract rule extraction', () => {
     assert.match(captures.prompts[0] ?? '', /Bloco classificado: MENU_COMPOSITION/);
     assert.equal(ruleWrites(captures).length, 1);
     assert.equal(ruleWrites(captures)[0].params[19], blockWrites(captures)[0].params[0]);
+  });
+
+  it('persists every parser page instead of grouping extracted text into logical chunks', async () => {
+    const captures = createCaptures();
+    const pdfPages = [
+      { num: 1, text: 'Capa do contrato SLB-Private.' },
+      { num: 2, text: 'Proposta comercial. Preco mensal e faturamento.' },
+      {
+        num: 3,
+        text: 'Item 19 - Sao Jose dos Pinhais: carne bovina no buffet livre 14 incidencias mensais.',
+      },
+      {
+        num: 4,
+        text: 'Item 23 - Composicao do cardapio: buffet livre com arroz e feijao para Sao Jose dos Pinhais.',
+      },
+    ];
+
+    const result = await runExtraction(captures, {
+      pdfText: pdfPages.map((page) => page.text).join('\n\n'),
+      pdfPages,
+      rules: [validRule({
+        detectedUnits: ['Sao Jose dos Pinhais'],
+        originGroupText: null,
+        sourcePage: 3,
+        sourceExcerpt: 'Sao Jose dos Pinhais: carne bovina no buffet livre 14 incidencias mensais.',
+      })],
+    });
+
+    const pages = pageWrites(captures);
+    const blocks = blockWrites(captures);
+    const page3Block = blocks.find((write) => write.params[5] === 3);
+
+    assert.equal(result.statusCode, 201);
+    assert.equal(pages.length, 4);
+    assert.deepEqual(pages.map((write) => write.params[4]), [1, 2, 3, 4]);
+    assert.equal(blocks.length, 4);
+    assert.deepEqual(blocks.map((write) => write.params[5]), [1, 2, 3, 4]);
+    assert.ok(page3Block);
+    assert.equal(page3Block?.params[4], pages[2].params[0]);
+    assert.equal(ruleWrites(captures).length, 1);
+    assert.equal(ruleWrites(captures)[0].params[18], 3);
+    assert.equal(ruleWrites(captures)[0].params[19], page3Block?.params[0]);
+  });
+
+  it('keeps block page numbers and page ids aligned when parser metadata is available', async () => {
+    const captures = createCaptures();
+    const pdfPages = [
+      { num: 1, text: 'Pagina institucional sem regra operacional.' },
+      { num: 2, text: 'Documentacao administrativa, certidao e cadastro.' },
+      { num: 3, text: 'Item 20 - Horario de refeicao almoco para Sao Jose dos Pinhais: 11:00 as 13:30.' },
+    ];
+
+    const result = await runExtraction(captures, {
+      pdfText: pdfPages.map((page) => page.text).join('\n\n'),
+      pdfPages,
+      rules: [validRule({
+        title: 'Horario de refeicao almoco',
+        description: 'Refeicao almoco deve ocorrer das 11:00 as 13:30.',
+        category: 'MEAL_TIME',
+        periodicity: 'DAILY',
+        quantity: null,
+        unitMeasure: null,
+        applicability: 'direct_site',
+        detectedUnits: ['Sao Jose dos Pinhais'],
+        originGroupText: null,
+        sourceItem: '20',
+        sourcePage: 3,
+        sourceExcerpt: 'Horario de refeicao almoco para Sao Jose dos Pinhais: 11:00 as 13:30.',
+      })],
+    });
+
+    const pages = pageWrites(captures);
+    const blocks = blockWrites(captures);
+    const block3 = blocks.find((write) => write.params[5] === 3);
+
+    assert.equal(result.statusCode, 201);
+    assert.equal(pages.length, 3);
+    assert.equal(blocks.length, 3);
+    assert.equal(block3?.params[4], pages[2].params[0]);
+    assert.equal(block3?.params[5], 3);
+    assert.equal(ruleWrites(captures)[0].params[19], block3?.params[0]);
   });
 
   it('cleans previous pages and blocks for the same tenant and contract before reprocessing', async () => {

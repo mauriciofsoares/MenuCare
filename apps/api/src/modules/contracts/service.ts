@@ -41,6 +41,19 @@ type RuleWithEvidence = ExtractedRule & {
   evidenceConfidence: number | null;
 };
 
+type PdfTextPage = {
+  text?: string;
+  num?: number;
+  pageNumber?: number;
+  page?: number;
+};
+
+type PdfTextResult = {
+  text?: string;
+  total?: number;
+  pages?: PdfTextPage[];
+};
+
 type SqlClient = {
   $queryRaw: <T>(query: TemplateStringsArray, ...params: unknown[]) => Promise<T>;
   $executeRaw: (query: TemplateStringsArray, ...params: unknown[]) => Promise<unknown>;
@@ -88,7 +101,7 @@ export interface Deps {
   randomUUID: () => string;
   ensureDomainTables: () => Promise<void>;
   PDFParse: new (input: { data: Buffer }) => {
-    getText: () => Promise<{ text?: string }>;
+    getText: (params?: unknown) => Promise<PdfTextResult>;
     destroy: () => Promise<void>;
   };
   recordAiPreparationEvent: (payload: {
@@ -125,6 +138,8 @@ type ExtractionDiagnostics = {
     category: string;
     periodicity: string | null;
     sourcePage: number | null;
+    sourceBlockId: string | null;
+    blockPageNumber: number | null;
     sourceItem: string | null;
     detectedUnits: string[];
     originGroupText: string | null;
@@ -386,6 +401,39 @@ const buildEvidencePages = (fullText: string, pageChunkChars: number): EvidenceP
 
   return pages;
 };
+
+const buildEvidencePagesFromPdf = (parsedPdf: PdfTextResult, pageChunkChars: number): EvidencePage[] => {
+  const parsedPages = Array.isArray(parsedPdf.pages) ? parsedPdf.pages : [];
+  const pages = parsedPages
+    .map((page, index): EvidencePage => ({
+      page: page.num ?? page.pageNumber ?? page.page ?? index + 1,
+      text: (page.text ?? '').trim(),
+    }))
+    .filter((page) => Number.isInteger(page.page) && page.page > 0)
+    .sort((a, b) => a.page - b.page);
+
+  if (pages.length > 0) {
+    const total = Number.isInteger(parsedPdf.total) && parsedPdf.total ? parsedPdf.total : pages.length;
+    const byPageNumber = new Map(pages.map((page) => [page.page, page.text]));
+
+    return Array.from({ length: total }, (_, index) => {
+      const page = index + 1;
+      return {
+        page,
+        text: byPageNumber.get(page) ?? '',
+      };
+    });
+  }
+
+  return buildEvidencePages(parsedPdf.text ?? '', pageChunkChars);
+};
+
+const buildPageSegments = (pages: EvidencePage[]): ContractSegment[] => pages.map((page) => ({
+  chunkId: page.page,
+  chunkLabel: `Pagina ${page.page}`,
+  strategy: 'pages',
+  text: page.text,
+}));
 
 const normalizeWhitespace = (value: string) => value.replace(/\s+/g, ' ').trim();
 
@@ -1211,10 +1259,17 @@ export const extractRulesFromPdf = async (
 
   const parser = new deps.PDFParse({ data: pdfBuffer });
   let contractText = '';
+  let parsedPdf: PdfTextResult = {};
 
   try {
-    const parsedPdf = await parser.getText();
+    parsedPdf = await parser.getText();
     contractText = (parsedPdf.text ?? '').trim();
+    if (!contractText && Array.isArray(parsedPdf.pages)) {
+      contractText = parsedPdf.pages
+        .map((page) => page.text ?? '')
+        .join('\n\n')
+        .trim();
+    }
     console.log('[extractRules] texto extraido:', contractText.substring(0, 200));
   } finally {
     await parser.destroy();
@@ -1236,15 +1291,17 @@ export const extractRulesFromPdf = async (
   const pageChunkChars = Number(process.env.OLLAMA_PAGE_CHUNK_CHARS ?? 6000);
   const maxSegments = Number(process.env.OLLAMA_MAX_SEGMENTS ?? 24);
 
-  const clauseSegments = splitByClauses(contractText);
-  const baseSegments = clauseSegments.length
-    ? clauseSegments
-    : splitByPagesFallback(contractText, pageChunkChars);
-  const candidateSegments = (baseSegments.length
+  const evidencePages = buildEvidencePagesFromPdf(parsedPdf, pageChunkChars);
+  const hasParserPages = Array.isArray(parsedPdf.pages) && parsedPdf.pages.length > 0;
+  const clauseSegments = hasParserPages ? [] : splitByClauses(contractText);
+  const baseSegments = hasParserPages
+    ? buildPageSegments(evidencePages)
+    : clauseSegments.length
+      ? clauseSegments
+      : splitByPagesFallback(contractText, pageChunkChars);
+  const candidateSegments = baseSegments.length
     ? baseSegments
-    : [{ chunkId: 1, chunkLabel: 'Documento completo', strategy: 'pages' as const, text: contractText }]
-  ).slice(0, maxSegments);
-  const evidencePages = buildEvidencePages(contractText, pageChunkChars);
+    : [{ chunkId: 1, chunkLabel: 'Documento completo', strategy: 'pages' as const, text: contractText }];
   const classifiedBlocks = buildContractBlocks(candidateSegments, evidencePages, site.name, knownSites, deps.randomUUID);
   const persistedBlocks = await (deps.prisma.$transaction
     ? deps.prisma.$transaction((tx) => persistContractPagesAndBlocks(tx, {
@@ -1266,7 +1323,7 @@ export const extractRulesFromPdf = async (
   );
   const segments = persistedBlocks.filter((block) => (
     block.isRelevantForExtraction && shouldSendBlockToAi(block, site.name, knownSites)
-  ));
+  )).slice(0, maxSegments);
 
   const knownSiteNames = knownSites.map((knownSite) => knownSite.name).join(', ');
   const promptTemplate = `Voce esta extraindo regras operacionais de cardapio para:
@@ -1547,18 +1604,46 @@ ${contractText.slice(0, 12000)}`;
   }
 
   const validationResults = rulesWithEvidence.map((rule) => validateExtractedRule(rule, site, contractId, evidencePages));
+  const blockById = new Map(persistedBlocks.map((block) => [block.id, block]));
   const discardedRules = validationResults
     .filter((result): result is Extract<RuleValidationResult, { valid: false }> => !result.valid)
-    .map((result) => ({
-      reason: result.reason,
-      title: result.rule.title,
-      category: result.rule.category,
-      periodicity: result.rule.periodicity,
-      sourcePage: result.rule.sourcePage,
-      sourceItem: result.rule.sourceItem,
-      detectedUnits: result.rule.detectedUnits,
-      originGroupText: result.rule.originGroupText,
-    }));
+    .map((result) => {
+      const block = result.rule.sourceBlockId ? blockById.get(result.rule.sourceBlockId) : null;
+
+      return {
+        reason: result.reason,
+        title: result.rule.title,
+        category: result.rule.category,
+        periodicity: result.rule.periodicity,
+        sourcePage: result.rule.sourcePage,
+        sourceBlockId: result.rule.sourceBlockId ?? null,
+        blockPageNumber: block?.pageNumber ?? null,
+        sourceItem: result.rule.sourceItem,
+        detectedUnits: result.rule.detectedUnits,
+        originGroupText: result.rule.originGroupText,
+      };
+    });
+
+  for (const rule of discardedRules) {
+    console.info('[contracts.extractRules.discardedRule]', {
+      contractId,
+      page: rule.sourcePage,
+      blockPage: rule.blockPageNumber,
+      sourceBlockId: rule.sourceBlockId,
+      sourceItem: rule.sourceItem,
+      category: rule.category,
+      periodicity: rule.periodicity,
+      reason: rule.reason,
+      missingFields: [
+        !rule.category ? 'category' : null,
+        !rule.periodicity ? 'periodicity' : null,
+        !rule.sourcePage ? 'sourcePage' : null,
+        !rule.sourceItem ? 'sourceItem' : null,
+      ].filter(Boolean),
+      evidenceNotLiteral: rule.reason === 'non_literal_excerpt',
+      unitNotApplicable: rule.reason === 'not_explicitly_applicable_to_site',
+    });
+  }
 
   rulesWithEvidence = validationResults
     .filter((result): result is Extract<RuleValidationResult, { valid: true }> => result.valid)
