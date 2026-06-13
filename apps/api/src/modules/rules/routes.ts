@@ -130,15 +130,22 @@ app.get('/rules', { preHandler: authenticate }, async (request, reply) => {
       siteId: z.string().min(1).optional(),
       status: z.enum(['pending', 'approved', 'rejected']).optional(),
       category: z.string().trim().min(1).max(80).optional(),
-      limit: z.coerce.number().int().min(1).max(100).default(50),
+      limit: z.coerce.number().int().catch(50).default(50),
     })
     .safeParse(request.query);
 
-  const limit = query.success ? query.data.limit : 50;
-  const status = query.success ? query.data.status : undefined;
-  const category = query.success ? query.data.category : undefined;
-  const contractId = query.success ? query.data.contractId : undefined;
-  const siteId = query.success ? query.data.siteId : undefined;
+  if (!query.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: apiMessage.auth.invalidCredentials,
+    });
+  }
+
+  const limit = Math.min(Math.max(query.data.limit, 1), 100);
+  const status = query.data.status;
+  const category = query.data.category;
+  const contractId = query.data.contractId;
+  const siteId = query.data.siteId;
 
   const result = await service.listRules(request, { limit, status, category, contractId, siteId });
   return reply.code(result.statusCode).send(result.body);
