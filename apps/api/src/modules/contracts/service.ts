@@ -113,6 +113,16 @@ type ExtractionDiagnostics = {
   discardedBySchema: number;
   rulesWithEvidence: number;
   rulesWithoutEvidence: number;
+  discardedRules: Array<{
+    reason: string;
+    title: string;
+    category: string;
+    periodicity: string | null;
+    sourcePage: number | null;
+    sourceItem: string | null;
+    detectedUnits: string[];
+    originGroupText: string | null;
+  }>;
   pdfTextLength: number;
   excerptLength: number;
   ollamaHttpStatus: number | null;
@@ -220,6 +230,22 @@ type ContractSegment = {
   chunkLabel: string;
   strategy: 'clauses' | 'pages';
   text: string;
+};
+
+type ContractBlockType =
+  | 'TEXT_SECTION'
+  | 'TABLE_MENU_INCIDENCE'
+  | 'MENU_COMPOSITION'
+  | 'TABLE_HOURS'
+  | 'TABLE_VOLUME'
+  | 'TABLE_KPI_SLA'
+  | 'ADMINISTRATIVE'
+  | 'COMMERCIAL'
+  | 'HSE'
+  | 'IGNORE';
+
+type ContractBlock = ContractSegment & {
+  blockType: ContractBlockType;
 };
 
 export type MemoryContract = {
@@ -344,19 +370,6 @@ const buildEvidencePages = (fullText: string, pageChunkChars: number): EvidenceP
   return pages;
 };
 
-const extractExcerptAroundMatch = (text: string, index: number, matchLength: number) => {
-  const start = Math.max(0, index - 80);
-  const end = Math.min(text.length, index + matchLength + 160);
-  return text.slice(start, end).replace(/\s+/g, ' ').trim().slice(0, 500);
-};
-
-const tokenizeEvidenceText = (value: string) => value
-  .toLowerCase()
-  .replace(/[^a-z0-9\s]/g, ' ')
-  .split(/\s+/)
-  .map((token) => token.trim())
-  .filter((token) => token.length >= 4);
-
 const findDeterministicEvidence = (rule: ExtractedRule, pages: EvidencePage[]): RuleWithEvidence => {
   if (rule.sourceExcerpt?.trim()) {
     return {
@@ -364,75 +377,6 @@ const findDeterministicEvidence = (rule: ExtractedRule, pages: EvidencePage[]): 
       sourceExcerpt: rule.sourceExcerpt.trim().slice(0, 500),
       sourcePage: rule.sourcePage ?? null,
       evidenceConfidence: rule.evidenceConfidence ?? 0.85,
-    };
-  }
-
-  const evidenceCandidates = [
-    rule.title.trim(),
-    rule.description.trim().slice(0, 180),
-    rule.description.trim(),
-  ].filter((value, index, array) => value.length >= 8 && array.indexOf(value) === index);
-
-  for (const candidate of evidenceCandidates) {
-    const candidateLower = candidate.toLowerCase();
-
-    for (const page of pages) {
-      const pageLower = page.text.toLowerCase();
-      const index = pageLower.indexOf(candidateLower);
-
-      if (index === -1) {
-        continue;
-      }
-
-      return {
-        ...rule,
-        sourceExcerpt: extractExcerptAroundMatch(page.text, index, candidate.length),
-        sourcePage: page.page,
-        evidenceConfidence: candidate === rule.title ? 0.95 : 0.9,
-      };
-    }
-  }
-
-  const queryTokens = new Set(tokenizeEvidenceText(`${rule.title} ${rule.description}`));
-  if (!queryTokens.size) {
-    return {
-      ...rule,
-      sourceExcerpt: null,
-      sourcePage: null,
-      evidenceConfidence: null,
-    };
-  }
-
-  let bestPage: EvidencePage | null = null;
-  let bestScore = 0;
-
-  for (const page of pages) {
-    const pageTokens = new Set(tokenizeEvidenceText(page.text));
-    if (!pageTokens.size) {
-      continue;
-    }
-
-    let overlap = 0;
-    for (const token of queryTokens) {
-      if (pageTokens.has(token)) {
-        overlap += 1;
-      }
-    }
-
-    const score = overlap / queryTokens.size;
-    if (score > bestScore) {
-      bestScore = score;
-      bestPage = page;
-    }
-  }
-
-  if (bestPage && bestScore >= 0.22) {
-    const excerpt = bestPage.text.replace(/\s+/g, ' ').trim().slice(0, 500);
-    return {
-      ...rule,
-      sourceExcerpt: excerpt || null,
-      sourcePage: bestPage.page,
-      evidenceConfidence: Number(bestScore.toFixed(2)),
     };
   }
 
@@ -448,6 +392,118 @@ const normalizeText = (value: string) => value
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
   .toLowerCase();
+
+const allowedRuleCategories = new Set([
+  'PROTEIN',
+  'SALAD',
+  'SIDE_DISH',
+  'RICE',
+  'BEAN',
+  'JUICE',
+  'BEVERAGE',
+  'DESSERT',
+  'FRUIT',
+  'EGG_REPLACEMENT',
+  'BUFFET_FREE',
+  'BUFFET_SPECIAL',
+  'SPECIAL_DISH',
+  'LIGHT_VEGAN_OPTION',
+  'MONTHLY_INCIDENCE',
+  'WEEKLY_PERIODICITY',
+  'UNIT_SPECIFIC_RULE',
+  'MEAL_TIME',
+  'MEAL_VOLUME',
+  'MENU_COMPOSITION',
+]);
+
+const categoryAliases = new Map<string, string>([
+  ['proteina', 'PROTEIN'],
+  ['protein', 'PROTEIN'],
+  ['salada', 'SALAD'],
+  ['salad', 'SALAD'],
+  ['guarnicao', 'SIDE_DISH'],
+  ['side_dish', 'SIDE_DISH'],
+  ['arroz', 'RICE'],
+  ['rice', 'RICE'],
+  ['feijao', 'BEAN'],
+  ['bean', 'BEAN'],
+  ['suco', 'JUICE'],
+  ['juice', 'JUICE'],
+  ['bebida', 'BEVERAGE'],
+  ['beverage', 'BEVERAGE'],
+  ['sobremesa', 'DESSERT'],
+  ['dessert', 'DESSERT'],
+  ['fruta', 'FRUIT'],
+  ['fruit', 'FRUIT'],
+  ['ovo', 'EGG_REPLACEMENT'],
+  ['egg_replacement', 'EGG_REPLACEMENT'],
+  ['buffet_livre', 'BUFFET_FREE'],
+  ['buffet_free', 'BUFFET_FREE'],
+  ['buffet_especial', 'BUFFET_SPECIAL'],
+  ['buffet_special', 'BUFFET_SPECIAL'],
+  ['prato_especial', 'SPECIAL_DISH'],
+  ['special_dish', 'SPECIAL_DISH'],
+  ['light_vegana', 'LIGHT_VEGAN_OPTION'],
+  ['light_vegan_option', 'LIGHT_VEGAN_OPTION'],
+  ['incidencia_mensal', 'MONTHLY_INCIDENCE'],
+  ['monthly_incidence', 'MONTHLY_INCIDENCE'],
+  ['periodicidade_semanal', 'WEEKLY_PERIODICITY'],
+  ['weekly_periodicity', 'WEEKLY_PERIODICITY'],
+  ['regra_unidade', 'UNIT_SPECIFIC_RULE'],
+  ['unit_specific_rule', 'UNIT_SPECIFIC_RULE'],
+  ['horario_refeicao', 'MEAL_TIME'],
+  ['meal_time', 'MEAL_TIME'],
+  ['volume_refeicao', 'MEAL_VOLUME'],
+  ['meal_volume', 'MEAL_VOLUME'],
+  ['composicao_cardapio', 'MENU_COMPOSITION'],
+  ['menu_composition', 'MENU_COMPOSITION'],
+]);
+
+const allowedPeriodicities = new Set(['DAILY', 'WEEKLY', 'MONTHLY', 'PER_SERVICE', 'PER_MENU_CYCLE']);
+
+const periodicityAliases = new Map<string, string>([
+  ['diaria', 'DAILY'],
+  ['diario', 'DAILY'],
+  ['daily', 'DAILY'],
+  ['semanal', 'WEEKLY'],
+  ['weekly', 'WEEKLY'],
+  ['mensal', 'MONTHLY'],
+  ['monthly', 'MONTHLY'],
+  ['por_servico', 'PER_SERVICE'],
+  ['per_service', 'PER_SERVICE'],
+  ['por_ciclo', 'PER_MENU_CYCLE'],
+  ['per_menu_cycle', 'PER_MENU_CYCLE'],
+]);
+
+const normalizeEnumToken = (value: string) => normalizeText(value)
+  .replace(/[^a-z0-9]+/g, '_')
+  .replace(/^_+|_+$/g, '');
+
+const normalizeRuleCategory = (value: string | null) => {
+  if (!value) {
+    return null;
+  }
+
+  const upper = value.trim().toUpperCase();
+  if (allowedRuleCategories.has(upper)) {
+    return upper;
+  }
+
+  return categoryAliases.get(normalizeEnumToken(value)) ?? null;
+};
+
+const normalizePeriodicity = (value: string | null) => {
+  if (!value) {
+    return null;
+  }
+
+  const upper = value.trim().toUpperCase();
+  if (allowedPeriodicities.has(upper)) {
+    return upper;
+  }
+
+  return periodicityAliases.get(normalizeEnumToken(value)) ?? null;
+};
 
 const operationalRuleKeywords = [
   'cardapio',
@@ -490,7 +546,151 @@ const outOfScopeKeywords = [
   'comercial',
   'faturamento',
   'nota fiscal',
+  'equipamento',
+  'hse',
+  'seguranca do trabalho',
+  'epi',
+  'recurso humano',
+  'rh',
 ];
+
+const blockTypeLabels: Record<ContractBlockType, string> = {
+  TEXT_SECTION: 'TEXT_SECTION',
+  TABLE_MENU_INCIDENCE: 'TABLE_MENU_INCIDENCE',
+  MENU_COMPOSITION: 'MENU_COMPOSITION',
+  TABLE_HOURS: 'TABLE_HOURS',
+  TABLE_VOLUME: 'TABLE_VOLUME',
+  TABLE_KPI_SLA: 'TABLE_KPI_SLA',
+  ADMINISTRATIVE: 'ADMINISTRATIVE',
+  COMMERCIAL: 'COMMERCIAL',
+  HSE: 'HSE',
+  IGNORE: 'IGNORE',
+};
+
+const strongMenuBlockKeywords = [
+  'cardapio',
+  'refeicao',
+  'buffet',
+  'proteina',
+  'salada',
+  'guarnicao',
+  'sobremesa',
+  'fruta',
+  'incidencia',
+  'composicao',
+  'horario',
+  'volume',
+];
+
+const directFoodServiceImpactKeywords = [
+  'alteracao de cardapio',
+  'apresentacao dos pratos',
+  'limpeza de buffet',
+  'limpeza do buffet',
+  'limpeza de salao',
+  'limpeza do salao',
+  'parada de rampa',
+  'atraso de producao',
+  'atraso na producao',
+  'distribuicao de refeicao',
+  'servico de refeicao',
+  'rampa por atraso',
+];
+
+const containsAnyNormalized = (text: string, keywords: string[]) => {
+  const content = normalizeText(text);
+  return keywords.some((keyword) => content.includes(normalizeText(keyword)));
+};
+
+const mentionsSelectedSiteOrGeneralScope = (
+  text: string,
+  siteName: string,
+  knownSites: Array<{ id: string; name: string }>,
+) => {
+  const content = normalizeText(text);
+  const selected = normalizeText(siteName);
+  const mentionedKnownSites = knownSites
+    .map((site) => normalizeText(site.name))
+    .filter((name) => name.length > 0 && content.includes(name));
+
+  if (!mentionedKnownSites.length) {
+    return true;
+  }
+
+  return (
+    content.includes(selected) ||
+    allUnitsMarkers.some((marker) => content.includes(marker))
+  );
+};
+
+const classifyContractBlock = (text: string): ContractBlockType => {
+  const content = normalizeText(text);
+
+  const hasMenuSignal = operationalRuleKeywords.some((keyword) => content.includes(normalizeText(keyword)));
+  const hasOutOfScopeSignal = outOfScopeKeywords.some((keyword) => content.includes(normalizeText(keyword)));
+
+  if (/\b(kpi|sla|indicador|nivel de servico|acordo de nivel)\b/.test(content)) {
+    return 'TABLE_KPI_SLA';
+  }
+
+  if (/\b(hse|ssma|seguranca do trabalho|epi|acidente|ambiental)\b/.test(content)) {
+    return hasMenuSignal ? 'TEXT_SECTION' : 'HSE';
+  }
+
+  if (/\b(preco|valor|faturamento|nota fiscal|pagamento|reajuste|proposta comercial)\b/.test(content)) {
+    return hasMenuSignal ? 'TEXT_SECTION' : 'COMMERCIAL';
+  }
+
+  if (/\b(documentacao|cadastro|certidao|seguro|multa|penalidade|trabalhista|recurso humano|rh)\b/.test(content)) {
+    return hasMenuSignal ? 'TEXT_SECTION' : 'ADMINISTRATIVE';
+  }
+
+  if (!hasMenuSignal || hasOutOfScopeSignal) {
+    return hasMenuSignal ? 'TEXT_SECTION' : 'IGNORE';
+  }
+
+  if (/\b(incidencia|frequencia|periodicidade|mensal|semanal)\b/.test(content)) {
+    return 'TABLE_MENU_INCIDENCE';
+  }
+
+  if (/\b(composicao|cardapio|buffet|salada|guarnicao|arroz|feijao|sobremesa|fruta|suco|bebida)\b/.test(content)) {
+    return 'MENU_COMPOSITION';
+  }
+
+  if (/\b(horario|desjejum|almoco|jantar|ceia|lanche)\b/.test(content)) {
+    return 'TABLE_HOURS';
+  }
+
+  if (/\b(volume|quantidade de refeicoes|refeicoes diarias|numero de refeicoes)\b/.test(content)) {
+    return 'TABLE_VOLUME';
+  }
+
+  return 'TEXT_SECTION';
+};
+
+const shouldSendBlockToAi = (
+  block: ContractBlock,
+  siteName: string,
+  knownSites: Array<{ id: string; name: string }>,
+) => {
+  if (['COMMERCIAL', 'ADMINISTRATIVE', 'HSE', 'IGNORE'].includes(block.blockType)) {
+    return false;
+  }
+
+  if (!mentionsSelectedSiteOrGeneralScope(block.text, siteName, knownSites)) {
+    return false;
+  }
+
+  if (block.blockType === 'TABLE_KPI_SLA') {
+    return containsAnyNormalized(block.text, directFoodServiceImpactKeywords);
+  }
+
+  if (block.blockType === 'TEXT_SECTION') {
+    return containsAnyNormalized(block.text, strongMenuBlockKeywords);
+  }
+
+  return ['TABLE_MENU_INCIDENCE', 'MENU_COMPOSITION', 'TABLE_HOURS', 'TABLE_VOLUME'].includes(block.blockType);
+};
 
 const isOperationalMenuRule = (rule: { title: string; description: string; category: string }) => {
   const content = normalizeText(`${rule.title} ${rule.description} ${rule.category}`);
@@ -553,17 +753,19 @@ const normalizeExtractedRules = (payload: unknown): ExtractedRule[] => {
 
   return payload
     .filter((rule): rule is Record<string, unknown> => typeof rule === 'object' && rule !== null)
-    .map((rule) => {
+    .map((rule): ExtractedRule | null => {
       const title = readStringField(rule, ['title', 'titulo', 'tipo_regra'])?.slice(0, 120) ?? '';
       const description = readStringField(rule, ['description', 'descricao']) ?? '';
-      const category = readStringField(rule, ['category', 'categoria'])?.toLowerCase() ?? 'cardapio';
+      const category = normalizeRuleCategory(readStringField(rule, ['category', 'categoria']));
+      const periodicity = normalizePeriodicity(readStringField(rule, ['periodicity', 'periodicidade']));
       const rawApplicability = readStringField(rule, ['applicability', 'aplicabilidade']) ?? 'general';
       const applicability = allowedApplicability.has(rawApplicability)
         ? rawApplicability as ExtractedRule['applicability']
         : 'general';
       const ruleType = readStringField(rule, ['ruleType', 'rule_type', 'tipo_regra']) ?? 'operational_menu_rule';
+      const quantity = readNumberField(rule, ['quantity', 'quantidade']);
 
-      if (!title || !description) {
+      if (!title || !description || !category || !periodicity) {
         return null;
       }
 
@@ -576,14 +778,14 @@ const normalizeExtractedRules = (payload: unknown): ExtractedRule[] => {
       return {
         ...normalized,
         ruleType,
-        periodicity: readStringField(rule, ['periodicity', 'periodicidade']),
-        quantity: readNumberField(rule, ['quantity', 'quantidade', 'incidencia']),
+        periodicity,
+        quantity,
         unitMeasure: readStringField(rule, ['unitMeasure', 'unit_measure', 'unidade_medida']),
         calculationBasis: readStringField(rule, ['calculationBasis', 'calculation_basis', 'base_calculo']),
         applicability,
         originGroupText: readStringField(rule, ['originGroupText', 'origin_group_text', 'grupo_origem_no_contrato']),
         detectedUnits: readStringArrayField(rule, ['detectedUnits', 'detected_units', 'unidades_aplicaveis', 'unidades_detectadas_no_trecho']),
-        sourceItem: readStringField(rule, ['sourceItem', 'source_item', 'item', 'fonte_item']),
+        sourceItem: readStringField(rule, ['sourceSection', 'source_section', 'sourceItem', 'source_item', 'item', 'fonte_item']),
         sourceExcerpt: readStringField(rule, ['sourceExcerpt', 'source_excerpt', 'trecho_evidencia'])?.slice(0, 500) ?? null,
         sourcePage: readNumberField(rule, ['sourcePage', 'source_page', 'pagina', 'fonte_pagina']),
         evidenceConfidence: readNumberField(rule, ['evidenceConfidence', 'evidence_confidence', 'confianca']),
@@ -592,19 +794,124 @@ const normalizeExtractedRules = (payload: unknown): ExtractedRule[] => {
     .filter((rule): rule is ExtractedRule => rule !== null);
 };
 
-const ruleAppliesToSelectedSite = (rule: ExtractedRule, siteName: string) => {
-  if (rule.applicability === 'general') {
-    return true;
-  }
+const allUnitsMarkers = [
+  'todas as unidades',
+  'todas unidades',
+  'todos os restaurantes',
+  'todos restaurantes',
+  'todo o contrato',
+  'unidades do contrato',
+];
 
+const ruleAppliesToSelectedSite = (rule: ExtractedRule, siteName: string) => {
   const selected = normalizeText(siteName);
   const detectedUnits = rule.detectedUnits.map((unit) => normalizeText(unit));
   const originGroup = normalizeText(rule.originGroupText ?? '');
+  const evidence = normalizeText(rule.sourceExcerpt ?? '');
+  const description = normalizeText(rule.description);
 
   return (
     detectedUnits.some((unit) => unit === selected || unit.includes(selected) || selected.includes(unit)) ||
-    originGroup.includes(selected)
+    originGroup.includes(selected) ||
+    evidence.includes(selected) ||
+    description.includes(selected) ||
+    allUnitsMarkers.some((marker) => evidence.includes(marker) || originGroup.includes(marker) || description.includes(marker))
   );
+};
+
+type RuleDiscardReason =
+  | 'missing_contract'
+  | 'missing_site'
+  | 'invalid_category'
+  | 'invalid_periodicity'
+  | 'missing_description'
+  | 'missing_evidence'
+  | 'missing_page'
+  | 'missing_section'
+  | 'non_literal_excerpt'
+  | 'not_explicitly_applicable_to_site'
+  | 'out_of_scope';
+
+type RuleValidationResult =
+  | { valid: true; rule: RuleWithEvidence & { sourceItem: string; category: string; periodicity: string } }
+  | { valid: false; reason: RuleDiscardReason; rule: RuleWithEvidence };
+
+const normalizeEvidenceForComparison = (value: string) => normalizeText(value).replace(/\s+/g, ' ').trim();
+
+const hasLiteralEvidence = (rule: RuleWithEvidence, pages: EvidencePage[]) => {
+  if (!rule.sourceExcerpt?.trim() || !rule.sourcePage) {
+    return false;
+  }
+
+  const page = pages.find((item) => item.page === rule.sourcePage);
+  const normalizedExcerpt = normalizeEvidenceForComparison(rule.sourceExcerpt);
+
+  if (!page || !normalizedExcerpt) {
+    return false;
+  }
+
+  return normalizeEvidenceForComparison(page.text).includes(normalizedExcerpt);
+};
+
+const validateExtractedRule = (
+  rule: RuleWithEvidence,
+  site: { id: string; tenantId: string; name: string },
+  contractId: string,
+  pages: EvidencePage[],
+): RuleValidationResult => {
+  if (!contractId) {
+    return { valid: false, reason: 'missing_contract', rule };
+  }
+
+  if (!site.id) {
+    return { valid: false, reason: 'missing_site', rule };
+  }
+
+  if (!allowedRuleCategories.has(rule.category)) {
+    return { valid: false, reason: 'invalid_category', rule };
+  }
+
+  if (!rule.periodicity || !allowedPeriodicities.has(rule.periodicity)) {
+    return { valid: false, reason: 'invalid_periodicity', rule };
+  }
+
+  if (!rule.description.trim()) {
+    return { valid: false, reason: 'missing_description', rule };
+  }
+
+  if (!rule.sourceExcerpt?.trim()) {
+    return { valid: false, reason: 'missing_evidence', rule };
+  }
+
+  if (!rule.sourcePage) {
+    return { valid: false, reason: 'missing_page', rule };
+  }
+
+  if (!rule.sourceItem?.trim()) {
+    return { valid: false, reason: 'missing_section', rule };
+  }
+
+  if (!hasLiteralEvidence(rule, pages)) {
+    return { valid: false, reason: 'non_literal_excerpt', rule };
+  }
+
+  if (!ruleAppliesToSelectedSite(rule, site.name)) {
+    return { valid: false, reason: 'not_explicitly_applicable_to_site', rule };
+  }
+
+  if (!isOperationalMenuRule(rule)) {
+    return { valid: false, reason: 'out_of_scope', rule };
+  }
+
+  return {
+    valid: true,
+    rule: {
+      ...rule,
+      sourceItem: rule.sourceItem.trim(),
+      category: rule.category,
+      periodicity: rule.periodicity,
+    },
+  };
 };
 
 export const extractRulesFromPdf = async (
@@ -614,6 +921,7 @@ export const extractRulesFromPdf = async (
   companyName: string,
   site: { id: string; tenantId: string; name: string },
   knownSites: Array<{ id: string; name: string }>,
+  actor: { id: string; name: string } = { id: 'system', name: 'Processamento documental' },
 ): Promise<RouteResult> => {
   const nowIso = new Date().toISOString();
 
@@ -680,10 +988,15 @@ export const extractRulesFromPdf = async (
   const baseSegments = clauseSegments.length
     ? clauseSegments
     : splitByPagesFallback(contractText, pageChunkChars);
-  const segments = (baseSegments.length
+  const candidateSegments = (baseSegments.length
     ? baseSegments
     : [{ chunkId: 1, chunkLabel: 'Documento completo', strategy: 'pages' as const, text: contractText }]
   ).slice(0, maxSegments);
+  const classifiedBlocks: ContractBlock[] = candidateSegments.map((segment) => ({
+    ...segment,
+    blockType: classifyContractBlock(segment.text),
+  }));
+  const segments = classifiedBlocks.filter((block) => shouldSendBlockToAi(block, site.name, knownSites));
 
   const knownSiteNames = knownSites.map((knownSite) => knownSite.name).join(', ');
   const promptTemplate = `Voce esta extraindo regras operacionais de cardapio para:
@@ -695,9 +1008,9 @@ Unidades conhecidas do cliente: ${knownSiteNames || site.name}
 
 Extraia somente regras que impactem montagem, aprovacao ou validacao de cardapio, alimentacao e conformidade nutricional/contratual.
 
-Inclua regras sobre quantidade de opcoes por dia, frequencia mensal, incidencia de proteinas, tipos de proteina, substituicoes, repeticao, buffet livre, buffet especial, prato especial, salada, guarnicao, arroz, feijao, sobremesa, fruta, suco, bebida, cafe, cha, ovo, opcoes light/vegana/restritivas, alergenicos e aprovacao de cardapio.
+Inclua regras sobre quantidade de opcoes por dia, frequencia mensal, incidencia de proteinas, tipos de proteina, substituicoes, repeticao, buffet livre, buffet especial, prato especial, salada, guarnicao, arroz, feijao, sobremesa, fruta, suco, bebida, cafe, cha, ovo, opcoes light/vegana/restritivas, alergenicos, horarios/volumes de refeicao e composicao de cardapio.
 
-Ignore clausulas juridicas gerais, multas, SLA, seguros, documentos administrativos, dados comerciais, obrigacoes trabalhistas, penalidades, cadastro, contato e qualquer clausula sem impacto direto no cardapio.
+Ignore clausulas juridicas gerais, multas, SLA, seguros, HSE, RH, equipamentos, documentos administrativos, dados comerciais, proposta comercial, obrigacoes trabalhistas, penalidades, cadastro, contato e qualquer clausula sem impacto direto no cardapio.
 
 Criterios de aplicabilidade:
 1. Extraia regras gerais quando o texto indicar todas as unidades/localidades/restaurantes/turnos ou todo o contrato.
@@ -706,10 +1019,13 @@ Criterios de aplicabilidade:
 4. Ignore regras de outras unidades.
 5. Nao use contratos anteriores.
 6. Nao inferir por semelhanca.
-7. Toda regra precisa de evidencia textual ou tabela de origem.
+7. Toda regra precisa de evidencia textual literal ou tabela de origem.
+8. Nao crie regras sem pagina, item/secao e trecho literal.
+9. Use somente estas categorias: PROTEIN, SALAD, SIDE_DISH, RICE, BEAN, JUICE, BEVERAGE, DESSERT, FRUIT, EGG_REPLACEMENT, BUFFET_FREE, BUFFET_SPECIAL, SPECIAL_DISH, LIGHT_VEGAN_OPTION, MONTHLY_INCIDENCE, WEEKLY_PERIODICITY, UNIT_SPECIFIC_RULE, MEAL_TIME, MEAL_VOLUME, MENU_COMPOSITION.
+10. Use somente estas periodicidades: DAILY, WEEKLY, MONTHLY, PER_SERVICE, PER_MENU_CYCLE.
 
 Responda apenas JSON no formato:
-{"rules":[{"title":"Titulo curto","description":"Descricao operacional","rule_type":"incidencia_cardapio","category":"proteina","periodicity":"mensal","quantity":14,"unit_measure":"incidencias","calculation_basis":"22 dias uteis","applicability":"site_group","detectedUnits":["${site.name}"],"originGroupText":"Grupo literal do contrato","sourceItem":"19","sourcePage":21,"sourceExcerpt":"Trecho literal de evidencia"}]}`;
+{"rules":[{"title":"Titulo curto","description":"Descricao operacional","rule_type":"incidencia_cardapio","category":"PROTEIN","periodicity":"MONTHLY","quantity":14,"unitMeasure":"incidences","calculation_basis":"22 dias uteis","applicability":"site_group","detectedUnits":["${site.name}"],"originGroupText":"Grupo literal do contrato","sourceItem":"19","sourcePage":21,"sourceExcerpt":"Trecho literal de evidencia"}]}`;
 
   const diagnostics: ExtractionDiagnostics = {
     contractId,
@@ -728,6 +1044,7 @@ Responda apenas JSON no formato:
     discardedBySchema: 0,
     rulesWithEvidence: 0,
     rulesWithoutEvidence: 0,
+    discardedRules: [],
     pdfTextLength: contractText.length,
     excerptLength: segments.reduce((sum, segment) => sum + segment.text.length, 0),
     ollamaHttpStatus: null,
@@ -787,6 +1104,7 @@ Responda apenas JSON no formato:
 
     const prompt = `${promptTemplate}
 
+Bloco classificado: ${blockTypeLabels[segment.blockType]}
 Trecho do contrato (${segment.chunkLabel}):
 ${segment.text}
 
@@ -876,8 +1194,7 @@ Responda apenas com JSON:`;
     }
   }
 
-  const normalizedRules = Array.from(dedupedRulesMap.values())
-    .filter((rule) => ruleAppliesToSelectedSite(rule, site.name));
+  const normalizedRules = Array.from(dedupedRulesMap.values());
   const evidencePages = buildEvidencePages(contractText, pageChunkChars);
   let rulesWithEvidence = normalizedRules.map((rule) => findDeterministicEvidence(rule, evidencePages));
 
@@ -959,27 +1276,41 @@ ${contractText.slice(0, 12000)}`;
     }
   }
 
-  diagnostics.rulesDetected = rulesWithEvidence.length;
-  diagnostics.schemaValid = rulesWithEvidence.length > 0;
-  diagnostics.rulesWithEvidence = rulesWithEvidence.filter((rule) => !!rule.sourceExcerpt).length;
-  diagnostics.rulesWithoutEvidence = rulesWithEvidence.length - diagnostics.rulesWithEvidence;
+  const validationResults = rulesWithEvidence.map((rule) => validateExtractedRule(rule, site, contractId, evidencePages));
+  const discardedRules = validationResults
+    .filter((result): result is Extract<RuleValidationResult, { valid: false }> => !result.valid)
+    .map((result) => ({
+      reason: result.reason,
+      title: result.rule.title,
+      category: result.rule.category,
+      periodicity: result.rule.periodicity,
+      sourcePage: result.rule.sourcePage,
+      sourceItem: result.rule.sourceItem,
+      detectedUnits: result.rule.detectedUnits,
+      originGroupText: result.rule.originGroupText,
+    }));
 
-  rulesWithEvidence = rulesWithEvidence.filter((rule) => !!rule.sourceExcerpt);
+  rulesWithEvidence = validationResults
+    .filter((result): result is Extract<RuleValidationResult, { valid: true }> => result.valid)
+    .map((result) => result.rule);
+
   diagnostics.rulesDetected = rulesWithEvidence.length;
   diagnostics.schemaValid = rulesWithEvidence.length > 0;
   diagnostics.rulesWithEvidence = rulesWithEvidence.length;
-  diagnostics.rulesWithoutEvidence = 0;
+  diagnostics.rulesWithoutEvidence = discardedRules.filter((rule) => rule.reason === 'missing_evidence' || rule.reason === 'missing_page' || rule.reason === 'non_literal_excerpt').length;
+  diagnostics.discardedBySchema += discardedRules.length;
+  diagnostics.discardedRules = discardedRules;
 
   if (!rulesWithEvidence.length) {
-    diagnostics.outcome = timeoutCount === segments.length ? 'error' : 'empty';
-    diagnostics.errorMessage = timeoutCount === segments.length
+    diagnostics.outcome = segments.length > 0 && timeoutCount === segments.length ? 'error' : 'empty';
+    diagnostics.errorMessage = segments.length > 0 && timeoutCount === segments.length
       ? `Timeout em todos os ${segments.length} segmentos`
-      : diagnostics.chunks.every((chunk) => chunk.outcome === 'error')
+      : segments.length > 0 && diagnostics.chunks.every((chunk) => chunk.outcome === 'error')
         ? 'Falha ao processar todos os segmentos no Ollama'
         : null;
     await persistDiagnostics();
 
-    if (timeoutCount === segments.length) {
+    if (segments.length > 0 && timeoutCount === segments.length) {
       return {
         statusCode: 504,
         body: {
@@ -989,7 +1320,7 @@ ${contractText.slice(0, 12000)}`;
       };
     }
 
-    if (diagnostics.chunks.every((chunk) => chunk.outcome === 'error')) {
+    if (segments.length > 0 && diagnostics.chunks.every((chunk) => chunk.outcome === 'error')) {
       return {
         statusCode: 502,
         body: {
@@ -1019,6 +1350,7 @@ ${contractText.slice(0, 12000)}`;
     sourceExcerpt: string | null;
     sourcePage: number | null;
     evidenceConfidence: number | null;
+    sourceItem: string | null;
     status: string;
     createdAt: string;
   }> = [];
@@ -1083,6 +1415,38 @@ ${contractText.slice(0, 12000)}`;
       )
     `;
 
+    const eventId = deps.randomUUID();
+    await deps.prisma.$executeRaw`
+      INSERT INTO rule_validation_events (
+        id,
+        tenant_id,
+        site_id,
+        company_name,
+        rule_id,
+        previous_status,
+        next_status,
+        note,
+        actor_id,
+        actor_name,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${eventId},
+        ${site.tenantId},
+        ${site.id},
+        ${companyName},
+        ${ruleId},
+        ${'pending'},
+        ${'pending'},
+        ${'Regra identificada com evidencia e enviada para aprovacao humana.'},
+        ${actor.id},
+        ${actor.name},
+        ${createdAt},
+        ${createdAt}
+      )
+    `;
+
     createdRules.push({
       id: ruleId,
       contractId,
@@ -1092,6 +1456,7 @@ ${contractText.slice(0, 12000)}`;
       sourceExcerpt: rule.sourceExcerpt,
       sourcePage: rule.sourcePage,
       evidenceConfidence: rule.evidenceConfidence,
+      sourceItem: rule.sourceItem,
       status: 'pending',
       createdAt: createdAt.toISOString(),
     });
@@ -1266,6 +1631,7 @@ export const createContractsService = (deps: Deps) => {
             companyName,
             siteAccess.site,
             knownSites,
+            actor,
           );
 
           if (ruleResult.statusCode >= 400) {
