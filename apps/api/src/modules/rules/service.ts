@@ -24,6 +24,18 @@ type PromoteRuleToControlPayload = {
   status: 'DRAFT' | 'ACTIVE';
 };
 
+type RuleUpdatePayload = {
+  title?: string;
+  description?: string;
+  category?: string;
+  ruleType?: string | null;
+  periodicity?: string | null;
+  quantity?: number | null;
+  unitMeasure?: string | null;
+  calculationBasis?: string | null;
+  applicability?: string | null;
+};
+
 type MemoryRule = {
   id: string;
   tenantId: string;
@@ -33,11 +45,20 @@ type MemoryRule = {
   title: string;
   description: string;
   category: string;
+  ruleType: string | null;
+  periodicity: string | null;
+  quantity: number | null;
+  unitMeasure: string | null;
+  calculationBasis: string | null;
+  applicability: string | null;
   sourceExcerpt: string | null;
+  sourceItem: string | null;
   sourcePage: number | null;
+  sourceBlockId: string | null;
   evidenceConfidence: number | null;
   status: string;
   createdAt: Date;
+  updatedAt: Date;
 };
 
 export const ruleMemory = new Map<string, MemoryRule>();
@@ -107,6 +128,60 @@ export interface Deps {
 
 export const createRulesService = (deps: Deps) => {
   const repository = createRulesRepository(deps);
+
+  const allowedReviewCategories = new Set([
+    'nutrition',
+    'management',
+    'legal',
+    'compliance',
+    'operations',
+    'PROTEIN',
+    'SALAD',
+    'SIDE_DISH',
+    'RICE',
+    'BEAN',
+    'JUICE',
+    'BEVERAGE',
+    'DESSERT',
+    'FRUIT',
+    'EGG_REPLACEMENT',
+    'BUFFET_FREE',
+    'BUFFET_SPECIAL',
+    'SPECIAL_DISH',
+    'LIGHT_VEGAN_OPTION',
+    'MONTHLY_INCIDENCE',
+    'WEEKLY_PERIODICITY',
+    'UNIT_SPECIFIC_RULE',
+    'MEAL_TIME',
+    'MEAL_VOLUME',
+    'MENU_COMPOSITION',
+  ]);
+
+  const allowedReviewPeriodicities = new Set([
+    'DAILY',
+    'WEEKLY',
+    'MONTHLY',
+    'PER_SERVICE',
+    'PER_MENU_CYCLE',
+  ]);
+
+  const validateRuleUpdatePayload = (payload: RuleUpdatePayload): RouteResult | null => {
+    if (payload.category && !allowedReviewCategories.has(payload.category)) {
+      return {
+        statusCode: 400,
+        body: { status: 'error', message: 'Categoria de regra invalida.' },
+      };
+    }
+
+    if (payload.periodicity && !allowedReviewPeriodicities.has(payload.periodicity)) {
+      return {
+        statusCode: 400,
+        body: { status: 'error', message: 'Periodicidade de regra invalida.' },
+      };
+    }
+
+    return null;
+  };
 
   const requireSiteAccess = async (request: FastifyRequest, siteId: string): Promise<RouteResult | null> => {
     const siteAccess = await deps.resolveAuthorizedSite(request, siteId);
@@ -215,11 +290,20 @@ export const createRulesService = (deps: Deps) => {
         title: payload.title,
         description: payload.description,
         category: payload.category,
+        ruleType: null,
+        periodicity: null,
+        quantity: null,
+        unitMeasure: null,
+        calculationBasis: null,
+        applicability: null,
         sourceExcerpt: payload.sourceExcerpt,
+        sourceItem: null,
         sourcePage: payload.sourcePage,
+        sourceBlockId: null,
         evidenceConfidence: payload.evidenceConfidence ?? null,
         status: initialStatus,
         createdAt,
+        updatedAt: createdAt,
       };
       ruleMemory.set(ruleId, rule);
       void actor;
@@ -234,11 +318,20 @@ export const createRulesService = (deps: Deps) => {
             title: rule.title,
             description: rule.description,
             category: rule.category,
+            ruleType: rule.ruleType,
+            periodicity: rule.periodicity,
+            quantity: rule.quantity,
+            unitMeasure: rule.unitMeasure,
+            calculationBasis: rule.calculationBasis,
+            applicability: rule.applicability,
             sourceExcerpt: rule.sourceExcerpt,
+            sourceItem: rule.sourceItem,
             sourcePage: rule.sourcePage,
+            sourceBlockId: rule.sourceBlockId,
             evidenceConfidence: rule.evidenceConfidence,
             status: rule.status,
             createdAt: rule.createdAt.toISOString(),
+            updatedAt: rule.updatedAt.toISOString(),
           },
         },
       };
@@ -391,6 +484,14 @@ export const createRulesService = (deps: Deps) => {
     const companyName = deps.getCompanyFromJwt(request);
     const tenantId = deps.getTenantIdFromJwt(request);
     const actor = deps.getUserFromJwt(request);
+    const statusNote = payload.note?.trim() ?? null;
+
+    if (payload.status === 'rejected' && !statusNote) {
+      return {
+        statusCode: 400,
+        body: { status: 'error', message: 'Informe o motivo da rejeicao da regra.' },
+      };
+    }
 
     if (!deps.prisma) {
       const existingRule = ruleMemory.get(params.ruleId);
@@ -503,7 +604,7 @@ export const createRulesService = (deps: Deps) => {
         ${params.ruleId},
         ${previousStatus},
         ${nextStatus},
-        ${payload.note ?? null},
+        ${statusNote},
         ${actor.id},
         ${actor.name},
         NOW(),
@@ -518,6 +619,301 @@ export const createRulesService = (deps: Deps) => {
       body: {
         status: 'ok',
         message: 'Status da regra atualizado com rastreabilidade.',
+      },
+    };
+  };
+
+  const updateRule = async (
+    request: FastifyRequest,
+    params: { ruleId: string },
+    payload: RuleUpdatePayload,
+  ): Promise<RouteResult> => {
+    const validationError = validateRuleUpdatePayload(payload);
+    if (validationError) {
+      return validationError;
+    }
+
+    const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = deps.getTenantIdFromJwt(request);
+    const actor = deps.getUserFromJwt(request);
+
+    if (!deps.prisma) {
+      const existingRule = ruleMemory.get(params.ruleId);
+      if (!existingRule || existingRule.companyName !== companyName || existingRule.tenantId !== tenantId) {
+        return {
+          statusCode: 404,
+          body: { status: 'error', message: 'Regra nao encontrada para esta empresa.' },
+        };
+      }
+
+      const accessDenied = await requireSiteAccess(request, existingRule.siteId);
+      if (accessDenied) {
+        return accessDenied;
+      }
+
+      if (existingRule.status !== 'pending') {
+        return {
+          statusCode: 409,
+          body: { status: 'error', message: 'Apenas regras pendentes podem ser editadas.' },
+        };
+      }
+
+      if (!existingRule.sourceExcerpt?.trim() || !existingRule.sourcePage) {
+        return {
+          statusCode: 409,
+          body: { status: 'error', message: 'Regra sem evidencia nao pode ser editada.' },
+        };
+      }
+
+      const updatedAt = new Date();
+      const updatedRule: MemoryRule = {
+        ...existingRule,
+        title: payload.title ?? existingRule.title,
+        description: payload.description ?? existingRule.description,
+        category: payload.category ?? existingRule.category,
+        ruleType: payload.ruleType === undefined ? existingRule.ruleType : payload.ruleType,
+        periodicity: payload.periodicity === undefined ? existingRule.periodicity : payload.periodicity,
+        quantity: payload.quantity === undefined ? existingRule.quantity : payload.quantity,
+        unitMeasure: payload.unitMeasure === undefined ? existingRule.unitMeasure : payload.unitMeasure,
+        calculationBasis: payload.calculationBasis === undefined ? existingRule.calculationBasis : payload.calculationBasis,
+        applicability: payload.applicability === undefined ? existingRule.applicability : payload.applicability,
+        updatedAt,
+      };
+      ruleMemory.set(existingRule.id, updatedRule);
+      void actor;
+
+      return {
+        statusCode: 200,
+        body: {
+          status: 'ok',
+          rule: {
+            id: updatedRule.id,
+            tenantId: updatedRule.tenantId,
+            siteId: updatedRule.siteId,
+            contractId: updatedRule.contractId,
+            title: updatedRule.title,
+            description: updatedRule.description,
+            category: updatedRule.category,
+            ruleType: updatedRule.ruleType,
+            periodicity: updatedRule.periodicity,
+            quantity: updatedRule.quantity,
+            unitMeasure: updatedRule.unitMeasure,
+            calculationBasis: updatedRule.calculationBasis,
+            applicability: updatedRule.applicability,
+            sourcePage: updatedRule.sourcePage,
+            sourceItem: updatedRule.sourceItem,
+            sourceExcerpt: updatedRule.sourceExcerpt,
+            evidenceConfidence: updatedRule.evidenceConfidence,
+            sourceBlockId: updatedRule.sourceBlockId,
+            status: updatedRule.status,
+            createdAt: updatedRule.createdAt.toISOString(),
+            updatedAt: updatedRule.updatedAt.toISOString(),
+          },
+        },
+      };
+    }
+
+    await deps.ensureDomainTables();
+
+    const existingRows = await deps.prisma.$queryRaw<Array<{
+      id: string;
+      tenant_id: string;
+      site_id: string;
+      contract_id: string;
+      title: string;
+      description: string;
+      category: string;
+      rule_type: string | null;
+      periodicity: string | null;
+      quantity: number | null;
+      unit_measure: string | null;
+      calculation_basis: string | null;
+      applicability: string | null;
+      source_page: number | null;
+      source_item: string | null;
+      source_excerpt: string | null;
+      evidence_confidence: number | null;
+      source_block_id: string | null;
+      status: string;
+      created_at: Date;
+      updated_at: Date;
+    }>>`
+      SELECT
+        id,
+        tenant_id,
+        site_id,
+        contract_id,
+        title,
+        description,
+        category,
+        rule_type,
+        periodicity,
+        quantity,
+        unit_measure,
+        calculation_basis,
+        applicability,
+        source_page,
+        source_item,
+        source_excerpt,
+        evidence_confidence,
+        source_block_id,
+        status,
+        created_at,
+        updated_at
+      FROM extracted_rules
+      WHERE id = ${params.ruleId}
+        AND tenant_id = ${tenantId}
+        AND company_name = ${companyName}
+      LIMIT 1
+    `;
+
+    const existingRule = existingRows[0];
+    if (!existingRule) {
+      return {
+        statusCode: 404,
+        body: { status: 'error', message: 'Regra nao encontrada para esta empresa.' },
+      };
+    }
+
+    const accessDenied = await requireSiteAccess(request, existingRule.site_id);
+    if (accessDenied) {
+      return accessDenied;
+    }
+
+    if (existingRule.status !== 'pending') {
+      return {
+        statusCode: 409,
+        body: { status: 'error', message: 'Apenas regras pendentes podem ser editadas.' },
+      };
+    }
+
+    if (!existingRule.source_excerpt?.trim() || !existingRule.source_page) {
+      return {
+        statusCode: 409,
+        body: { status: 'error', message: 'Regra sem evidencia nao pode ser editada.' },
+      };
+    }
+
+    const nextRule = {
+      title: payload.title ?? existingRule.title,
+      description: payload.description ?? existingRule.description,
+      category: payload.category ?? existingRule.category,
+      ruleType: payload.ruleType === undefined ? existingRule.rule_type : payload.ruleType,
+      periodicity: payload.periodicity === undefined ? existingRule.periodicity : payload.periodicity,
+      quantity: payload.quantity === undefined ? existingRule.quantity : payload.quantity,
+      unitMeasure: payload.unitMeasure === undefined ? existingRule.unit_measure : payload.unitMeasure,
+      calculationBasis: payload.calculationBasis === undefined ? existingRule.calculation_basis : payload.calculationBasis,
+      applicability: payload.applicability === undefined ? existingRule.applicability : payload.applicability,
+    };
+
+    await deps.prisma.$executeRaw`
+      UPDATE extracted_rules
+      SET title = ${nextRule.title},
+          description = ${nextRule.description},
+          category = ${nextRule.category},
+          rule_type = ${nextRule.ruleType},
+          periodicity = ${nextRule.periodicity},
+          quantity = ${nextRule.quantity},
+          unit_measure = ${nextRule.unitMeasure},
+          calculation_basis = ${nextRule.calculationBasis},
+          applicability = ${nextRule.applicability},
+          updated_at = NOW()
+      WHERE id = ${params.ruleId}
+        AND tenant_id = ${tenantId}
+        AND company_name = ${companyName}
+    `;
+
+    const eventId = deps.randomUUID();
+    await deps.prisma.$executeRaw`
+      INSERT INTO rule_validation_events (
+        id,
+        tenant_id,
+        site_id,
+        company_name,
+        rule_id,
+        previous_status,
+        next_status,
+        note,
+        actor_id,
+        actor_name,
+        created_at,
+        updated_at
+      )
+      VALUES (
+        ${eventId},
+        ${existingRule.tenant_id},
+        ${existingRule.site_id},
+        ${companyName},
+        ${params.ruleId},
+        ${existingRule.status},
+        ${existingRule.status},
+        ${'Regra editada antes da aprovacao humana.'},
+        ${actor.id},
+        ${actor.name},
+        NOW(),
+        NOW()
+      )
+    `;
+
+    const updatedRows = await deps.prisma.$queryRaw<Array<typeof existingRule>>`
+      SELECT
+        id,
+        tenant_id,
+        site_id,
+        contract_id,
+        title,
+        description,
+        category,
+        rule_type,
+        periodicity,
+        quantity,
+        unit_measure,
+        calculation_basis,
+        applicability,
+        source_page,
+        source_item,
+        source_excerpt,
+        evidence_confidence,
+        source_block_id,
+        status,
+        created_at,
+        updated_at
+      FROM extracted_rules
+      WHERE id = ${params.ruleId}
+        AND tenant_id = ${tenantId}
+        AND company_name = ${companyName}
+      LIMIT 1
+    `;
+
+    const updatedRule = updatedRows[0] ?? existingRule;
+
+    return {
+      statusCode: 200,
+      body: {
+        status: 'ok',
+        rule: {
+          id: updatedRule.id,
+          tenantId: updatedRule.tenant_id,
+          siteId: updatedRule.site_id,
+          contractId: updatedRule.contract_id,
+          title: updatedRule.title,
+          description: updatedRule.description,
+          category: updatedRule.category,
+          ruleType: updatedRule.rule_type,
+          periodicity: updatedRule.periodicity,
+          quantity: updatedRule.quantity,
+          unitMeasure: updatedRule.unit_measure,
+          calculationBasis: updatedRule.calculation_basis,
+          applicability: updatedRule.applicability,
+          sourcePage: updatedRule.source_page,
+          sourceItem: updatedRule.source_item,
+          sourceExcerpt: updatedRule.source_excerpt,
+          evidenceConfidence: updatedRule.evidence_confidence,
+          sourceBlockId: updatedRule.source_block_id,
+          status: updatedRule.status,
+          createdAt: updatedRule.created_at.toISOString(),
+          updatedAt: updatedRule.updated_at.toISOString(),
+        },
       },
     };
   };
@@ -921,6 +1317,159 @@ export const createRulesService = (deps: Deps) => {
     };
   };
 
+  const getRuleEvidence = async (
+    request: FastifyRequest,
+    params: { ruleId: string },
+  ): Promise<RouteResult> => {
+    const companyName = deps.getCompanyFromJwt(request);
+    const tenantId = deps.getTenantIdFromJwt(request);
+
+    if (!deps.prisma) {
+      const rule = ruleMemory.get(params.ruleId);
+      if (!rule || rule.companyName !== companyName || rule.tenantId !== tenantId) {
+        return {
+          statusCode: 404,
+          body: { status: 'error', message: 'Regra nao encontrada para esta empresa.' },
+        };
+      }
+
+      const accessDenied = await requireSiteAccess(request, rule.siteId);
+      if (accessDenied) {
+        return accessDenied;
+      }
+
+      return {
+        statusCode: 200,
+        body: {
+          status: 'ok',
+          evidence: {
+            rule: {
+              id: rule.id,
+              sourcePage: rule.sourcePage,
+              sourceItem: rule.sourceItem,
+              sourceExcerpt: rule.sourceExcerpt,
+              evidenceConfidence: rule.evidenceConfidence,
+              sourceBlockId: rule.sourceBlockId,
+            },
+            block: null,
+            page: null,
+          },
+        },
+      };
+    }
+
+    await deps.ensureDomainTables();
+
+    const rows = await deps.prisma.$queryRaw<Array<{
+      id: string;
+      site_id: string;
+      contract_id: string;
+      source_page: number | null;
+      source_item: string | null;
+      source_excerpt: string | null;
+      evidence_confidence: number | null;
+      source_block_id: string | null;
+      block_type: string | null;
+      block_page_number: number | null;
+      block_source_item: string | null;
+      raw_text: string | null;
+      normalized_text: string | null;
+      normalized_table_markdown: string | null;
+      normalized_table_json: string | null;
+      detected_units_json: string | null;
+      page_number: number | null;
+      page_raw_text: string | null;
+      text_quality: string | null;
+    }>>`
+      SELECT
+        rule.id,
+        rule.site_id,
+        rule.contract_id,
+        rule.source_page,
+        rule.source_item,
+        rule.source_excerpt,
+        rule.evidence_confidence,
+        rule.source_block_id,
+        block.block_type,
+        block.page_number AS block_page_number,
+        block.source_item AS block_source_item,
+        block.raw_text,
+        block.normalized_text,
+        block.normalized_table_markdown,
+        block.normalized_table_json,
+        block.detected_units_json,
+        page.page_number,
+        page.raw_text AS page_raw_text,
+        page.text_quality
+      FROM extracted_rules rule
+      LEFT JOIN contract_blocks block
+        ON block.id = rule.source_block_id
+       AND block.tenant_id = rule.tenant_id
+       AND block.contract_id = rule.contract_id
+       AND block.site_id IS NOT DISTINCT FROM rule.site_id
+      LEFT JOIN contract_pages page
+        ON page.id = block.contract_page_id
+       AND page.tenant_id = rule.tenant_id
+       AND page.contract_id = rule.contract_id
+       AND page.site_id IS NOT DISTINCT FROM rule.site_id
+      WHERE rule.id = ${params.ruleId}
+        AND rule.tenant_id = ${tenantId}
+        AND rule.company_name = ${companyName}
+      LIMIT 1
+    `;
+
+    const evidence = rows[0];
+    if (!evidence) {
+      return {
+        statusCode: 404,
+        body: { status: 'error', message: 'Regra nao encontrada para esta empresa.' },
+      };
+    }
+
+    const accessDenied = await requireSiteAccess(request, evidence.site_id);
+    if (accessDenied) {
+      return accessDenied;
+    }
+
+    return {
+      statusCode: 200,
+      body: {
+        status: 'ok',
+        evidence: {
+          rule: {
+            id: evidence.id,
+            contractId: evidence.contract_id,
+            sourcePage: evidence.source_page,
+            sourceItem: evidence.source_item,
+            sourceExcerpt: evidence.source_excerpt,
+            evidenceConfidence: evidence.evidence_confidence,
+            sourceBlockId: evidence.source_block_id,
+          },
+          block: evidence.source_block_id
+            ? {
+              id: evidence.source_block_id,
+              blockType: evidence.block_type,
+              pageNumber: evidence.block_page_number,
+              sourceItem: evidence.block_source_item,
+              rawText: evidence.raw_text,
+              normalizedText: evidence.normalized_text,
+              normalizedTableMarkdown: evidence.normalized_table_markdown,
+              normalizedTableJson: evidence.normalized_table_json,
+              detectedUnitsJson: evidence.detected_units_json,
+            }
+            : null,
+          page: evidence.page_number
+            ? {
+              pageNumber: evidence.page_number,
+              rawText: evidence.page_raw_text,
+              textQuality: evidence.text_quality,
+            }
+            : null,
+        },
+      },
+    };
+  };
+
   const deleteRule = async (
     request: FastifyRequest,
     params: { ruleId: string },
@@ -988,7 +1537,7 @@ export const createRulesService = (deps: Deps) => {
 
   const listRules = async (
     request: FastifyRequest,
-    query: { limit: number; status?: string; contractId?: string; siteId?: string },
+    query: { limit: number; status?: string; category?: string; contractId?: string; siteId?: string },
   ): Promise<RouteResult> => {
     if (!deps.prisma) {
       const companyName = deps.getCompanyFromJwt(request);
@@ -1026,6 +1575,7 @@ export const createRulesService = (deps: Deps) => {
         .filter((item) => authorizedSiteIds.length === 0 || authorizedSiteIds.includes(item.siteId))
         .filter((item) => !query.contractId || item.contractId === query.contractId)
         .filter((item) => !query.status || item.status === query.status)
+        .filter((item) => !query.category || item.category === query.category)
         .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
         .slice(0, query.limit);
 
@@ -1035,16 +1585,27 @@ export const createRulesService = (deps: Deps) => {
           status: 'ok',
           rules: rules.map((item) => ({
             id: item.id,
+            tenantId: item.tenantId,
             siteId: item.siteId,
+            siteName: null,
             contractId: item.contractId,
             title: item.title,
             description: item.description,
             category: item.category,
+            ruleType: item.ruleType,
+            periodicity: item.periodicity,
+            quantity: item.quantity,
+            unitMeasure: item.unitMeasure,
+            calculationBasis: item.calculationBasis,
+            applicability: item.applicability,
             sourceExcerpt: item.sourceExcerpt,
+            sourceItem: item.sourceItem,
             sourcePage: item.sourcePage,
+            sourceBlockId: item.sourceBlockId,
             evidenceConfidence: item.evidenceConfidence,
             status: item.status,
             createdAt: item.createdAt.toISOString(),
+            updatedAt: item.updatedAt.toISOString(),
           })),
         },
       };
@@ -1099,61 +1660,66 @@ export const createRulesService = (deps: Deps) => {
 
     type RuleRow = {
       id: string;
+      tenant_id: string;
       site_id: string;
+      site_name: string | null;
       contract_id: string;
       title: string;
       description: string;
       category: string;
+      rule_type: string | null;
+      periodicity: string | null;
+      quantity: number | null;
+      unit_measure: string | null;
+      calculation_basis: string | null;
+      applicability: string | null;
       source_excerpt: string | null;
+      source_item: string | null;
       source_page: number | null;
+      source_block_id: string | null;
       evidence_confidence: number | null;
       status: string;
       created_at: Date;
+      updated_at: Date;
     };
 
-    const rules = query.contractId && query.status
-      ? await deps.prisma.$queryRaw<Array<RuleRow>>`
-          SELECT id, site_id, contract_id, title, description, category, source_excerpt, source_page, evidence_confidence, status, created_at
-          FROM extracted_rules
-          WHERE tenant_id = ${tenantId}
-            AND company_name = ${companyName}
-            AND site_id = ANY(${authorizedSiteIds}::text[])
-            AND contract_id = ${query.contractId}
-            AND status = ${query.status}
-          ORDER BY created_at DESC
-          LIMIT ${query.limit}
-        `
-      : query.contractId
-        ? await deps.prisma.$queryRaw<Array<RuleRow>>`
-            SELECT id, site_id, contract_id, title, description, category, source_excerpt, source_page, evidence_confidence, status, created_at
-            FROM extracted_rules
-            WHERE tenant_id = ${tenantId}
-              AND company_name = ${companyName}
-              AND site_id = ANY(${authorizedSiteIds}::text[])
-              AND contract_id = ${query.contractId}
-            ORDER BY created_at DESC
-            LIMIT ${query.limit}
-          `
-        : query.status
-          ? await deps.prisma.$queryRaw<Array<RuleRow>>`
-              SELECT id, site_id, contract_id, title, description, category, source_excerpt, source_page, evidence_confidence, status, created_at
-              FROM extracted_rules
-              WHERE tenant_id = ${tenantId}
-                AND company_name = ${companyName}
-                AND site_id = ANY(${authorizedSiteIds}::text[])
-                AND status = ${query.status}
-              ORDER BY created_at DESC
-              LIMIT ${query.limit}
-            `
-          : await deps.prisma.$queryRaw<Array<RuleRow>>`
-              SELECT id, site_id, contract_id, title, description, category, source_excerpt, source_page, evidence_confidence, status, created_at
-              FROM extracted_rules
-              WHERE tenant_id = ${tenantId}
-                AND company_name = ${companyName}
-                AND site_id = ANY(${authorizedSiteIds}::text[])
-              ORDER BY created_at DESC
-              LIMIT ${query.limit}
-            `;
+    const rules = await deps.prisma.$queryRaw<Array<RuleRow>>`
+      SELECT
+        rule.id,
+        rule.tenant_id,
+        rule.site_id,
+        site.name AS site_name,
+        rule.contract_id,
+        rule.title,
+        rule.description,
+        rule.category,
+        rule.rule_type,
+        rule.periodicity,
+        rule.quantity,
+        rule.unit_measure,
+        rule.calculation_basis,
+        rule.applicability,
+        rule.source_excerpt,
+        rule.source_item,
+        rule.source_page,
+        rule.source_block_id,
+        rule.evidence_confidence,
+        rule.status,
+        rule.created_at,
+        rule.updated_at
+      FROM extracted_rules rule
+      LEFT JOIN sites site
+        ON site.id = rule.site_id
+       AND site.tenant_id = rule.tenant_id
+      WHERE rule.tenant_id = ${tenantId}
+        AND rule.company_name = ${companyName}
+        AND rule.site_id = ANY(${authorizedSiteIds}::text[])
+        AND (${query.contractId ?? null}::text IS NULL OR rule.contract_id = ${query.contractId ?? null})
+        AND (${query.status ?? null}::text IS NULL OR rule.status = ${query.status ?? null})
+        AND (${query.category ?? null}::text IS NULL OR rule.category = ${query.category ?? null})
+      ORDER BY rule.created_at DESC
+      LIMIT ${query.limit}
+    `;
 
     return {
       statusCode: 200,
@@ -1161,16 +1727,27 @@ export const createRulesService = (deps: Deps) => {
         status: 'ok',
         rules: rules.map((item) => ({
           id: item.id,
+          tenantId: item.tenant_id,
           siteId: item.site_id,
+          siteName: item.site_name,
           contractId: item.contract_id,
           title: item.title,
           description: item.description,
           category: item.category,
+          ruleType: item.rule_type,
+          periodicity: item.periodicity,
+          quantity: item.quantity,
+          unitMeasure: item.unit_measure,
+          calculationBasis: item.calculation_basis,
+          applicability: item.applicability,
           sourceExcerpt: item.source_excerpt,
+          sourceItem: item.source_item,
           sourcePage: item.source_page,
+          sourceBlockId: item.source_block_id,
           evidenceConfidence: item.evidence_confidence,
           status: item.status,
           createdAt: item.created_at.toISOString(),
+          updatedAt: item.updated_at.toISOString(),
         })),
       },
     };
@@ -1185,9 +1762,11 @@ export const createRulesService = (deps: Deps) => {
     ruleStatusUpdateSchema: deps.ruleStatusUpdateSchema,
     z: deps.z,
     createRule,
+    updateRule,
     updateRuleStatus,
     promoteRuleToControl,
     getRuleHistory,
+    getRuleEvidence,
     deleteRule,
     listRules,
   };
