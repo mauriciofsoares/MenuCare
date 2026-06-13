@@ -34,6 +34,31 @@ app.patch('/rules/:ruleId/status', { preHandler: authenticate }, async (request,
   return reply.code(result.statusCode).send(result.body);
 });
 
+app.patch('/rules/:ruleId', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = ruleParamsSchema.safeParse(request.params);
+  const parsedBody = z.object({
+    title: z.string().trim().min(3).max(160).optional(),
+    description: z.string().trim().min(3).max(1200).optional(),
+    category: z.string().trim().min(2).max(80).optional(),
+    ruleType: z.string().trim().min(1).max(120).nullable().optional(),
+    periodicity: z.string().trim().min(1).max(80).nullable().optional(),
+    quantity: z.coerce.number().finite().nullable().optional(),
+    unitMeasure: z.string().trim().min(1).max(80).nullable().optional(),
+    calculationBasis: z.string().trim().min(1).max(240).nullable().optional(),
+    applicability: z.string().trim().min(1).max(120).nullable().optional(),
+  }).safeParse(request.body);
+
+  if (!parsedParams.success || !parsedBody.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: apiMessage.auth.invalidCredentials,
+    });
+  }
+
+  const result = await service.updateRule(request, parsedParams.data, parsedBody.data);
+  return reply.code(result.statusCode).send(result.body);
+});
+
 app.post('/rules/:ruleId/promote-control', { preHandler: authenticate }, async (request, reply) => {
   const parsedParams = ruleParamsSchema.safeParse(request.params);
   const parsedBody = z.object({
@@ -84,22 +109,38 @@ app.get('/rules/:ruleId/history', { preHandler: authenticate }, async (request, 
   return reply.code(result.statusCode).send(result.body);
 });
 
+app.get('/rules/:ruleId/evidence', { preHandler: authenticate }, async (request, reply) => {
+  const parsedParams = ruleParamsSchema.safeParse(request.params);
+
+  if (!parsedParams.success) {
+    return reply.code(400).send({
+      status: 'error',
+      message: apiMessage.auth.invalidCredentials,
+    });
+  }
+
+  const result = await service.getRuleEvidence(request, parsedParams.data);
+  return reply.code(result.statusCode).send(result.body);
+});
+
 app.get('/rules', { preHandler: authenticate }, async (request, reply) => {
   const query = z
     .object({
       contractId: z.string().min(1).optional(),
       siteId: z.string().min(1).optional(),
       status: z.enum(['pending', 'approved', 'rejected']).optional(),
+      category: z.string().trim().min(1).max(80).optional(),
       limit: z.coerce.number().int().min(1).max(100).default(50),
     })
     .safeParse(request.query);
 
   const limit = query.success ? query.data.limit : 50;
   const status = query.success ? query.data.status : undefined;
+  const category = query.success ? query.data.category : undefined;
   const contractId = query.success ? query.data.contractId : undefined;
   const siteId = query.success ? query.data.siteId : undefined;
 
-  const result = await service.listRules(request, { limit, status, contractId, siteId });
+  const result = await service.listRules(request, { limit, status, category, contractId, siteId });
   return reply.code(result.statusCode).send(result.body);
 });
 };
