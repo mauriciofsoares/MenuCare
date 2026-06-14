@@ -317,6 +317,7 @@ describe('contract rule extraction', () => {
     assert.equal(blockWrites(captures)[0].params[5], 1);
     assert.equal(blockWrites(captures)[0].params[6], 1);
     assert.equal(blockWrites(captures)[0].params[7], 'TABLE_MENU_INCIDENCE');
+    assert.equal(blockWrites(captures)[0].params[8], 'Item 19 - Tabela de incidencia de Proteinas - Buffet oferta livre.');
     assert.equal(blockWrites(captures)[0].params[14], true);
     assert.ok(
       captures.operations.findIndex((operation) => operation.includes('INSERT INTO contract_blocks')) <
@@ -343,6 +344,71 @@ describe('contract rule extraction', () => {
 
     const diagnostics = diagnosticsOf(captures);
     assert.ok(diagnostics.discardedRules?.some((rule) => rule.reason === 'not_explicitly_applicable_to_site'));
+  });
+
+  it('normalizes table incidence candidates with missing sourcePage and sourceItem from the persisted block', async () => {
+    const captures = createCaptures();
+    const page20Text = [
+      'Item 20 - Tabela de incidencia de Proteinas - Buffet oferta livre.',
+      'Sao Jose dos Pinhais e Taubate: Carne bovina quantidade 14 incidencias mensais corte variado.',
+      'Sao Jose dos Pinhais e Taubate: Frango quantidade 10 incidencias mensais corte variado.',
+    ].join('\n');
+    const pdfPages = Array.from({ length: 20 }, (_, index) => ({
+      num: index + 1,
+      text: index === 19 ? page20Text : `Pagina ${index + 1} sem regra operacional.`,
+    }));
+
+    const result = await runExtraction(captures, {
+      pdfText: pdfPages.map((page) => page.text).join('\n\n'),
+      pdfPages,
+      rules: [validRule({
+        sourcePage: undefined,
+        sourceItem: undefined,
+        sourceExcerpt: 'Sao Jose dos Pinhais e Taubate: Carne bovina quantidade 14 incidencias mensais corte variado.',
+      })],
+    });
+
+    const blocks = blockWrites(captures);
+    const tableBlock = blocks.find((write) => write.params[5] === 20);
+    const rules = ruleWrites(captures);
+
+    assert.equal(result.statusCode, 201);
+    assert.ok(tableBlock);
+    assert.equal(tableBlock?.params[7], 'TABLE_MENU_INCIDENCE');
+    assert.equal(tableBlock?.params[8], 'Item 20 - Tabela de incidencia de Proteinas - Buffet oferta livre.');
+    assert.match(captures.prompts[0] ?? '', /Pagina conhecida do bloco: 20/);
+    assert.match(captures.prompts[0] ?? '', /Item\/secao conhecido do bloco: Item 20 - Tabela de incidencia de Proteinas - Buffet oferta livre\./);
+    assert.match(captures.prompts[0] ?? '', /Tabela normalizada:/);
+    assert.equal(rules.length, 1);
+    assert.equal(rules[0].params[7], 'PROTEIN');
+    assert.equal(rules[0].params[9], 'MONTHLY');
+    assert.equal(rules[0].params[10], 14);
+    assert.equal(rules[0].params[11], 'incidences');
+    assert.equal(rules[0].params[16], tableBlock?.params[8]);
+    assert.equal(rules[0].params[17], 'Sao Jose dos Pinhais e Taubate: Carne bovina quantidade 14 incidencias mensais corte variado.');
+    assert.equal(rules[0].params[18], 20);
+    assert.equal(rules[0].params[19], tableBlock?.params[0]);
+    assert.equal(rules[0].params[21], 'pending');
+  });
+
+  it('keeps blocking table incidence candidates without literal sourceExcerpt', async () => {
+    const captures = createCaptures();
+
+    const result = await runExtraction(captures, {
+      pdfText: [
+        'Item 20 - Tabela de incidencia de Proteinas - Buffet oferta livre.',
+        'Sao Jose dos Pinhais e Taubate: Carne bovina quantidade 14 incidencias mensais corte variado.',
+      ].join('\n'),
+      rules: [validRule({
+        sourcePage: undefined,
+        sourceItem: undefined,
+        sourceExcerpt: 'Sao Jose dos Pinhais e Taubate: Lagosta quantidade 30 incidencias mensais.',
+      })],
+    });
+
+    assert.equal(result.statusCode, 200);
+    assert.equal(ruleWrites(captures).length, 0);
+    assert.ok(diagnosticsOf(captures).discardedRules?.some((rule) => rule.reason === 'non_literal_excerpt'));
   });
 
   it('accepts MENU_COMPOSITION with literal evidence', async () => {
@@ -507,8 +573,21 @@ describe('contract rule extraction', () => {
     const captures = createCaptures();
 
     const result = await runExtraction(captures, {
-      pdfText: 'Item 19 - Sao Jose dos Pinhais e Taubate: carne bovina no buffet livre 14 incidencias mensais.',
-      rules: [validRule({ sourcePage: undefined })],
+      pdfText: 'Item 23 - Composicao do cardapio: buffet livre com arroz e feijao para Sao Jose dos Pinhais.',
+      rules: [validRule({
+        title: 'Composicao do buffet',
+        description: 'Buffet livre deve conter arroz e feijao.',
+        category: 'MENU_COMPOSITION',
+        periodicity: 'DAILY',
+        quantity: null,
+        unitMeasure: null,
+        applicability: 'direct_site',
+        detectedUnits: ['Sao Jose dos Pinhais'],
+        originGroupText: null,
+        sourcePage: undefined,
+        sourceItem: '23',
+        sourceExcerpt: 'buffet livre com arroz e feijao para Sao Jose dos Pinhais.',
+      })],
     });
 
     assert.equal(result.statusCode, 200);
@@ -520,8 +599,21 @@ describe('contract rule extraction', () => {
     const captures = createCaptures();
 
     const result = await runExtraction(captures, {
-      pdfText: 'Item 19 - Sao Jose dos Pinhais e Taubate: carne bovina no buffet livre 14 incidencias mensais.',
-      rules: [validRule({ sourceItem: undefined })],
+      pdfText: 'Item 23 - Composicao do cardapio: buffet livre com arroz e feijao para Sao Jose dos Pinhais.',
+      rules: [validRule({
+        title: 'Composicao do buffet',
+        description: 'Buffet livre deve conter arroz e feijao.',
+        category: 'MENU_COMPOSITION',
+        periodicity: 'DAILY',
+        quantity: null,
+        unitMeasure: null,
+        applicability: 'direct_site',
+        detectedUnits: ['Sao Jose dos Pinhais'],
+        originGroupText: null,
+        sourcePage: 1,
+        sourceItem: undefined,
+        sourceExcerpt: 'buffet livre com arroz e feijao para Sao Jose dos Pinhais.',
+      })],
     });
 
     assert.equal(result.statusCode, 200);

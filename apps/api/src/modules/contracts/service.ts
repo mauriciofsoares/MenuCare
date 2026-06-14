@@ -139,8 +139,11 @@ type ExtractionDiagnostics = {
     periodicity: string | null;
     sourcePage: number | null;
     sourceBlockId: string | null;
+    blockType: ContractBlockType | null;
     blockPageNumber: number | null;
     sourceItem: string | null;
+    expectedSourceItem: string | null;
+    sourceExcerpt: string | null;
     detectedUnits: string[];
     originGroupText: string | null;
   }>;
@@ -459,6 +462,90 @@ const inferTextQuality = (text: string) => {
 
 const isTableBlockType = (blockType: ContractBlockType) => blockType.startsWith('TABLE_');
 
+const incidenceTableKeywords = [
+  'tabela de incidencia',
+  'incidencia de proteinas',
+  'incidencia de proteína',
+  'incidencia proteinas',
+  'proteinas',
+  'buffet oferta livre',
+  'carne bovina',
+  'frango',
+  'peixe',
+  'suino',
+  'ovo',
+  'quantidade',
+  'incidencia',
+  'corte',
+];
+
+const proteinIncidenceRowKeywords = [
+  'carne bovina',
+  'bovina',
+  'frango',
+  'peixe',
+  'suino',
+  'ovo',
+  'proteina',
+  'incidencia',
+  'incidencias',
+];
+
+const hasTableMenuIncidenceSignal = (text: string) => {
+  const content = normalizeText(text);
+  const hasIncidenceSignal = /\b(tabela de incidencia|incidencia|incidencias|frequencia|periodicidade|mensal|semanal)\b/.test(content);
+  const hasProteinSignal = incidenceTableKeywords.some((keyword) => content.includes(normalizeText(keyword)));
+  return hasIncidenceSignal && hasProteinSignal;
+};
+
+const inferTableIncidenceSourceItem = (text: string, pageNumber: number) => {
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => normalizeWhitespace(line))
+    .filter((line) => line.length > 0)
+    .slice(0, 40);
+
+  for (const line of lines) {
+    const normalizedLine = normalizeText(line);
+
+    if (!hasTableMenuIncidenceSignal(normalizedLine)) {
+      continue;
+    }
+
+    const explicitItem = normalizedLine.match(/\bitem\s*(\d{1,3})\b/);
+    if (explicitItem?.[1]) {
+      return line;
+    }
+
+    const leadingNumber = line.match(/^(\d{1,3})(?:[\s.)-]+)(.+)$/);
+    if (leadingNumber?.[1] && leadingNumber[2]) {
+      return `Item ${leadingNumber[1]} - ${normalizeWhitespace(leadingNumber[2])}`;
+    }
+
+    return line;
+  }
+
+  return `Item ${pageNumber} - Tabela de incidencia de Proteinas`;
+};
+
+const inferBlockSourceItem = (
+  text: string,
+  pageNumber: number,
+  blockType: ContractBlockType,
+  fallback: string,
+) => {
+  if (blockType === 'TABLE_MENU_INCIDENCE') {
+    return inferTableIncidenceSourceItem(text, pageNumber);
+  }
+
+  const itemLine = text
+    .split(/\r?\n/)
+    .map((line) => normalizeWhitespace(line))
+    .find((line) => /\bitem\s*\d{1,3}\b/i.test(line) || /^\d{1,3}(?:[\s.)-]+)/.test(line));
+
+  return itemLine?.slice(0, 120) ?? fallback;
+};
+
 const normalizeTableFromText = (text: string, blockType: ContractBlockType) => {
   if (!isTableBlockType(blockType)) {
     return { markdown: null, json: null };
@@ -472,6 +559,24 @@ const normalizeTableFromText = (text: string, blockType: ContractBlockType) => {
 
   if (!rows.length) {
     return { markdown: null, json: null };
+  }
+
+  if (blockType === 'TABLE_MENU_INCIDENCE') {
+    const incidenceRows = rows.filter((row) => containsAnyNormalized(row, proteinIncidenceRowKeywords));
+    const markdownRows = (incidenceRows.length ? incidenceRows : rows).slice(0, 60);
+    const markdown = [
+      '| Linha | Evidencia literal |',
+      '| --- | --- |',
+      ...markdownRows.map((row, index) => `| ${index + 1} | ${row.replace(/\|/g, '\\|')} |`),
+    ].join('\n');
+
+    return {
+      markdown,
+      json: JSON.stringify({
+        rows: rows.map((text, index) => ({ index: index + 1, text })),
+        incidenceRows: incidenceRows.map((text, index) => ({ index: index + 1, text })),
+      }),
+    };
   }
 
   const markdown = [
@@ -546,6 +651,7 @@ const buildContractBlocks = (
   const table = normalizeTableFromText(segment.text, blockType);
   const preliminaryBlock = { ...segment, blockType };
   const discardReason = getBlockDiscardReason(preliminaryBlock, siteName, knownSites);
+  const sourceItem = inferBlockSourceItem(segment.text, pageNumber, blockType, segment.chunkLabel);
 
   return {
     ...segment,
@@ -554,7 +660,7 @@ const buildContractBlocks = (
     pageNumber,
     blockIndex: index + 1,
     contractPageId: '',
-    sourceItem: segment.chunkLabel,
+    sourceItem,
     normalizedText: normalizeWhitespace(segment.text),
     normalizedTableMarkdown: table.markdown,
     normalizedTableJson: table.json,
@@ -949,7 +1055,7 @@ const classifyContractBlock = (text: string): ContractBlockType => {
     return hasMenuSignal ? 'TEXT_SECTION' : 'IGNORE';
   }
 
-  if (/\b(incidencia|frequencia|periodicidade|mensal|semanal)\b/.test(content)) {
+  if (hasTableMenuIncidenceSignal(text)) {
     return 'TABLE_MENU_INCIDENCE';
   }
 
@@ -1092,6 +1198,44 @@ const normalizeExtractedRules = (payload: unknown): ExtractedRule[] => {
       };
     })
     .filter((rule): rule is ExtractedRule => rule !== null);
+};
+
+const normalizeRulesWithBlockEvidence = (
+  payload: unknown,
+  block: ContractBlock,
+): ExtractedRule[] => normalizeExtractedRules(payload).map((rule) => {
+  if (block.blockType !== 'TABLE_MENU_INCIDENCE') {
+    return { ...rule, sourceBlockId: block.id };
+  }
+
+  return {
+    ...rule,
+    sourceBlockId: block.id,
+    sourcePage: rule.sourcePage ?? block.pageNumber,
+    sourceItem: rule.sourceItem ?? block.sourceItem,
+  };
+});
+
+const buildBlockEvidenceInstruction = (block: ContractBlock) => {
+  const lines = [
+    `Pagina conhecida do bloco: ${block.pageNumber}`,
+    `Item/secao conhecido do bloco: ${block.sourceItem}`,
+  ];
+
+  if (block.blockType === 'TABLE_MENU_INCIDENCE') {
+    lines.push(
+      'Este bloco e uma tabela de incidencia de cardapio/proteinas.',
+      'Reutilize exatamente esta pagina e este item/secao nos campos sourcePage e sourceItem.',
+      'Cada regra deve citar em sourceExcerpt uma linha literal existente no trecho ou na tabela normalizada.',
+      'Se nao encontrar uma linha literal de evidencia, nao retorne regra para essa linha.',
+    );
+
+    if (block.normalizedTableMarkdown) {
+      lines.push(`Tabela normalizada:\n${block.normalizedTableMarkdown}`);
+    }
+  }
+
+  return lines.join('\n');
 };
 
 const allUnitsMarkers = [
@@ -1432,6 +1576,8 @@ Responda apenas JSON no formato:
     const prompt = `${promptTemplate}
 
 Bloco classificado: ${blockTypeLabels[segment.blockType]}
+${buildBlockEvidenceInstruction(segment)}
+
 Trecho do contrato (${segment.chunkLabel}):
 ${segment.text}
 
@@ -1488,8 +1634,7 @@ Responda apenas com JSON:`;
       const candidates = Array.isArray(extractedPayload) ? extractedPayload.length : 0;
       diagnostics.candidatesReceived += candidates;
 
-      const normalizedChunkRules = normalizeExtractedRules(extractedPayload)
-        .map((rule) => ({ ...rule, sourceBlockId: segment.id }));
+      const normalizedChunkRules = normalizeRulesWithBlockEvidence(extractedPayload, segment);
       diagnostics.discardedBySchema += Math.max(0, candidates - normalizedChunkRules.length);
       allRules.push(...normalizedChunkRules);
 
@@ -1617,8 +1762,11 @@ ${contractText.slice(0, 12000)}`;
         periodicity: result.rule.periodicity,
         sourcePage: result.rule.sourcePage,
         sourceBlockId: result.rule.sourceBlockId ?? null,
+        blockType: block?.blockType ?? null,
         blockPageNumber: block?.pageNumber ?? null,
         sourceItem: result.rule.sourceItem,
+        expectedSourceItem: block?.sourceItem ?? null,
+        sourceExcerpt: result.rule.sourceExcerpt,
         detectedUnits: result.rule.detectedUnits,
         originGroupText: result.rule.originGroupText,
       };
@@ -1629,8 +1777,10 @@ ${contractText.slice(0, 12000)}`;
       contractId,
       page: rule.sourcePage,
       blockPage: rule.blockPageNumber,
+      blockType: rule.blockType,
       sourceBlockId: rule.sourceBlockId,
       sourceItem: rule.sourceItem,
+      expectedSourceItem: rule.expectedSourceItem,
       category: rule.category,
       periodicity: rule.periodicity,
       reason: rule.reason,
@@ -1639,8 +1789,11 @@ ${contractText.slice(0, 12000)}`;
         !rule.periodicity ? 'periodicity' : null,
         !rule.sourcePage ? 'sourcePage' : null,
         !rule.sourceItem ? 'sourceItem' : null,
+        !rule.sourceExcerpt ? 'sourceExcerpt' : null,
       ].filter(Boolean),
+      receivedSourceExcerpt: rule.sourceExcerpt?.slice(0, 180) ?? null,
       evidenceNotLiteral: rule.reason === 'non_literal_excerpt',
+      literalNotFound: rule.reason === 'non_literal_excerpt',
       unitNotApplicable: rule.reason === 'not_explicitly_applicable_to_site',
     });
   }
