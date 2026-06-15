@@ -101,13 +101,16 @@ type TableStructureDiagnostic = {
   sourcePage: number;
   sourceItem: string;
   tableType: 'protein_monthly_incidence';
+  cellOcr: boolean;
   gridMode: GridMode;
+  columnNames: GridColumnName[];
   columns: {
     type: string[];
     totalIncidence: string[];
     quantity: string[];
     cut: string[];
   };
+  cellRows: CellOcrRowDiagnostic[];
   rows: StructuredTableRow[];
   ambiguousLines: string[];
   inconsistencies: string[];
@@ -129,6 +132,7 @@ type PageDiagnostic = {
   cropRect: CropRatio | null;
   gridMode: GridMode;
   gridColumns: GridColumnTexts | null;
+  cellGrid: CellOcrTable | null;
   cropComparison: CropComparison | null;
   tableStructure: TableStructureDiagnostic | null;
   classification: PageClassification;
@@ -171,6 +175,25 @@ type ComposedBlockCandidate = {
 type GridColumnTexts = {
   raw: Record<GridColumnName, string>;
   cleaned: Record<GridColumnName, string>;
+};
+
+type CellParsedRow = {
+  proteinType: string | null;
+  totalIncidence: number | null;
+  quantity: number | null;
+  cut: string | null;
+};
+
+type CellOcrRowDiagnostic = {
+  rowIndex: number;
+  cells: Record<GridColumnName, string>;
+  parsed: CellParsedRow;
+  confidence: ExtractionConfidence;
+};
+
+type CellOcrTable = {
+  rowRatios: number[];
+  rows: CellOcrRowDiagnostic[];
 };
 
 const IMPORTANT_TERMS = [
@@ -255,6 +278,8 @@ const defaultGridColumnRatios = (): GridColumnRatios => ({
   cut: { x: 0.60, y: 0.00, width: 0.40, height: 1.00 },
 });
 
+const defaultRowRatios = () => [0.10, 0.18, 0.26, 0.34, 0.42, 0.50, 0.58, 0.66, 0.74, 0.82, 0.90];
+
 const normalizeText = (value: string) => value
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
@@ -279,6 +304,8 @@ const parseArgs = (argv: string[]) => {
   let extractTableStructure = false;
   let gridMode: GridMode = 'none';
   let columnRatios: GridColumnRatios | null = null;
+  let cellOcr = false;
+  let rowRatios: number[] | null = null;
 
   const parseGridRatioToken = (token: string) => {
     const [nameRaw, coordsRaw] = token.split('=');
@@ -416,6 +443,24 @@ const parseArgs = (argv: string[]) => {
       i = cursor - 1;
       continue;
     }
+
+    if (current === '--cell-ocr') {
+      cellOcr = true;
+      continue;
+    }
+
+    if (current === '--row-ratios' && next) {
+      const parsed = next
+        .split(',')
+        .map((value) => Number.parseFloat(value.trim()))
+        .filter((value) => Number.isFinite(value) && value > 0 && value < 1)
+        .sort((a, b) => a - b);
+      if (parsed.length >= 3) {
+        rowRatios = [...new Set(parsed)];
+      }
+      i += 1;
+      continue;
+    }
   }
 
   return {
@@ -431,6 +476,8 @@ const parseArgs = (argv: string[]) => {
     extractTableStructure,
     gridMode,
     columnRatios,
+    cellOcr,
+    rowRatios: rowRatios ?? defaultRowRatios(),
   };
 };
 
@@ -751,6 +798,81 @@ const extractGridColumnsFromPage = async (
   return raw;
 };
 
+const extractCellGridFromPage = async (
+  pageCanvas: ReturnType<typeof createCanvas>,
+  imageWidth: number,
+  imageHeight: number,
+  cropRect: CropRatio,
+  columnRatios: GridColumnRatios,
+  rowRatios: number[],
+) => {
+  const names: GridColumnName[] = ['type', 'totalIncidence', 'quantity', 'cut'];
+  const sortedRows = [...rowRatios].filter((value) => value > 0 && value < 1).sort((a, b) => a - b);
+  const edges = [0, ...sortedRows, 1];
+  const rows: CellOcrRowDiagnostic[] = [];
+
+  for (let rowIndex = 0; rowIndex < edges.length - 1; rowIndex += 1) {
+    const yStart = edges[rowIndex];
+    const yEnd = edges[rowIndex + 1];
+    const rowHeight = yEnd - yStart;
+
+    if (rowHeight < 0.03) {
+      continue;
+    }
+
+    const cells: Record<GridColumnName, string> = {
+      type: '',
+      totalIncidence: '',
+      quantity: '',
+      cut: '',
+    };
+
+    for (const name of names) {
+      const bandRatio: CropRatio = {
+        x: columnRatios[name].x,
+        y: yStart,
+        width: columnRatios[name].width,
+        height: rowHeight,
+      };
+      const absolute = combineRatios(cropRect, bandRatio);
+      const image = cropPngFromCanvas(pageCanvas, imageWidth, imageHeight, absolute);
+      cells[name] = (await runOcr(image.pngBuffer)).trim();
+    }
+
+    const typeNormalized = normalizeText(cells.type);
+    const cutNormalized = normalizeText(cells.cut);
+    const incidenceNumbers = extractNumbers(cells.totalIncidence);
+    const quantityNumbers = extractNumbers(cells.quantity);
+
+    const parsed: CellParsedRow = {
+      proteinType: findProteinType(typeNormalized),
+      totalIncidence: incidenceNumbers.find((value) => value > 0 && value <= 31) ?? null,
+      quantity: quantityNumbers.find((value) => value > 0 && value <= 31) ?? null,
+      cut: findCutName(cutNormalized),
+    };
+
+    const nonEmptyCells = names.filter((name) => cells[name].replace(/\s+/g, '').length > 0).length;
+    const parsedSignals = [parsed.proteinType, parsed.totalIncidence, parsed.quantity, parsed.cut].filter(Boolean).length;
+    const confidence: ExtractionConfidence = parsedSignals >= 3
+      ? 'HIGH'
+      : parsedSignals >= 2 || nonEmptyCells >= 3
+        ? 'MEDIUM'
+        : 'LOW';
+
+    rows.push({
+      rowIndex,
+      cells,
+      parsed,
+      confidence,
+    });
+  }
+
+  return {
+    rowRatios: sortedRows,
+    rows,
+  } satisfies CellOcrTable;
+};
+
 const runOcr = async (imageBuffer: Buffer) => {
   const worker = await createWorker('eng', 1, {
     langPath: engLangData.langPath,
@@ -872,6 +994,7 @@ const extractTableStructureFromPage = (
     quantity: page.gridColumns?.cleaned.quantity ? toLines(page.gridColumns.cleaned.quantity).filter(Boolean) : [] as string[],
     cut: page.gridColumns?.cleaned.cut ? toLines(page.gridColumns.cleaned.cut).filter(Boolean) : [] as string[],
   };
+  const cellRows = page.cellGrid?.rows ?? [];
 
   if (gridMode === 'table' && page.gridColumns) {
     const proteinCandidates = columns.type
@@ -914,6 +1037,33 @@ const extractTableStructureFromPage = (
       if (cutCandidates.length > 0 && quantityCandidates.length !== cutCandidates.length) {
         inconsistencies.push('desalinhamento entre colunas Quantidade e Corte');
       }
+    }
+  }
+
+  if (cellRows.length > 0) {
+    for (const row of cellRows) {
+      const proteinType = row.parsed.proteinType;
+      const totalIncidence = row.parsed.totalIncidence;
+      const quantity = row.parsed.quantity;
+      const cut = row.parsed.cut;
+
+      const hasSignal = Boolean(proteinType || totalIncidence !== null || quantity !== null || cut);
+      if (!hasSignal) {
+        continue;
+      }
+
+      if (proteinType && totalIncidence !== null) {
+        incidenceByProtein.set(proteinType, totalIncidence);
+      }
+
+      rows.push({
+        proteinType: proteinType ?? 'Unknown',
+        totalIncidence,
+        quantity,
+        cut: cut ?? 'Unknown',
+        confidence: row.confidence,
+        sourceLine: `row ${row.rowIndex}: ${row.cells.type} | ${row.cells.totalIncidence} | ${row.cells.quantity} | ${row.cells.cut}`,
+      });
     }
   }
 
@@ -1053,8 +1203,11 @@ const extractTableStructureFromPage = (
     sourcePage: page.page,
     sourceItem: page.sectionTitle ?? 'Item 20 - Tabela de incidencia de Proteinas - Buffet oferta livre',
     tableType: 'protein_monthly_incidence',
+    cellOcr: Boolean(page.cellGrid),
     gridMode,
+    columnNames: ['type', 'totalIncidence', 'quantity', 'cut'],
     columns,
+    cellRows,
     rows,
     ambiguousLines: [...new Set(ambiguousLines)].slice(0, 20),
     inconsistencies,
@@ -1460,6 +1613,10 @@ const renderPageOutput = (result: PageDiagnostic) => {
     console.log('Structured table extraction (diagnostic):');
     console.log(JSON.stringify(result.tableStructure, null, 2));
   }
+  if (result.cellGrid) {
+    console.log('Cell OCR rows (diagnostic):');
+    console.log(`Rows: ${result.cellGrid.rows.length} | Row ratios: ${result.cellGrid.rowRatios.join(', ')}`);
+  }
   console.log('\n---\n');
 };
 
@@ -1640,6 +1797,8 @@ async function main() {
     extractTableStructure,
     gridMode,
     columnRatios,
+    cellOcr,
+    rowRatios,
   } = parseArgs(process.argv.slice(2));
   const absolutePdfPath = path.resolve(pdfPath);
   const pdfBuffer = await readFile(absolutePdfPath);
@@ -1679,6 +1838,7 @@ async function main() {
     let ocrRegionRawText: string | null = null;
     let cropRect: CropRatio | null = null;
     let gridColumns: GridColumnTexts | null = null;
+    let cellGrid: CellOcrTable | null = null;
     if (crop.mode !== 'none') {
       cropRect = crop.mode === 'ratio' && crop.ratio
         ? crop.ratio
@@ -1687,12 +1847,13 @@ async function main() {
       ocrRegionRawText = await runOcr(croppedImage.pngBuffer);
 
       if (gridMode === 'table') {
+        const effectiveColumnRatios = columnRatios ?? defaultGridColumnRatios();
         const rawColumns = await extractGridColumnsFromPage(
           pageImage.canvas,
           pageImage.width,
           pageImage.height,
           cropRect,
-          columnRatios ?? defaultGridColumnRatios(),
+          effectiveColumnRatios,
         );
         gridColumns = {
           raw: rawColumns,
@@ -1703,6 +1864,17 @@ async function main() {
             cut: '',
           },
         };
+
+        if (cellOcr) {
+          cellGrid = await extractCellGridFromPage(
+            pageImage.canvas,
+            pageImage.width,
+            pageImage.height,
+            cropRect,
+            effectiveColumnRatios,
+            rowRatios,
+          );
+        }
       }
     }
 
@@ -1710,6 +1882,7 @@ async function main() {
       parserRawText,
       ocrRawText,
       ...(gridColumns ? Object.values(gridColumns.raw) : []),
+      ...(cellGrid ? cellGrid.rows.flatMap((row) => Object.values(row.cells)) : []),
       ...rawTexts,
     ]);
 
@@ -1762,6 +1935,7 @@ async function main() {
       cropRect,
       gridMode,
       gridColumns,
+      cellGrid,
       cropComparison: ocrRegionAnalysis
         ? compareCropAgainstFull(ocrAnalysis.cleaned.metrics, ocrRegionAnalysis.cleaned.metrics)
         : null,
