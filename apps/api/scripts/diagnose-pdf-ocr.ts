@@ -48,10 +48,38 @@ type TextAnalysis = {
   cleaned: TextVariant;
 };
 
+type CropRatio = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+type CropMode = 'none' | 'table' | 'ratio';
+
+type CropConfig = {
+  mode: CropMode;
+  ratio: CropRatio | null;
+};
+
+type CropComparison = {
+  usefulLinesDelta: number;
+  numberDelta: number;
+  cutTermsDelta: number;
+  orderedSignalsDelta: number;
+  noiseDelta: number;
+  improvedTableReadability: boolean;
+  notes: string[];
+};
+
 type PageDiagnostic = {
   page: number;
   parser: TextAnalysis;
   ocr: TextAnalysis;
+  ocrRegion: TextAnalysis | null;
+  cropMode: CropMode;
+  cropRect: CropRatio | null;
+  cropComparison: CropComparison | null;
   classification: PageClassification;
   detectedTerms: string[];
   recoveredTerms: string[];
@@ -139,6 +167,8 @@ const CUT_TERMS = [
 
 const PROTECTED_TERMS = ['item', 'cardapio', 'proteina', 'incidencia', 'buffet', 'quantidade', 'corte', 'kg', 'g'];
 const BLOCK_THEME_TERMS = ['incidencia', 'proteina', 'proteinas', 'buffet', 'corte', 'cortes', 'quantidade', 'cardapio', 'frango', 'carne', 'pescados', 'peixe', '22 dias uteis', 'dias uteis'] as const;
+const TABLE_ORDER_SIGNALS = ['carne bovina', 'frango', 'suinos', 'pescados', 'outros', 'total'] as const;
+const NOISE_TERMS = ['facilities', 'proposta', 'contratada', 'comercio por confianca', 'desconto em folha'];
 
 const normalizeText = (value: string) => value
   .normalize('NFD')
@@ -159,6 +189,8 @@ const parseArgs = (argv: string[]) => {
   let outPath: string | null = null;
   let previewChars = 1500;
   let context = 0;
+  let cropMode: CropMode = 'none';
+  let cropRatio: CropRatio | null = null;
 
   for (let i = 0; i < args.length; i += 1) {
     const current = args[i];
@@ -188,6 +220,31 @@ const parseArgs = (argv: string[]) => {
       continue;
     }
 
+    if (current === '--crop' && next) {
+      const normalized = next.trim().toLowerCase();
+      if (normalized === 'table') {
+        cropMode = 'table';
+      }
+      i += 1;
+      continue;
+    }
+
+    if (current === '--crop-ratio' && next) {
+      const values = next.split(',').map((value) => Number.parseFloat(value.trim()));
+      if (values.length === 4 && values.every((value) => Number.isFinite(value))) {
+        const [x, y, width, height] = values;
+        cropRatio = {
+          x: Math.min(1, Math.max(0, x)),
+          y: Math.min(1, Math.max(0, y)),
+          width: Math.min(1, Math.max(0.05, width)),
+          height: Math.min(1, Math.max(0.05, height)),
+        };
+        cropMode = 'ratio';
+      }
+      i += 1;
+      continue;
+    }
+
     if (current === '--preview' && next) {
       const parsed = Number.parseInt(next, 10);
       if (Number.isInteger(parsed) && parsed >= 500 && parsed <= 4000) {
@@ -203,6 +260,10 @@ const parseArgs = (argv: string[]) => {
     outPath,
     previewChars,
     context,
+    crop: {
+      mode: cropMode,
+      ratio: cropRatio,
+    } satisfies CropConfig,
   };
 };
 
@@ -398,6 +459,27 @@ const cleanText = (text: string, repeatedLines: Set<string>) => {
   return cleanedLines.join('\n');
 };
 
+const computeOrderedSignalsScore = (text: string) => {
+  const normalized = normalizeText(text);
+  let score = 0;
+  let cursor = -1;
+
+  for (const signal of TABLE_ORDER_SIGNALS) {
+    const index = normalized.indexOf(signal, cursor + 1);
+    if (index > cursor) {
+      score += 1;
+      cursor = index;
+    }
+  }
+
+  return score;
+};
+
+const computeNoiseScore = (text: string) => {
+  const normalized = normalizeText(text);
+  return NOISE_TERMS.reduce((acc, term) => acc + (normalized.includes(term) ? 1 : 0), 0);
+};
+
 const renderPageToPng = async (pdfBuffer: Buffer, pageNumber: number) => {
   const loadingTask = getDocument({ data: new Uint8Array(pdfBuffer) });
   const pdf = await loadingTask.promise;
@@ -414,7 +496,61 @@ const renderPageToPng = async (pdfBuffer: Buffer, pageNumber: number) => {
 
   const pngBuffer = canvas.toBuffer('image/png');
   await pdf.destroy();
-  return pngBuffer;
+  return {
+    pngBuffer,
+    width: Math.ceil(viewport.width),
+    height: Math.ceil(viewport.height),
+    canvas,
+  };
+};
+
+const resolveTableCropRatio = (pageNumber: number): CropRatio => {
+  if (pageNumber >= 20 && pageNumber <= 22) {
+    return { x: 0.08, y: 0.40, width: 0.84, height: 0.50 };
+  }
+
+  return { x: 0.10, y: 0.42, width: 0.82, height: 0.48 };
+};
+
+const toPixelRect = (imageWidth: number, imageHeight: number, ratio: CropRatio) => {
+  const x = Math.max(0, Math.floor(imageWidth * ratio.x));
+  const y = Math.max(0, Math.floor(imageHeight * ratio.y));
+  const width = Math.max(1, Math.floor(imageWidth * ratio.width));
+  const height = Math.max(1, Math.floor(imageHeight * ratio.height));
+
+  return {
+    x,
+    y,
+    width: Math.min(width, imageWidth - x),
+    height: Math.min(height, imageHeight - y),
+  };
+};
+
+const cropPngFromCanvas = (
+  sourceCanvas: ReturnType<typeof createCanvas>,
+  imageWidth: number,
+  imageHeight: number,
+  ratio: CropRatio,
+) => {
+  const rect = toPixelRect(imageWidth, imageHeight, ratio);
+  const croppedCanvas = createCanvas(rect.width, rect.height);
+  const croppedContext = croppedCanvas.getContext('2d');
+  croppedContext.drawImage(
+    sourceCanvas as unknown as CanvasImageSource,
+    rect.x,
+    rect.y,
+    rect.width,
+    rect.height,
+    0,
+    0,
+    rect.width,
+    rect.height,
+  );
+
+  return {
+    pngBuffer: croppedCanvas.toBuffer('image/png'),
+    ratio,
+  };
 };
 
 const runOcr = async (imageBuffer: Buffer) => {
@@ -429,6 +565,48 @@ const runOcr = async (imageBuffer: Buffer) => {
   } finally {
     await worker.terminate();
   }
+};
+
+const compareCropAgainstFull = (full: CompareMetrics, cropped: CompareMetrics): CropComparison => {
+  const usefulLinesDelta = cropped.usefulLines - full.usefulLines;
+  const numberDelta = cropped.numberCount - full.numberCount;
+  const cutTermsDelta = Number(cropped.hasCutTerms) - Number(full.hasCutTerms);
+  const orderedSignalsDelta = computeOrderedSignalsScore(cropped.preview) - computeOrderedSignalsScore(full.preview);
+  const noiseDelta = computeNoiseScore(full.preview) - computeNoiseScore(cropped.preview);
+
+  const improvedTableReadability = (
+    usefulLinesDelta >= -2
+    && numberDelta >= 0
+    && (orderedSignalsDelta >= 0 || cutTermsDelta >= 0)
+    && noiseDelta >= 0
+  ) || (usefulLinesDelta > 0 && noiseDelta >= 0);
+
+  const notes: string[] = [];
+  if (usefulLinesDelta > 0) {
+    notes.push(`crop ganhou ${usefulLinesDelta} linhas uteis`);
+  }
+  if (numberDelta > 0) {
+    notes.push(`crop ganhou ${numberDelta} numeros detectados`);
+  }
+  if (noiseDelta > 0) {
+    notes.push('crop reduziu mistura de conteudo de outras regioes');
+  }
+  if (orderedSignalsDelta > 0) {
+    notes.push('crop melhorou preservacao de ordem dos sinais tabulares');
+  }
+  if (notes.length === 0) {
+    notes.push('crop nao trouxe ganho estrutural relevante');
+  }
+
+  return {
+    usefulLinesDelta,
+    numberDelta,
+    cutTermsDelta,
+    orderedSignalsDelta,
+    noiseDelta,
+    improvedTableReadability,
+    notes,
+  };
 };
 
 const unionTerms = (...sources: string[][]) => [...new Set(sources.flat())].sort();
@@ -798,6 +976,20 @@ const renderPageOutput = (result: PageDiagnostic) => {
   renderVariant('Parser cleaned', result.parser.cleaned);
   renderVariant('OCR raw', result.ocr.raw);
   renderVariant('OCR cleaned', result.ocr.cleaned);
+  if (result.ocrRegion) {
+    renderVariant('OCR crop raw', result.ocrRegion.raw);
+    renderVariant('OCR crop cleaned', result.ocrRegion.cleaned);
+    if (result.cropComparison) {
+      console.log('Crop comparison (full vs region):');
+      console.log(`Useful lines delta: ${result.cropComparison.usefulLinesDelta}`);
+      console.log(`Numbers delta: ${result.cropComparison.numberDelta}`);
+      console.log(`Cut terms delta: ${result.cropComparison.cutTermsDelta}`);
+      console.log(`Order signals delta: ${result.cropComparison.orderedSignalsDelta}`);
+      console.log(`Noise delta (positive is better): ${result.cropComparison.noiseDelta}`);
+      console.log(`Improved table readability: ${result.cropComparison.improvedTableReadability ? 'yes' : 'no'}`);
+      console.log(`Notes: ${result.cropComparison.notes.join('; ')}`);
+    }
+  }
   console.log('\n---\n');
 };
 
@@ -846,6 +1038,21 @@ const buildMarkdownReport = (
     pushVariantSection(lines, 'Parser cleaned', item.parser.cleaned);
     pushVariantSection(lines, 'OCR raw', item.ocr.raw);
     pushVariantSection(lines, 'OCR cleaned', item.ocr.cleaned);
+    if (item.ocrRegion) {
+      pushVariantSection(lines, 'OCR crop raw', item.ocrRegion.raw);
+      pushVariantSection(lines, 'OCR crop cleaned', item.ocrRegion.cleaned);
+      lines.push('### Full page vs crop comparison');
+      if (item.cropComparison) {
+        lines.push(`- Useful lines delta: ${item.cropComparison.usefulLinesDelta}`);
+        lines.push(`- Numbers delta: ${item.cropComparison.numberDelta}`);
+        lines.push(`- Cut terms delta: ${item.cropComparison.cutTermsDelta}`);
+        lines.push(`- Ordered signals delta: ${item.cropComparison.orderedSignalsDelta}`);
+        lines.push(`- Noise delta (positive is better): ${item.cropComparison.noiseDelta}`);
+        lines.push(`- Improved table readability: ${item.cropComparison.improvedTableReadability ? 'yes' : 'no'}`);
+        lines.push(`- Notes: ${item.cropComparison.notes.join('; ')}`);
+      }
+      lines.push('');
+    }
 
     lines.push('### Page classification');
     lines.push(`- Classification: ${item.classification}`);
@@ -945,7 +1152,7 @@ const resolveOutputPath = async (outPath: string | null) => {
 };
 
 async function main() {
-  const { pdfPath, pages, outPath, previewChars, context } = parseArgs(process.argv.slice(2));
+  const { pdfPath, pages, outPath, previewChars, context, crop } = parseArgs(process.argv.slice(2));
   const absolutePdfPath = path.resolve(pdfPath);
   const pdfBuffer = await readFile(absolutePdfPath);
 
@@ -979,7 +1186,18 @@ async function main() {
   for (const page of allPagesToAnalyze) {
     const parserRawText = parserTextByPage.get(page) ?? '';
     const pageImage = await renderPageToPng(pdfBuffer, page);
-    const ocrRawText = await runOcr(pageImage);
+    const ocrRawText = await runOcr(pageImage.pngBuffer);
+
+    let ocrRegionRawText: string | null = null;
+    let cropRect: CropRatio | null = null;
+    if (crop.mode !== 'none') {
+      cropRect = crop.mode === 'ratio' && crop.ratio
+        ? crop.ratio
+        : resolveTableCropRatio(page);
+      const croppedImage = cropPngFromCanvas(pageImage.canvas, pageImage.width, pageImage.height, cropRect);
+      ocrRegionRawText = await runOcr(croppedImage.pngBuffer);
+    }
+
     const localRepeatedLines = collectRepeatedLines([parserRawText, ocrRawText, ...rawTexts]);
 
     const parserCleanedText = cleanText(parserRawText, new Set([...repeatedLines, ...localRepeatedLines]));
@@ -1001,10 +1219,28 @@ async function main() {
       },
     };
 
+    let ocrRegionAnalysis: TextAnalysis | null = null;
+    if (ocrRegionRawText !== null) {
+      const regionCleanedText = cleanText(ocrRegionRawText, new Set([...repeatedLines, ...localRepeatedLines]));
+      ocrRegionAnalysis = {
+        raw: { text: ocrRegionRawText, metrics: buildMetrics(ocrRegionRawText, previewChars) },
+        cleaned: {
+          text: regionCleanedText,
+          metrics: buildMetrics(regionCleanedText, previewChars),
+        },
+      };
+    }
+
     const classified = classifyPage(parserAnalysis, ocrAnalysis);
     diagnostics.push({
       page,
       ...classified,
+      ocrRegion: ocrRegionAnalysis,
+      cropMode: crop.mode,
+      cropRect,
+      cropComparison: ocrRegionAnalysis
+        ? compareCropAgainstFull(ocrAnalysis.cleaned.metrics, ocrRegionAnalysis.cleaned.metrics)
+        : null,
       sectionTitle: null,
     });
   }
