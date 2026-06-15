@@ -72,6 +72,36 @@ type CropComparison = {
   notes: string[];
 };
 
+type ExtractionConfidence = 'LOW' | 'MEDIUM' | 'HIGH';
+
+type StructuredTableRow = {
+  proteinType: string;
+  totalIncidence: number | null;
+  quantity: number | null;
+  cut: string;
+  confidence: ExtractionConfidence;
+  sourceLine: string;
+};
+
+type TableStructureQuality = {
+  hasHeader: boolean;
+  hasTotalIncidence: boolean;
+  hasCuts: boolean;
+  hasQuantities: boolean;
+  isReliableForAutomaticRule: boolean;
+};
+
+type TableStructureDiagnostic = {
+  sourcePage: number;
+  sourceItem: string;
+  tableType: 'protein_monthly_incidence';
+  rows: StructuredTableRow[];
+  ambiguousLines: string[];
+  inconsistencies: string[];
+  incidenceValidation: string[];
+  quality: TableStructureQuality;
+};
+
 type PageDiagnostic = {
   page: number;
   parser: TextAnalysis;
@@ -80,6 +110,7 @@ type PageDiagnostic = {
   cropMode: CropMode;
   cropRect: CropRatio | null;
   cropComparison: CropComparison | null;
+  tableStructure: TableStructureDiagnostic | null;
   classification: PageClassification;
   detectedTerms: string[];
   recoveredTerms: string[];
@@ -169,6 +200,28 @@ const PROTECTED_TERMS = ['item', 'cardapio', 'proteina', 'incidencia', 'buffet',
 const BLOCK_THEME_TERMS = ['incidencia', 'proteina', 'proteinas', 'buffet', 'corte', 'cortes', 'quantidade', 'cardapio', 'frango', 'carne', 'pescados', 'peixe', '22 dias uteis', 'dias uteis'] as const;
 const TABLE_ORDER_SIGNALS = ['carne bovina', 'frango', 'suinos', 'pescados', 'outros', 'total'] as const;
 const NOISE_TERMS = ['facilities', 'proposta', 'contratada', 'comercio por confianca', 'desconto em folha'];
+const PROTEIN_TYPE_ALIASES: Array<{ canonical: string; aliases: string[] }> = [
+  { canonical: 'Carne Bovina', aliases: ['carne bovina', 'bovina', 'boi', 'carnes bovinas'] },
+  { canonical: 'Frango', aliases: ['frango', 'aves'] },
+  { canonical: 'Suinos', aliases: ['suinos', 'suino', 'suina', 'suinas', 'porco'] },
+  { canonical: 'Pescados', aliases: ['pescados', 'peixe', 'peixes'] },
+  { canonical: 'Outros', aliases: ['outros', 'outras'] },
+];
+const CUT_ALIASES: Array<{ canonical: string; aliases: string[] }> = [
+  { canonical: 'Acem', aliases: ['acem'] },
+  { canonical: 'Paleta', aliases: ['paleta'] },
+  { canonical: 'Musculo', aliases: ['musculo'] },
+  { canonical: 'Coxao Duro', aliases: ['coxao duro'] },
+  { canonical: 'Coxao Mole', aliases: ['coxao mole'] },
+  { canonical: 'Patinho', aliases: ['patinho'] },
+  { canonical: 'Patinho Moido', aliases: ['patinho moido'] },
+  { canonical: 'Contra File', aliases: ['contra file'] },
+  { canonical: 'Costela', aliases: ['costela'] },
+  { canonical: 'Parmegiana/Patinho', aliases: ['parmegiana', 'parmegiana patinho'] },
+  { canonical: 'File', aliases: ['file', 'filé'] },
+  { canonical: 'Sobrecoxa', aliases: ['sobrecoxa'] },
+  { canonical: 'Coxa', aliases: ['coxa'] },
+];
 
 const normalizeText = (value: string) => value
   .normalize('NFD')
@@ -191,6 +244,7 @@ const parseArgs = (argv: string[]) => {
   let context = 0;
   let cropMode: CropMode = 'none';
   let cropRatio: CropRatio | null = null;
+  let extractTableStructure = false;
 
   for (let i = 0; i < args.length; i += 1) {
     const current = args[i];
@@ -251,6 +305,12 @@ const parseArgs = (argv: string[]) => {
         previewChars = parsed;
       }
       i += 1;
+      continue;
+    }
+
+    if (current === '--extract-table-structure') {
+      extractTableStructure = true;
+      continue;
     }
   }
 
@@ -264,6 +324,7 @@ const parseArgs = (argv: string[]) => {
       mode: cropMode,
       ratio: cropRatio,
     } satisfies CropConfig,
+    extractTableStructure,
   };
 };
 
@@ -606,6 +667,209 @@ const compareCropAgainstFull = (full: CompareMetrics, cropped: CompareMetrics): 
     noiseDelta,
     improvedTableReadability,
     notes,
+  };
+};
+
+const extractNumbers = (line: string) => {
+  const matches = normalizeText(line).match(/\b\d+\b/g) ?? [];
+  return matches.map((value) => Number.parseInt(value, 10)).filter((value) => Number.isInteger(value));
+};
+
+const findProteinType = (normalizedLine: string) => {
+  for (const candidate of PROTEIN_TYPE_ALIASES) {
+    if (candidate.aliases.some((alias) => normalizedLine.includes(alias))) {
+      return candidate.canonical;
+    }
+  }
+
+  return null;
+};
+
+const findCutName = (normalizedLine: string) => {
+  for (const candidate of CUT_ALIASES) {
+    if (candidate.aliases.some((alias) => normalizedLine.includes(alias))) {
+      return candidate.canonical;
+    }
+  }
+
+  return null;
+};
+
+const extractTableStructureFromPage = (page: PageDiagnostic): TableStructureDiagnostic | null => {
+  const cropText = page.ocrRegion?.cleaned.text ?? '';
+  const fullText = page.ocr.cleaned.text;
+  const cropHasSignal = /(incidencia|incidencias|proteina|tipos|frango|pescados|suinos|bovina)/i.test(normalizeText(cropText));
+  const sourceText = cropHasSignal ? cropText : fullText;
+
+  if (!sourceText.trim()) {
+    return null;
+  }
+
+  const lines = toLines(sourceText).filter(Boolean);
+  const normalizedAll = normalizeText(sourceText);
+  const hasIncidenceSignal = normalizedAll.includes('incidencia')
+    || normalizedAll.includes('proteina')
+    || normalizedAll.includes('tipos')
+    || normalizedAll.includes('frango')
+    || normalizedAll.includes('pescados')
+    || normalizedAll.includes('suinos')
+    || normalizedAll.includes('bovina');
+  if (!hasIncidenceSignal) {
+    return null;
+  }
+
+  const rows: StructuredTableRow[] = [];
+  const ambiguousLines: string[] = [];
+  const inconsistencies: string[] = [];
+  const incidenceValidation: string[] = [];
+  const incidenceByProtein = new Map<string, number>();
+  let currentProtein: string | null = null;
+  let hasHeader = false;
+
+  for (const line of lines) {
+    const normalized = normalizeText(line);
+    if (!normalized) {
+      continue;
+    }
+
+    if ((normalized.includes('tipos') || normalized.includes('incidencia') || normalized.includes('qtd') || normalized.includes('corte')) && normalized.length <= 100) {
+      hasHeader = true;
+    }
+
+    const protein = findProteinType(normalized);
+    const cut = findCutName(normalized);
+    const numbers = extractNumbers(line);
+
+    if (protein) {
+      currentProtein = protein;
+      const incidenceCandidate = numbers.find((value) => value >= 1 && value <= 31) ?? null;
+      if (incidenceCandidate !== null) {
+        incidenceByProtein.set(protein, incidenceCandidate);
+      }
+
+      if (numbers.length >= 1) {
+        rows.push({
+          proteinType: protein,
+          totalIncidence: incidenceCandidate,
+          quantity: numbers.length >= 2 ? numbers[numbers.length - 1] : null,
+          cut: cut ?? 'Unknown',
+          confidence: cut
+            ? (numbers.length >= 2 ? 'MEDIUM' : 'LOW')
+            : 'LOW',
+          sourceLine: line,
+        });
+      }
+
+      if (!cut && numbers.length === 0 && normalized.length > 6) {
+        ambiguousLines.push(line);
+      }
+    }
+
+    if (cut) {
+      const quantity = numbers.length > 0
+        ? numbers[numbers.length - 1]
+        : null;
+      const incidenceHint = currentProtein ? (incidenceByProtein.get(currentProtein) ?? null) : null;
+      const confidence: ExtractionConfidence = currentProtein && quantity !== null
+        ? incidenceHint !== null
+          ? 'HIGH'
+          : 'MEDIUM'
+        : 'LOW';
+
+      rows.push({
+        proteinType: currentProtein ?? 'Unknown',
+        totalIncidence: incidenceHint,
+        quantity,
+        cut,
+        confidence,
+        sourceLine: line,
+      });
+
+      if (!currentProtein || quantity === null) {
+        ambiguousLines.push(line);
+      }
+      continue;
+    }
+
+    if (protein && numbers.length >= 2 && !normalized.includes('total')) {
+      const quantity = numbers[numbers.length - 1];
+      const totalIncidence = numbers[0];
+      rows.push({
+        proteinType: protein,
+        totalIncidence,
+        quantity,
+        cut: 'Unknown',
+        confidence: 'LOW',
+        sourceLine: line,
+      });
+      ambiguousLines.push(line);
+    }
+
+    if (!protein && !cut && numbers.length > 0 && /(corte|tipo|incidencia)/i.test(normalized) === false && normalized.length > 8) {
+      ambiguousLines.push(line);
+    }
+  }
+
+  const groupedByProtein = new Map<string, { sum: number; incidence: number | null }>();
+  for (const row of rows) {
+    if (row.quantity === null) {
+      continue;
+    }
+
+    const current = groupedByProtein.get(row.proteinType) ?? { sum: 0, incidence: row.totalIncidence };
+    current.sum += row.quantity;
+    if (current.incidence === null && row.totalIncidence !== null) {
+      current.incidence = row.totalIncidence;
+    }
+    groupedByProtein.set(row.proteinType, current);
+  }
+
+  for (const [proteinType, values] of groupedByProtein.entries()) {
+    if (values.incidence === null) {
+      incidenceValidation.push(`${proteinType}: sem incidencia total detectada; soma parcial de cortes ${values.sum}`);
+      continue;
+    }
+
+    if (values.sum === values.incidence) {
+      incidenceValidation.push(`${proteinType}: soma de cortes ${values.sum} confere com incidencia ${values.incidence}`);
+    } else {
+      incidenceValidation.push(`${proteinType}: soma de cortes ${values.sum} difere da incidencia ${values.incidence}`);
+      inconsistencies.push(`${proteinType} com divergencia entre incidencia total e soma de cortes`);
+    }
+  }
+
+  const bovinaIncidence = incidenceByProtein.get('Carne Bovina') ?? null;
+  const bovinaRows = rows.filter((row) => row.proteinType === 'Carne Bovina' && row.quantity !== null);
+  const bovinaSum = bovinaRows.reduce((acc, row) => acc + (row.quantity ?? 0), 0);
+  if (bovinaIncidence === 14) {
+    if (bovinaSum === 14) {
+      incidenceValidation.push('Carne Bovina: validacao esperada 14/14 atendida no OCR extraido');
+    } else {
+      inconsistencies.push(`Carne Bovina esperada 14, mas soma de cortes extraida foi ${bovinaSum}`);
+    }
+  }
+
+  const hasTotalIncidence = incidenceByProtein.size > 0;
+  const hasCuts = rows.some((row) => row.cut !== 'Unknown');
+  const hasQuantities = rows.some((row) => row.quantity !== null);
+  const hasStrongAmbiguity = ambiguousLines.length > 0 || inconsistencies.length > 0 || rows.length < 2;
+
+  return {
+    sourcePage: page.page,
+    sourceItem: page.sectionTitle ?? 'Item 20 - Tabela de incidencia de Proteinas - Buffet oferta livre',
+    tableType: 'protein_monthly_incidence',
+    rows,
+    ambiguousLines: [...new Set(ambiguousLines)].slice(0, 20),
+    inconsistencies,
+    incidenceValidation,
+    quality: {
+      hasHeader,
+      hasTotalIncidence,
+      hasCuts,
+      hasQuantities,
+      // Conservador por definicao: em caso de duvida, nao promover para regra automatica.
+      isReliableForAutomaticRule: false && !hasStrongAmbiguity,
+    },
   };
 };
 
@@ -990,6 +1254,10 @@ const renderPageOutput = (result: PageDiagnostic) => {
       console.log(`Notes: ${result.cropComparison.notes.join('; ')}`);
     }
   }
+  if (result.tableStructure) {
+    console.log('Structured table extraction (diagnostic):');
+    console.log(JSON.stringify(result.tableStructure, null, 2));
+  }
   console.log('\n---\n');
 };
 
@@ -1051,6 +1319,14 @@ const buildMarkdownReport = (
         lines.push(`- Improved table readability: ${item.cropComparison.improvedTableReadability ? 'yes' : 'no'}`);
         lines.push(`- Notes: ${item.cropComparison.notes.join('; ')}`);
       }
+      lines.push('');
+    }
+
+    if (item.tableStructure) {
+      lines.push('### Structured table extraction (diagnostic)');
+      lines.push('```json');
+      lines.push(JSON.stringify(item.tableStructure, null, 2));
+      lines.push('```');
       lines.push('');
     }
 
@@ -1152,7 +1428,15 @@ const resolveOutputPath = async (outPath: string | null) => {
 };
 
 async function main() {
-  const { pdfPath, pages, outPath, previewChars, context, crop } = parseArgs(process.argv.slice(2));
+  const {
+    pdfPath,
+    pages,
+    outPath,
+    previewChars,
+    context,
+    crop,
+    extractTableStructure,
+  } = parseArgs(process.argv.slice(2));
   const absolutePdfPath = path.resolve(pdfPath);
   const pdfBuffer = await readFile(absolutePdfPath);
 
@@ -1241,6 +1525,7 @@ async function main() {
       cropComparison: ocrRegionAnalysis
         ? compareCropAgainstFull(ocrAnalysis.cleaned.metrics, ocrRegionAnalysis.cleaned.metrics)
         : null,
+      tableStructure: null,
       sectionTitle: null,
     });
   }
@@ -1248,6 +1533,9 @@ async function main() {
   const diagnosticsByPage = new Map(diagnostics.map((item) => [item.page, item]));
   for (const item of diagnostics) {
     item.sectionTitle = pickSectionTitle(item, diagnosticsByPage.get(item.page - 1), diagnosticsByPage.get(item.page + 1));
+    if (extractTableStructure) {
+      item.tableStructure = extractTableStructureFromPage(item);
+    }
   }
 
   const windows = analyzeWindows(targetPages, context, diagnosticsByPage);
