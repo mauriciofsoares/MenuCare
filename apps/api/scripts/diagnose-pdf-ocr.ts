@@ -62,6 +62,12 @@ type CropConfig = {
   ratio: CropRatio | null;
 };
 
+type GridMode = 'none' | 'table';
+
+type GridColumnName = 'type' | 'totalIncidence' | 'quantity' | 'cut';
+
+type GridColumnRatios = Record<GridColumnName, CropRatio>;
+
 type CropComparison = {
   usefulLinesDelta: number;
   numberDelta: number;
@@ -95,10 +101,22 @@ type TableStructureDiagnostic = {
   sourcePage: number;
   sourceItem: string;
   tableType: 'protein_monthly_incidence';
+  gridMode: GridMode;
+  columns: {
+    type: string[];
+    totalIncidence: string[];
+    quantity: string[];
+    cut: string[];
+  };
   rows: StructuredTableRow[];
   ambiguousLines: string[];
   inconsistencies: string[];
   incidenceValidation: string[];
+  validation: {
+    canValidateSum: boolean;
+    sumMatchesTotal: boolean;
+    isReliableForAutomaticRule: boolean;
+  };
   quality: TableStructureQuality;
 };
 
@@ -109,6 +127,8 @@ type PageDiagnostic = {
   ocrRegion: TextAnalysis | null;
   cropMode: CropMode;
   cropRect: CropRatio | null;
+  gridMode: GridMode;
+  gridColumns: GridColumnTexts | null;
   cropComparison: CropComparison | null;
   tableStructure: TableStructureDiagnostic | null;
   classification: PageClassification;
@@ -146,6 +166,11 @@ type ComposedBlockCandidate = {
   requiresOcr: boolean;
   needsRegionCropping: boolean;
   recommendedPipelineAction: 'run_selective_ocr_with_table_region_detection' | 'run_selective_ocr_for_table_page' | 'no_action';
+};
+
+type GridColumnTexts = {
+  raw: Record<GridColumnName, string>;
+  cleaned: Record<GridColumnName, string>;
 };
 
 const IMPORTANT_TERMS = [
@@ -223,6 +248,13 @@ const CUT_ALIASES: Array<{ canonical: string; aliases: string[] }> = [
   { canonical: 'Coxa', aliases: ['coxa'] },
 ];
 
+const defaultGridColumnRatios = (): GridColumnRatios => ({
+  type: { x: 0.00, y: 0.00, width: 0.30, height: 1.00 },
+  totalIncidence: { x: 0.30, y: 0.00, width: 0.15, height: 1.00 },
+  quantity: { x: 0.45, y: 0.00, width: 0.15, height: 1.00 },
+  cut: { x: 0.60, y: 0.00, width: 0.40, height: 1.00 },
+});
+
 const normalizeText = (value: string) => value
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
@@ -245,6 +277,45 @@ const parseArgs = (argv: string[]) => {
   let cropMode: CropMode = 'none';
   let cropRatio: CropRatio | null = null;
   let extractTableStructure = false;
+  let gridMode: GridMode = 'none';
+  let columnRatios: GridColumnRatios | null = null;
+
+  const parseGridRatioToken = (token: string) => {
+    const [nameRaw, coordsRaw] = token.split('=');
+    if (!nameRaw || !coordsRaw) {
+      return null;
+    }
+
+    const mapName = normalizeText(nameRaw);
+    const name: GridColumnName | null = mapName === 'tipo' || mapName === 'type'
+      ? 'type'
+      : mapName === 'incidencia' || mapName === 'totalincidence' || mapName === 'total'
+        ? 'totalIncidence'
+        : mapName === 'quantidade' || mapName === 'quantity' || mapName === 'qtd'
+          ? 'quantity'
+          : mapName === 'corte' || mapName === 'cut'
+            ? 'cut'
+            : null;
+
+    if (!name) {
+      return null;
+    }
+
+    const values = coordsRaw.split(',').map((value) => Number.parseFloat(value.trim()));
+    if (values.length !== 4 || values.some((value) => !Number.isFinite(value))) {
+      return null;
+    }
+
+    const [x1, y1, x2, y2] = values;
+    const x = Math.min(1, Math.max(0, x1));
+    const y = Math.min(1, Math.max(0, y1));
+    const width = Math.min(1, Math.max(0.05, x2 - x1));
+    const height = Math.min(1, Math.max(0.05, y2 - y1));
+    return {
+      name,
+      ratio: { x, y, width, height } satisfies CropRatio,
+    };
+  };
 
   for (let i = 0; i < args.length; i += 1) {
     const current = args[i];
@@ -312,6 +383,39 @@ const parseArgs = (argv: string[]) => {
       extractTableStructure = true;
       continue;
     }
+
+    if (current === '--grid' && next) {
+      const normalized = normalizeText(next);
+      if (normalized === 'table') {
+        gridMode = 'table';
+      }
+      i += 1;
+      continue;
+    }
+
+    if (current === '--column-ratios') {
+      const parsedEntries: Array<{ name: GridColumnName; ratio: CropRatio }> = [];
+      let cursor = i + 1;
+
+      while (cursor < args.length && !args[cursor].startsWith('--')) {
+        const parsed = parseGridRatioToken(args[cursor]);
+        if (parsed) {
+          parsedEntries.push(parsed);
+        }
+        cursor += 1;
+      }
+
+      if (parsedEntries.length > 0) {
+        const base = defaultGridColumnRatios();
+        for (const entry of parsedEntries) {
+          base[entry.name] = entry.ratio;
+        }
+        columnRatios = base;
+      }
+
+      i = cursor - 1;
+      continue;
+    }
   }
 
   return {
@@ -325,6 +429,8 @@ const parseArgs = (argv: string[]) => {
       ratio: cropRatio,
     } satisfies CropConfig,
     extractTableStructure,
+    gridMode,
+    columnRatios,
   };
 };
 
@@ -614,6 +720,37 @@ const cropPngFromCanvas = (
   };
 };
 
+const combineRatios = (outer: CropRatio, inner: CropRatio): CropRatio => ({
+  x: outer.x + (inner.x * outer.width),
+  y: outer.y + (inner.y * outer.height),
+  width: outer.width * inner.width,
+  height: outer.height * inner.height,
+});
+
+const extractGridColumnsFromPage = async (
+  pageCanvas: ReturnType<typeof createCanvas>,
+  imageWidth: number,
+  imageHeight: number,
+  cropRect: CropRatio,
+  columnRatios: GridColumnRatios,
+) => {
+  const names: GridColumnName[] = ['type', 'totalIncidence', 'quantity', 'cut'];
+  const raw: Record<GridColumnName, string> = {
+    type: '',
+    totalIncidence: '',
+    quantity: '',
+    cut: '',
+  };
+
+  for (const name of names) {
+    const absolute = combineRatios(cropRect, columnRatios[name]);
+    const image = cropPngFromCanvas(pageCanvas, imageWidth, imageHeight, absolute);
+    raw[name] = await runOcr(image.pngBuffer);
+  }
+
+  return raw;
+};
+
 const runOcr = async (imageBuffer: Buffer) => {
   const worker = await createWorker('eng', 1, {
     langPath: engLangData.langPath,
@@ -695,7 +832,10 @@ const findCutName = (normalizedLine: string) => {
   return null;
 };
 
-const extractTableStructureFromPage = (page: PageDiagnostic): TableStructureDiagnostic | null => {
+const extractTableStructureFromPage = (
+  page: PageDiagnostic,
+  gridMode: GridMode,
+): TableStructureDiagnostic | null => {
   const cropText = page.ocrRegion?.cleaned.text ?? '';
   const fullText = page.ocr.cleaned.text;
   const cropHasSignal = /(incidencia|incidencias|proteina|tipos|frango|pescados|suinos|bovina)/i.test(normalizeText(cropText));
@@ -725,6 +865,57 @@ const extractTableStructureFromPage = (page: PageDiagnostic): TableStructureDiag
   const incidenceByProtein = new Map<string, number>();
   let currentProtein: string | null = null;
   let hasHeader = false;
+
+  const columns = {
+    type: page.gridColumns?.cleaned.type ? toLines(page.gridColumns.cleaned.type).filter(Boolean) : [] as string[],
+    totalIncidence: page.gridColumns?.cleaned.totalIncidence ? toLines(page.gridColumns.cleaned.totalIncidence).filter(Boolean) : [] as string[],
+    quantity: page.gridColumns?.cleaned.quantity ? toLines(page.gridColumns.cleaned.quantity).filter(Boolean) : [] as string[],
+    cut: page.gridColumns?.cleaned.cut ? toLines(page.gridColumns.cleaned.cut).filter(Boolean) : [] as string[],
+  };
+
+  if (gridMode === 'table' && page.gridColumns) {
+    const proteinCandidates = columns.type
+      .map((line) => findProteinType(normalizeText(line)))
+      .filter((value): value is string => Boolean(value));
+    const incidenceCandidates = columns.totalIncidence
+      .flatMap((line) => extractNumbers(line))
+      .filter((value) => value > 0 && value <= 31);
+    const quantityCandidates = columns.quantity
+      .flatMap((line) => extractNumbers(line))
+      .filter((value) => value > 0 && value <= 31);
+    const cutCandidates = columns.cut
+      .map((line) => findCutName(normalizeText(line)) ?? line)
+      .filter(Boolean);
+
+    if (proteinCandidates.length > 0) {
+      for (const [index, protein] of proteinCandidates.entries()) {
+        const incidence = incidenceCandidates[index] ?? null;
+        if (incidence !== null) {
+          incidenceByProtein.set(protein, incidence);
+        }
+
+        rows.push({
+          proteinType: protein,
+          totalIncidence: incidence,
+          quantity: quantityCandidates[index] ?? null,
+          cut: cutCandidates[index] ?? 'Unknown',
+          confidence: (incidence !== null && quantityCandidates[index] !== undefined)
+            ? 'MEDIUM'
+            : 'LOW',
+          sourceLine: [columns.type[index], columns.totalIncidence[index], columns.quantity[index], columns.cut[index]]
+            .filter(Boolean)
+            .join(' | '),
+        });
+      }
+
+      if (proteinCandidates.length !== incidenceCandidates.length) {
+        inconsistencies.push('desalinhamento entre coluna Tipo e coluna Incidencia Total');
+      }
+      if (cutCandidates.length > 0 && quantityCandidates.length !== cutCandidates.length) {
+        inconsistencies.push('desalinhamento entre colunas Quantidade e Corte');
+      }
+    }
+  }
 
   for (const line of lines) {
     const normalized = normalizeText(line);
@@ -853,15 +1044,26 @@ const extractTableStructureFromPage = (page: PageDiagnostic): TableStructureDiag
   const hasCuts = rows.some((row) => row.cut !== 'Unknown');
   const hasQuantities = rows.some((row) => row.quantity !== null);
   const hasStrongAmbiguity = ambiguousLines.length > 0 || inconsistencies.length > 0 || rows.length < 2;
+  const canValidateSum = groupedByProtein.size > 0
+    && [...groupedByProtein.values()].some((item) => item.incidence !== null);
+  const sumMatchesTotal = canValidateSum
+    && [...groupedByProtein.values()].every((item) => item.incidence !== null && item.sum === item.incidence);
 
   return {
     sourcePage: page.page,
     sourceItem: page.sectionTitle ?? 'Item 20 - Tabela de incidencia de Proteinas - Buffet oferta livre',
     tableType: 'protein_monthly_incidence',
+    gridMode,
+    columns,
     rows,
     ambiguousLines: [...new Set(ambiguousLines)].slice(0, 20),
     inconsistencies,
     incidenceValidation,
+    validation: {
+      canValidateSum,
+      sumMatchesTotal,
+      isReliableForAutomaticRule: false,
+    },
     quality: {
       hasHeader,
       hasTotalIncidence,
@@ -1436,6 +1638,8 @@ async function main() {
     context,
     crop,
     extractTableStructure,
+    gridMode,
+    columnRatios,
   } = parseArgs(process.argv.slice(2));
   const absolutePdfPath = path.resolve(pdfPath);
   const pdfBuffer = await readFile(absolutePdfPath);
@@ -1474,15 +1678,40 @@ async function main() {
 
     let ocrRegionRawText: string | null = null;
     let cropRect: CropRatio | null = null;
+    let gridColumns: GridColumnTexts | null = null;
     if (crop.mode !== 'none') {
       cropRect = crop.mode === 'ratio' && crop.ratio
         ? crop.ratio
         : resolveTableCropRatio(page);
       const croppedImage = cropPngFromCanvas(pageImage.canvas, pageImage.width, pageImage.height, cropRect);
       ocrRegionRawText = await runOcr(croppedImage.pngBuffer);
+
+      if (gridMode === 'table') {
+        const rawColumns = await extractGridColumnsFromPage(
+          pageImage.canvas,
+          pageImage.width,
+          pageImage.height,
+          cropRect,
+          columnRatios ?? defaultGridColumnRatios(),
+        );
+        gridColumns = {
+          raw: rawColumns,
+          cleaned: {
+            type: '',
+            totalIncidence: '',
+            quantity: '',
+            cut: '',
+          },
+        };
+      }
     }
 
-    const localRepeatedLines = collectRepeatedLines([parserRawText, ocrRawText, ...rawTexts]);
+    const localRepeatedLines = collectRepeatedLines([
+      parserRawText,
+      ocrRawText,
+      ...(gridColumns ? Object.values(gridColumns.raw) : []),
+      ...rawTexts,
+    ]);
 
     const parserCleanedText = cleanText(parserRawText, new Set([...repeatedLines, ...localRepeatedLines]));
     const ocrCleanedText = cleanText(ocrRawText, new Set([...repeatedLines, ...localRepeatedLines]));
@@ -1515,6 +1744,15 @@ async function main() {
       };
     }
 
+    if (gridColumns) {
+      gridColumns.cleaned = {
+        type: cleanText(gridColumns.raw.type, new Set([...repeatedLines, ...localRepeatedLines])),
+        totalIncidence: cleanText(gridColumns.raw.totalIncidence, new Set([...repeatedLines, ...localRepeatedLines])),
+        quantity: cleanText(gridColumns.raw.quantity, new Set([...repeatedLines, ...localRepeatedLines])),
+        cut: cleanText(gridColumns.raw.cut, new Set([...repeatedLines, ...localRepeatedLines])),
+      };
+    }
+
     const classified = classifyPage(parserAnalysis, ocrAnalysis);
     diagnostics.push({
       page,
@@ -1522,6 +1760,8 @@ async function main() {
       ocrRegion: ocrRegionAnalysis,
       cropMode: crop.mode,
       cropRect,
+      gridMode,
+      gridColumns,
       cropComparison: ocrRegionAnalysis
         ? compareCropAgainstFull(ocrAnalysis.cleaned.metrics, ocrRegionAnalysis.cleaned.metrics)
         : null,
@@ -1534,7 +1774,7 @@ async function main() {
   for (const item of diagnostics) {
     item.sectionTitle = pickSectionTitle(item, diagnosticsByPage.get(item.page - 1), diagnosticsByPage.get(item.page + 1));
     if (extractTableStructure) {
-      item.tableStructure = extractTableStructureFromPage(item);
+      item.tableStructure = extractTableStructureFromPage(item, gridMode);
     }
   }
 
