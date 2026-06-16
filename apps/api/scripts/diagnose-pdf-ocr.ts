@@ -24,6 +24,13 @@ type PdfTextResult = {
 type TextQuality = 'GOOD_TEXT' | 'PARTIAL_TEXT' | 'LOW_TEXT';
 type PageClassification = TextQuality | 'VISUAL_TABLE_REQUIRES_OCR' | 'IGNORE';
 
+type OcrDiscoveryClassification =
+  | 'parser_text_available'
+  | 'parser_empty_requires_ocr_discovery'
+  | 'ocr_text_found_no_structural_table'
+  | 'visual_table_requires_structural_ocr'
+  | 'structural_ocr_not_reliable_for_rule';
+
 type CompareMetrics = {
   chars: number;
   usefulLines: number;
@@ -196,6 +203,19 @@ type CellOcrTable = {
   rows: CellOcrRowDiagnostic[];
 };
 
+type OcrDiscoveryPageCandidate = {
+  page: number;
+  terms: string[];
+};
+
+type OcrDiscoverySummary = {
+  parserEmptyPages: number[];
+  pagesWithOcrUsefulText: number[];
+  candidatePagesByTerms: OcrDiscoveryPageCandidate[];
+  recommendedStructuralPages: number[];
+  classification: OcrDiscoveryClassification;
+};
+
 const IMPORTANT_TERMS = [
   'cardapio',
   'proteina',
@@ -226,6 +246,49 @@ const IMPORTANT_TERMS = [
   'salmao',
   'merluza',
 ] as const;
+
+const OCR_DISCOVERY_TERM_TOKENS = [
+  'cardapio',
+  'proteina',
+  'proteinas',
+  'incidencia',
+  'frequencia',
+  'mensal',
+  'dias uteis',
+  'buffet',
+  'oferta livre',
+  'guarnicao',
+  'salada',
+  'sobremesa',
+  'suco',
+  'per capita',
+  'gramatura',
+  'gramas',
+  'tabela',
+  'quadro',
+  'corte',
+  'quantidade',
+  'refeicao',
+  'alimentacao',
+] as const;
+
+const STRUCTURAL_SIGNAL_TERMS = new Set([
+  'proteina',
+  'proteinas',
+  'incidencia',
+  'frequencia',
+  'mensal',
+  'dias uteis',
+  'buffet',
+  'oferta livre',
+  'per capita',
+  'gramatura',
+  'gramas',
+  'tabela',
+  'quadro',
+  'corte',
+  'quantidade',
+]);
 
 const CUT_TERMS = [
   'acem',
@@ -1230,6 +1293,59 @@ const extractTableStructureFromPage = (
 
 const unionTerms = (...sources: string[][]) => [...new Set(sources.flat())].sort();
 
+const detectDiscoveryTerms = (text: string) => {
+  const normalized = normalizeText(text);
+  return OCR_DISCOVERY_TERM_TOKENS.filter((term) => normalized.includes(term));
+};
+
+const buildOcrDiscoverySummary = (diagnostics: PageDiagnostic[]): OcrDiscoverySummary => {
+  const parserEmptyPages = diagnostics
+    .filter((item) => item.parser.raw.metrics.chars === 0)
+    .map((item) => item.page);
+  const pagesWithOcrUsefulText = diagnostics
+    .filter((item) => item.ocr.cleaned.metrics.usefulLines > 0)
+    .map((item) => item.page);
+
+  const candidatePagesByTerms = diagnostics
+    .map((item) => {
+      const terms = detectDiscoveryTerms(item.ocr.cleaned.text);
+      return {
+        page: item.page,
+        terms,
+      } satisfies OcrDiscoveryPageCandidate;
+    })
+    .filter((item) => item.terms.length > 0);
+
+  const recommendedStructuralPages = candidatePagesByTerms.map((item) => item.page);
+  const parserEmptyAll = parserEmptyPages.length === diagnostics.length && diagnostics.length > 0;
+  const hasStructuralSignals = candidatePagesByTerms
+    .some((item) => item.terms.some((term) => STRUCTURAL_SIGNAL_TERMS.has(term)));
+  const hasStructuralOutput = diagnostics.some((item) => item.tableStructure !== null);
+  const structuralReliable = diagnostics
+    .some((item) => item.tableStructure?.validation.isReliableForAutomaticRule === true);
+
+  let classification: OcrDiscoveryClassification;
+  if (!parserEmptyAll) {
+    classification = 'parser_text_available';
+  } else if (pagesWithOcrUsefulText.length === 0) {
+    classification = 'parser_empty_requires_ocr_discovery';
+  } else if (hasStructuralOutput && !structuralReliable) {
+    classification = 'structural_ocr_not_reliable_for_rule';
+  } else if (recommendedStructuralPages.length > 0 && hasStructuralSignals) {
+    classification = 'visual_table_requires_structural_ocr';
+  } else {
+    classification = 'ocr_text_found_no_structural_table';
+  }
+
+  return {
+    parserEmptyPages,
+    pagesWithOcrUsefulText,
+    candidatePagesByTerms,
+    recommendedStructuralPages,
+    classification,
+  };
+};
+
 const pickSectionTitle = (page: PageDiagnostic, previous?: PageDiagnostic, next?: PageDiagnostic) => {
   const candidates = [
     ...page.parser.cleaned.metrics.titleLikeLines,
@@ -1643,11 +1759,32 @@ const buildMarkdownReport = (
   composedBlocks: ComposedBlockCandidate[],
 ) => {
   const lines: string[] = [];
+  const discoverySummary = buildOcrDiscoverySummary(diagnostics);
+
   lines.push('# PDF OCR Diagnostic Report');
   lines.push(`PDF: ${pdfPath}`);
   lines.push(`Target pages: ${targetPages.join(', ')}`);
   lines.push(`Context radius: ${context}`);
   lines.push(`Generated at: ${new Date().toISOString()}`);
+  lines.push('');
+
+  lines.push('## OCR Discovery Summary');
+  lines.push('');
+  lines.push(`- Parser empty pages: ${discoverySummary.parserEmptyPages.length ? discoverySummary.parserEmptyPages.join(',') : 'none'}`);
+  lines.push(`- Pages with OCR useful text: ${discoverySummary.pagesWithOcrUsefulText.length ? discoverySummary.pagesWithOcrUsefulText.join(',') : 'none'}`);
+  lines.push('- Candidate pages by OCR terms:');
+  if (discoverySummary.candidatePagesByTerms.length === 0) {
+    lines.push('  - none');
+  } else {
+    for (const candidate of discoverySummary.candidatePagesByTerms) {
+      lines.push(`  - Page ${candidate.page}: ${candidate.terms.join(', ')}`);
+    }
+  }
+  lines.push(`- Recommended structural OCR pages: ${discoverySummary.recommendedStructuralPages.length ? discoverySummary.recommendedStructuralPages.join(',') : 'none'}`);
+  lines.push(`- Classification: ${discoverySummary.classification}`);
+  if (discoverySummary.classification === 'ocr_text_found_no_structural_table' || discoverySummary.classification === 'structural_ocr_not_reliable_for_rule') {
+    lines.push('- Structural note: OCR recovered narrative contractual text, but no reliable structured incidence table was found.');
+  }
   lines.push('');
 
   for (const window of windows) {
