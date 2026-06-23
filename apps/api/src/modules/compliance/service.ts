@@ -2,7 +2,8 @@ import type { FastifyInstance } from 'fastify';
 import { createComplianceRepository } from './repository.js';
 import { menuImportMemory } from '../menus/service.js';
 import { recipeMemory } from '../recipes/service.js';
-import { ruleMemory } from '../rules/service.js';
+import { ruleMemory, controlMemory } from '../rules/service.js';
+import { contractMemory } from '../contracts/service.js';
 
 export interface Deps {
   [key: string]: any;
@@ -18,6 +19,77 @@ const menuAuditMemory = new Map<string, Array<{
   ruleTitle: string;
   resultStatus: 'compliant' | 'non_compliant';
   evidence: string;
+  createdAt: string;
+}>>();
+
+const menuSuggestionMemory = new Map<string, Array<{
+  id: string;
+  sourceType: 'rule' | 'financial_goal';
+  sourceReference: string | null;
+  suggestionText: string;
+  estimatedFinancialImpact: number;
+  estimatedNutritionalImpact: string;
+  evidenceSource: 'structured' | 'textual_fallback' | 'financial_goal' | 'preventive';
+  evidenceSubtype: 'frequency' | 'recurrence' | 'classification' | null;
+  priorityLevel: 'high' | 'medium';
+  createdAt: string;
+}>>();
+
+const complianceControlExecutionMemory = new Map<string, Array<{
+  id: string;
+  controlId: string;
+  executionDate: string;
+  status: 'completed' | 'failed';
+  evidenceSummary: string;
+  evidenceReference: string | null;
+  executedBy: string;
+  executedAt: string;
+}>>();
+
+const complianceControlEventMemory = new Map<string, Array<{
+  id: string;
+  controlId: string;
+  previousStatus: string;
+  nextStatus: string;
+  description: string;
+  justification: string | null;
+  evidenceReference: string | null;
+  actorName: string;
+  createdAt: string;
+}>>();
+
+const complianceFindingMemory = new Map<string, Array<{
+  id: string;
+  controlId: string;
+  executionId: string | null;
+  severity: string;
+  description: string;
+  status: string;
+  detectedAt: string;
+  resolvedAt: string | null;
+  resolvedBy: string | null;
+  createdBy: string;
+}>>();
+
+const complianceFindingEventMemory = new Map<string, Array<{
+  id: string;
+  findingId: string;
+  previousStatus: string;
+  nextStatus: string;
+  description: string;
+  evidenceReference: string | null;
+  actorName: string;
+  createdAt: string;
+}>>();
+
+const complianceEvidenceMemory = new Map<string, Array<{
+  id: string;
+  entityType: string;
+  entityId: string;
+  sourceType: string;
+  page: number | null;
+  section: string | null;
+  excerpt: string | null;
   createdAt: string;
 }>>();
 
@@ -367,15 +439,101 @@ app.get('/compliance-controls', { preHandler: authenticate }, async (request, re
     });
   }
 
+  const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+  const requestedStatus = normalizeControlStatusFilter(parsedQuery.data.status);
+
   if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
+    const controls = Array.from(controlMemory.values())
+      .filter((item) => item.tenantId === tenantId && item.companyName === companyName)
+      .filter((item) =>
+        requestedStatus === 'all' ? true : normalizeControlStatus(item.status) === requestedStatus,
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, parsedQuery.data.limit);
+
+    const latestExecutions = controls
+      .flatMap((item) => (complianceControlExecutionMemory.get(item.id) ?? []).map((execution) => ({
+        ...execution,
+        controlTitle: item.title,
+      })))
+      .sort((a, b) => b.executedAt.localeCompare(a.executedAt))
+      .slice(0, 10);
+    const failedExecutions = latestExecutions.filter((item) => item.status === 'failed');
+
+    return reply.code(200).send({
+      status: 'ok',
+      summary: {
+        totalControls: controls.length,
+        activeControls: controls.filter((item) => normalizeControlStatus(item.status) === 'ACTIVE').length,
+        pendingControls: controls.filter((item) => ['DRAFT', 'PAUSED'].includes(normalizeControlStatus(item.status))).length,
+        draftControls: controls.filter((item) => normalizeControlStatus(item.status) === 'DRAFT').length,
+        pausedControls: controls.filter((item) => normalizeControlStatus(item.status) === 'PAUSED').length,
+        nonCompliantControls: controls.filter((item) => normalizeControlStatus(item.status) === 'NON_COMPLIANT').length,
+        completedControls: controls.filter((item) => normalizeControlStatus(item.status) === 'COMPLETED').length,
+        openFindings: controls.reduce(
+          (acc, item) =>
+            acc
+            + (complianceFindingMemory.get(item.id) ?? []).filter(
+              (finding) => ['OPEN', 'IN_ANALYSIS'].includes(normalizeFindingStatus(finding.status)),
+            ).length,
+          0,
+        ),
+        failedExecutions: failedExecutions.length,
+      },
+      controls: controls.map((item) => {
+        const contract = contractMemory.get(item.contractId);
+        const rule = ruleMemory.get(item.contractRuleId);
+        const lastExecution = (complianceControlExecutionMemory.get(item.id) ?? [])
+          .sort((a, b) => b.executedAt.localeCompare(a.executedAt))[0];
+
+        return {
+          id: item.id,
+          contractId: item.contractId,
+          contractRuleId: item.contractRuleId,
+          title: item.title,
+          contractTitle: contract?.title ?? null,
+          ruleTitle: rule?.title ?? null,
+          operationalDescription: item.operationalDescription,
+          frequency: item.frequency,
+          responsible: item.responsible,
+          expectedEvidence: item.expectedEvidence,
+          status: normalizeControlStatus(item.status),
+          activatedAt: item.activatedAt?.toISOString() ?? null,
+          deactivatedAt: item.deactivatedAt?.toISOString() ?? null,
+          createdBy: item.createdBy,
+          createdAt: item.createdAt.toISOString(),
+          lastExecutionStatus: lastExecution?.status ?? null,
+          lastExecutionAt: lastExecution?.executedAt ?? null,
+          openFindingsCount: (complianceFindingMemory.get(item.id) ?? []).filter(
+            (finding) => ['OPEN', 'IN_ANALYSIS'].includes(normalizeFindingStatus(finding.status)),
+          ).length,
+        };
+      }),
+      latestExecutions: latestExecutions.map((item) => ({
+        id: item.id,
+        controlId: item.controlId,
+        controlTitle: item.controlTitle,
+        executionDate: item.executionDate,
+        status: item.status,
+        evidenceSummary: item.evidenceSummary,
+        evidenceReference: item.evidenceReference,
+        executedBy: item.executedBy,
+        executedAt: item.executedAt,
+      })),
+      failures: failedExecutions.map((item) => ({
+        id: item.id,
+        controlId: item.controlId,
+        controlTitle: item.controlTitle,
+        executionDate: item.executionDate,
+        status: item.status,
+        evidenceSummary: item.evidenceSummary,
+        evidenceReference: item.evidenceReference,
+        executedBy: item.executedBy,
+        executedAt: item.executedAt,
+      })),
     });
   }
-
-  const companyName = getCompanyFromJwt(request);
-  const requestedStatus = normalizeControlStatusFilter(parsedQuery.data.status);
 
   await ensureDomainTables();
 
@@ -615,14 +773,50 @@ app.get('/contracts/:id/controls', { preHandler: authenticate }, async (request,
     });
   }
 
+  const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+
   if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
+    const controls = Array.from(controlMemory.values())
+      .filter(
+        (item) =>
+          item.tenantId === tenantId
+          && item.companyName === companyName
+          && item.contractId === parsedParams.data.id,
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((item) => {
+        const contract = contractMemory.get(item.contractId);
+        const rule = ruleMemory.get(item.contractRuleId);
+        const lastExecution = (complianceControlExecutionMemory.get(item.id) ?? [])
+          .sort((a, b) => b.executedAt.localeCompare(a.executedAt))[0];
+
+        return {
+          id: item.id,
+          contractId: item.contractId,
+          contractRuleId: item.contractRuleId,
+          title: item.title,
+          contractTitle: contract?.title ?? null,
+          ruleTitle: rule?.title ?? null,
+          operationalDescription: item.operationalDescription,
+          frequency: item.frequency,
+          responsible: item.responsible,
+          expectedEvidence: item.expectedEvidence,
+          status: normalizeControlStatus(item.status),
+          activatedAt: item.activatedAt?.toISOString() ?? null,
+          deactivatedAt: item.deactivatedAt?.toISOString() ?? null,
+          createdBy: item.createdBy,
+          createdAt: item.createdAt.toISOString(),
+          lastExecutionStatus: lastExecution?.status ?? null,
+          lastExecutionAt: lastExecution?.executedAt ?? null,
+        };
+      });
+
+    return reply.code(200).send({
+      status: 'ok',
+      controls,
     });
   }
-
-  const companyName = getCompanyFromJwt(request);
 
   await ensureDomainTables();
 
@@ -718,14 +912,171 @@ app.get('/compliance-controls/:controlId', { preHandler: authenticate }, async (
     });
   }
 
+  const companyName = getCompanyFromJwt(request);
+  const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+
   if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
+    const control = controlMemory.get(parsedParams.data.controlId);
+
+    if (!control || control.tenantId !== tenantId || control.companyName !== companyName) {
+      return reply.code(404).send({
+        status: 'error',
+        message: 'Controle nao encontrado para esta empresa.',
+      });
+    }
+
+    const contract = contractMemory.get(control.contractId);
+    const rule = ruleMemory.get(control.contractRuleId);
+    const executionRows = [...(complianceControlExecutionMemory.get(control.id) ?? [])].sort(
+      (a, b) => b.executedAt.localeCompare(a.executedAt),
+    );
+    const eventRows = [...(complianceControlEventMemory.get(control.id) ?? [])].sort(
+      (a, b) => b.createdAt.localeCompare(a.createdAt),
+    );
+    const findingRows = [...(complianceFindingMemory.get(control.id) ?? [])].sort(
+      (a, b) => b.detectedAt.localeCompare(a.detectedAt),
+    );
+    const findingIds = new Set(findingRows.map((item) => item.id));
+    const findingEventRows = [...(complianceFindingEventMemory.get(control.id) ?? [])]
+      .filter((item) => findingIds.has(item.findingId))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    const evidenceRows = [...(complianceEvidenceMemory.get(control.id) ?? [])].sort(
+      (a, b) => b.createdAt.localeCompare(a.createdAt),
+    );
+
+    const sourceEvidence = rule?.sourceExcerpt
+      ? {
+          id: `${control.id}-source`,
+          entityType: 'control',
+          entityId: control.id,
+          sourceType: 'contract_rule_source',
+          page: rule.sourcePage,
+          section: null,
+          excerpt: rule.sourceExcerpt,
+          createdAt: control.createdAt.toISOString(),
+        }
+      : null;
+
+    const timeline = [
+      ...eventRows.map((item) => ({
+        id: item.id,
+        type: 'event' as const,
+        createdAt: item.createdAt,
+        title: `${normalizeControlStatus(item.previousStatus)} -> ${normalizeControlStatus(item.nextStatus)}`,
+        description: [item.description, item.justification ? `Justificativa: ${item.justification}` : null, item.evidenceReference ? `Evidencia: ${item.evidenceReference}` : null]
+          .filter(Boolean)
+          .join(' · '),
+        actorName: item.actorName,
+      })),
+      ...executionRows.map((item) => ({
+        id: item.id,
+        type: 'execution' as const,
+        createdAt: item.executedAt,
+        title: item.status === 'completed' ? 'Execucao conforme' : 'Execucao com desvio',
+        description: item.evidenceSummary,
+        actorName: item.executedBy,
+      })),
+      ...findingRows.map((item) => ({
+        id: item.id,
+        type: 'finding' as const,
+        createdAt: item.detectedAt,
+        title: `Finding ${normalizeFindingStatus(item.status)}`,
+        description: item.description,
+        actorName: item.createdBy,
+      })),
+      ...findingEventRows.map((item) => ({
+        id: item.id,
+        type: 'finding' as const,
+        createdAt: item.createdAt,
+        title: `Finding ${normalizeFindingStatus(item.previousStatus)} -> ${normalizeFindingStatus(item.nextStatus)}`,
+        description: [item.description, item.evidenceReference ? `Evidencia: ${item.evidenceReference}` : null]
+          .filter(Boolean)
+          .join(' · '),
+        actorName: item.actorName,
+      })),
+    ].sort((left, right) => right.createdAt.localeCompare(left.createdAt));
+
+    return reply.code(200).send({
+      status: 'ok',
+      control: {
+        id: control.id,
+        contractId: control.contractId,
+        contractRuleId: control.contractRuleId,
+        title: control.title,
+        contractTitle: contract?.title ?? null,
+        ruleTitle: rule?.title ?? null,
+        operationalDescription: control.operationalDescription,
+        frequency: control.frequency,
+        responsible: control.responsible,
+        expectedEvidence: control.expectedEvidence,
+        status: normalizeControlStatus(control.status),
+        activatedAt: control.activatedAt?.toISOString() ?? null,
+        deactivatedAt: control.deactivatedAt?.toISOString() ?? null,
+        createdBy: control.createdBy,
+        createdAt: control.createdAt.toISOString(),
+        origin: {
+          contractTitle: contract?.title ?? null,
+          ruleTitle: rule?.title ?? null,
+          page: rule?.sourcePage ?? null,
+          excerpt: rule?.sourceExcerpt ?? null,
+        },
+      },
+      executions: executionRows.map((item) => ({
+        id: item.id,
+        executionDate: item.executionDate,
+        status: item.status,
+        evidenceSummary: item.evidenceSummary,
+        evidenceReference: item.evidenceReference,
+        executedBy: item.executedBy,
+        executedAt: item.executedAt,
+      })),
+      events: eventRows.map((item) => ({
+        id: item.id,
+        previousStatus: normalizeControlStatus(item.previousStatus),
+        nextStatus: normalizeControlStatus(item.nextStatus),
+        description: item.description,
+        justification: item.justification,
+        evidenceReference: item.evidenceReference,
+        actorName: item.actorName,
+        createdAt: item.createdAt,
+      })),
+      findings: findingRows.map((item) => ({
+        id: item.id,
+        executionId: item.executionId,
+        severity: normalizeFindingSeverity(item.severity),
+        description: item.description,
+        status: normalizeFindingStatus(item.status),
+        detectedAt: item.detectedAt,
+        resolvedAt: item.resolvedAt,
+        resolvedBy: item.resolvedBy,
+        createdBy: item.createdBy,
+      })),
+      evidenceReferences: [
+        ...(sourceEvidence ? [sourceEvidence] : []),
+        ...evidenceRows.map((item) => ({
+          id: item.id,
+          entityType: item.entityType,
+          entityId: item.entityId,
+          sourceType: item.sourceType,
+          page: item.page,
+          section: item.section,
+          excerpt: item.excerpt,
+          createdAt: item.createdAt,
+        })),
+      ],
+      timeline,
+      findingEvents: findingEventRows.map((item) => ({
+        id: item.id,
+        findingId: item.findingId,
+        previousStatus: normalizeFindingStatus(item.previousStatus),
+        nextStatus: normalizeFindingStatus(item.nextStatus),
+        description: item.description,
+        evidenceReference: item.evidenceReference,
+        actorName: item.actorName,
+        createdAt: item.createdAt,
+      })),
     });
   }
-
-  const companyName = getCompanyFromJwt(request);
 
   await ensureDomainTables();
 
@@ -1021,16 +1372,58 @@ app.patch('/compliance-controls/:controlId/status', { preHandler: authenticate }
     });
   }
 
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
   const companyName = getCompanyFromJwt(request);
   const actor = getUserFromJwt(request);
   const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+
+  if (!prisma) {
+    const control = controlMemory.get(parsedParams.data.controlId);
+
+    if (!control || control.tenantId !== tenantId || control.companyName !== companyName) {
+      return reply.code(404).send({ status: 'error', message: 'Controle nao encontrado para esta empresa.' });
+    }
+
+    const previousStatus = normalizeControlStatus(control.status);
+    const nextStatus = parsedBody.data.status;
+
+    if (!canTransitionControlStatus(previousStatus, nextStatus)) {
+      return reply.code(409).send({
+        status: 'error',
+        message: `Transicao de status invalida: ${previousStatus} -> ${nextStatus}.`,
+      });
+    }
+
+    const now = new Date();
+    control.status = nextStatus;
+    control.activatedAt = nextStatus === 'ACTIVE' ? (control.activatedAt ?? now) : control.activatedAt;
+    control.deactivatedAt = ['PAUSED', 'COMPLETED'].includes(nextStatus) ? now : null;
+    controlMemory.set(control.id, control);
+
+    const event = {
+      id: randomUUID(),
+      controlId: control.id,
+      previousStatus,
+      nextStatus,
+      description: `Status operacional alterado para ${nextStatus}.`,
+      justification: parsedBody.data.justification,
+      evidenceReference: parsedBody.data.evidenceReference ?? null,
+      actorName: actor.name,
+      createdAt: now.toISOString(),
+    };
+    const events = complianceControlEventMemory.get(control.id) ?? [];
+    events.push(event);
+    complianceControlEventMemory.set(control.id, events);
+
+    return reply.code(200).send({
+      status: 'ok',
+      control: {
+        id: control.id,
+        status: nextStatus,
+        activatedAt: control.activatedAt?.toISOString() ?? null,
+        deactivatedAt: control.deactivatedAt?.toISOString() ?? null,
+      },
+    });
+  }
 
   await ensureDomainTables();
 
@@ -1141,16 +1534,72 @@ app.post('/compliance-controls/:controlId/executions', { preHandler: authenticat
     });
   }
 
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
   const companyName = getCompanyFromJwt(request);
   const actor = getUserFromJwt(request);
   const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+
+  if (!prisma) {
+    const control = controlMemory.get(parsedParams.data.controlId);
+
+    if (!control || control.tenantId !== tenantId || control.companyName !== companyName) {
+      return reply.code(404).send({
+        status: 'error',
+        message: 'Controle nao encontrado para esta empresa.',
+      });
+    }
+
+    if (!canRegisterExecution(control.status)) {
+      return reply.code(409).send({
+        status: 'error',
+        message: 'Somente controles ativos ou sob tratamento podem registrar execucao.',
+      });
+    }
+
+    const executionId = randomUUID();
+    const executedAt = new Date().toISOString();
+    const execution = {
+      id: executionId,
+      controlId: control.id,
+      executionDate: new Date(parsedBody.data.executionDate).toISOString(),
+      status: parsedBody.data.status,
+      evidenceSummary: parsedBody.data.evidenceSummary,
+      evidenceReference: parsedBody.data.evidenceReference ?? null,
+      executedBy: actor.id,
+      executedAt,
+    };
+    const executions = complianceControlExecutionMemory.get(control.id) ?? [];
+    executions.push(execution);
+    complianceControlExecutionMemory.set(control.id, executions);
+
+    const events = complianceControlEventMemory.get(control.id) ?? [];
+    events.push({
+      id: randomUUID(),
+      controlId: control.id,
+      previousStatus: control.status,
+      nextStatus: control.status,
+      description: `Execucao manual registrada com status ${parsedBody.data.status}.`,
+      justification: null,
+      evidenceReference: parsedBody.data.evidenceReference ?? null,
+      actorName: actor.name,
+      createdAt: executedAt,
+    });
+    complianceControlEventMemory.set(control.id, events);
+
+    return reply.code(201).send({
+      status: 'ok',
+      execution: {
+        id: executionId,
+        controlId: control.id,
+        controlTitle: control.title,
+        executionDate: execution.executionDate,
+        status: execution.status,
+        evidenceSummary: execution.evidenceSummary,
+        evidenceReference: execution.evidenceReference,
+        executedBy: execution.executedBy,
+        executedAt: execution.executedAt,
+      },
+    });
+  }
 
   await ensureDomainTables();
 
@@ -1293,16 +1742,73 @@ app.post('/compliance-controls/:controlId/findings', { preHandler: authenticate 
     });
   }
 
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
   const companyName = getCompanyFromJwt(request);
   const actor = getUserFromJwt(request);
   const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+
+  if (!prisma) {
+    const control = controlMemory.get(parsedParams.data.controlId);
+
+    if (!control || control.tenantId !== tenantId || control.companyName !== companyName) {
+      return reply.code(404).send({ status: 'error', message: 'Controle nao encontrado para esta empresa.' });
+    }
+
+    if (parsedBody.data.executionId) {
+      const executions = complianceControlExecutionMemory.get(control.id) ?? [];
+      const linkedExecution = executions.find((item) => item.id === parsedBody.data.executionId);
+      if (!linkedExecution) {
+        return reply.code(404).send({
+          status: 'error',
+          message: 'Execucao informada nao pertence a este controle.',
+        });
+      }
+    }
+
+    const findingId = randomUUID();
+    const detectedAt = parsedBody.data.detectedAt ? new Date(parsedBody.data.detectedAt) : new Date();
+    const finding = {
+      id: findingId,
+      controlId: control.id,
+      executionId: parsedBody.data.executionId ?? null,
+      severity: parsedBody.data.severity,
+      description: parsedBody.data.description,
+      status: parsedBody.data.status,
+      detectedAt: detectedAt.toISOString(),
+      resolvedAt: null,
+      resolvedBy: null,
+      createdBy: actor.id,
+    };
+    const findings = complianceFindingMemory.get(control.id) ?? [];
+    findings.push(finding);
+    complianceFindingMemory.set(control.id, findings);
+
+    const events = complianceFindingEventMemory.get(control.id) ?? [];
+    events.push({
+      id: randomUUID(),
+      findingId,
+      previousStatus: parsedBody.data.status,
+      nextStatus: parsedBody.data.status,
+      description: 'Finding registrado manualmente no controle.',
+      evidenceReference: null,
+      actorName: actor.name,
+      createdAt: new Date().toISOString(),
+    });
+    complianceFindingEventMemory.set(control.id, events);
+
+    return reply.code(201).send({
+      status: 'ok',
+      finding: {
+        id: findingId,
+        controlId: control.id,
+        executionId: finding.executionId,
+        severity: finding.severity,
+        description: finding.description,
+        status: finding.status,
+        detectedAt: finding.detectedAt,
+        createdBy: finding.createdBy,
+      },
+    });
+  }
 
   await ensureDomainTables();
 
@@ -1439,16 +1945,80 @@ app.patch('/compliance-controls/:controlId/findings/:findingId/status', { preHan
     });
   }
 
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
   const companyName = getCompanyFromJwt(request);
   const actor = getUserFromJwt(request);
   const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+
+  if (!prisma) {
+    const control = controlMemory.get(parsedParams.data.controlId);
+
+    if (!control || control.tenantId !== tenantId || control.companyName !== companyName) {
+      return reply.code(404).send({
+        status: 'error',
+        message: 'Finding nao encontrado para este controle.',
+      });
+    }
+
+    const findings = complianceFindingMemory.get(control.id) ?? [];
+    const findingIndex = findings.findIndex((item) => item.id === parsedParams.data.findingId);
+    const finding = findingIndex >= 0 ? findings[findingIndex] : null;
+
+    if (!finding) {
+      return reply.code(404).send({
+        status: 'error',
+        message: 'Finding nao encontrado para este controle.',
+      });
+    }
+
+    const previousStatus = normalizeFindingStatus(finding.status);
+    const nextStatus = parsedBody.data.status;
+
+    if (!canTransitionFindingStatus(previousStatus, nextStatus)) {
+      return reply.code(409).send({
+        status: 'error',
+        message: `Transicao de status invalida: ${previousStatus} -> ${nextStatus}.`,
+      });
+    }
+
+    const resolvedAt = ['RESOLVED', 'ACCEPTED_RISK'].includes(nextStatus) ? new Date().toISOString() : null;
+    const resolvedBy = ['RESOLVED', 'ACCEPTED_RISK'].includes(nextStatus) ? actor.id : null;
+
+    findings[findingIndex] = {
+      ...finding,
+      status: nextStatus,
+      resolvedAt,
+      resolvedBy,
+    };
+    complianceFindingMemory.set(control.id, findings);
+
+    const events = complianceFindingEventMemory.get(control.id) ?? [];
+    events.push({
+      id: randomUUID(),
+      findingId: finding.id,
+      previousStatus,
+      nextStatus,
+      description: parsedBody.data.description,
+      evidenceReference: parsedBody.data.evidenceReference ?? null,
+      actorName: actor.name,
+      createdAt: new Date().toISOString(),
+    });
+    complianceFindingEventMemory.set(control.id, events);
+
+    return reply.code(200).send({
+      status: 'ok',
+      finding: {
+        id: finding.id,
+        status: nextStatus,
+        severity: normalizeFindingSeverity(finding.severity),
+        description: finding.description,
+        detectedAt: finding.detectedAt,
+        resolvedAt,
+        resolvedBy,
+        createdBy: finding.createdBy,
+        executionId: finding.executionId,
+      },
+    });
+  }
 
   await ensureDomainTables();
 
@@ -2156,16 +2726,142 @@ app.post('/menus/imports/:importId/suggestions', { preHandler: authenticate }, a
     });
   }
 
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
   const companyName = getCompanyFromJwt(request);
   const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
   const importId = parsedParams.data.importId;
+
+  if (!prisma) {
+    const imported = menuImportMemory.get(importId);
+
+    if (!imported || imported.tenantId !== tenantId || imported.companyName !== companyName) {
+      return reply.code(404).send({
+        status: 'error',
+        message: 'Importacao de cardapio nao encontrada para esta empresa.',
+      });
+    }
+
+    const auditRows = menuAuditMemory.get(importId) ?? buildMemoryMenuAudit(request, importId) ?? [];
+    const suggestions: Array<{
+      id: string;
+      sourceType: 'rule' | 'financial_goal';
+      sourceReference: string | null;
+      suggestionText: string;
+      estimatedFinancialImpact: number;
+      estimatedNutritionalImpact: string;
+      evidenceSource: 'structured' | 'textual_fallback' | 'financial_goal' | 'preventive';
+      evidenceSubtype: 'frequency' | 'recurrence' | 'classification' | null;
+      priorityLevel: 'high' | 'medium';
+      createdAt: string;
+    }> = [];
+
+    for (const audit of auditRows.filter((item) => item.resultStatus === 'non_compliant')) {
+      const suggestionText = `Substituir um item atual por alternativa equivalente para atender a regra: ${audit.ruleTitle}.`;
+      const estimatedNutritionalImpact =
+        'Reforca aderencia ao grupo esperado com classificacao estruturada. Contexto historico operacional indisponivel para esta combinacao.';
+      const lowerRuleTitle = audit.ruleTitle.toLowerCase();
+      const evidenceSubtype =
+        /seman|x por semana|frequenc/.test(lowerRuleTitle)
+          ? 'frequency'
+          : /nao repetir|não repetir|recorr/.test(lowerRuleTitle)
+            ? 'recurrence'
+            : 'classification';
+
+      suggestions.push({
+        id: randomUUID(),
+        sourceType: 'rule',
+        sourceReference: audit.ruleId,
+        suggestionText,
+        estimatedFinancialImpact: -Math.max(Number((imported.exceededValue * 0.35).toFixed(2)), 0.5),
+        estimatedNutritionalImpact,
+        evidenceSource: 'structured',
+        evidenceSubtype,
+        priorityLevel: 'high',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    if (imported.exceededValue > 0) {
+      const suggestionText =
+        'Substituir ao menos um item de maior custo por alternativa equivalente para voltar a meta financeira.';
+      const estimatedNutritionalImpact = 'Mantem cobertura nutricional prevista para a refeicao.';
+      const evidenceSource = inferSuggestionEvidenceSource({
+        sourceType: 'financial_goal',
+        suggestionText,
+        estimatedNutritionalImpact,
+        sourceReference: 'meal_cost_vs_goal',
+      });
+      suggestions.push({
+        id: randomUUID(),
+        sourceType: 'financial_goal',
+        sourceReference: 'meal_cost_vs_goal',
+        suggestionText,
+        estimatedFinancialImpact: Number((-Math.max(imported.exceededValue, 0.5)).toFixed(2)),
+        estimatedNutritionalImpact,
+        evidenceSource,
+        evidenceSubtype: inferSuggestionEvidenceSubtype({
+          evidenceSource,
+          suggestionText,
+          sourceReference: 'meal_cost_vs_goal',
+        }),
+        priorityLevel: 'high',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    if (!suggestions.length) {
+      const suggestionText =
+        'Manter cardapio atual e registrar combinacoes de melhor aceitacao para proxima versao.';
+      const estimatedNutritionalImpact = 'Sem impacto nutricional adverso previsto.';
+      const evidenceSource = inferSuggestionEvidenceSource({
+        sourceType: 'rule',
+        suggestionText,
+        estimatedNutritionalImpact,
+        sourceReference: 'preventive_optimization',
+      });
+
+      suggestions.push({
+        id: randomUUID(),
+        sourceType: 'rule',
+        sourceReference: 'preventive_optimization',
+        suggestionText,
+        estimatedFinancialImpact: 0,
+        estimatedNutritionalImpact,
+        evidenceSource,
+        evidenceSubtype: inferSuggestionEvidenceSubtype({
+          evidenceSource,
+          suggestionText,
+          sourceReference: 'preventive_optimization',
+        }),
+        priorityLevel: 'medium',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    menuSuggestionMemory.set(importId, suggestions);
+
+    return {
+      status: 'ok',
+      summary: {
+        generatedSuggestions: suggestions.length,
+        estimatedTotalFinancialImpact: Number(
+          suggestions.reduce((sum, item) => sum + item.estimatedFinancialImpact, 0).toFixed(2),
+        ),
+        estimatedContractualFinancialImpact: Number(
+          suggestions
+            .filter((item) => item.sourceType === 'rule')
+            .reduce((sum, item) => sum + item.estimatedFinancialImpact, 0)
+            .toFixed(2),
+        ),
+        estimatedGoalFinancialImpact: Number(
+          suggestions
+            .filter((item) => item.sourceType === 'financial_goal')
+            .reduce((sum, item) => sum + item.estimatedFinancialImpact, 0)
+            .toFixed(2),
+        ),
+      },
+      suggestions,
+    };
+  }
 
   await ensureDomainTables();
 
@@ -2616,16 +3312,27 @@ app.get('/menus/imports/:importId/suggestions', { preHandler: authenticate }, as
     });
   }
 
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
   const companyName = getCompanyFromJwt(request);
   const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
   const importId = parsedParams.data.importId;
+
+  if (!prisma) {
+    const imported = menuImportMemory.get(importId);
+
+    if (!imported || imported.tenantId !== tenantId || imported.companyName !== companyName) {
+      return reply.code(404).send({
+        status: 'error',
+        message: 'Importacao de cardapio nao encontrada para esta empresa.',
+      });
+    }
+
+    const suggestions = menuSuggestionMemory.get(importId) ?? [];
+
+    return {
+      status: 'ok',
+      suggestions,
+    };
+  }
 
   await ensureDomainTables();
 

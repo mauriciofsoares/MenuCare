@@ -23,7 +23,52 @@ export type MemoryMenuImport = {
   createdAt: Date;
 };
 
+type MemoryAdjustedVersion = {
+  id: string;
+  tenantId: string;
+  companyName: string;
+  importId: string;
+  versionLabel: string;
+  targetMonth: string;
+  planningMonthsAhead: number;
+  adjustedMealCost: number;
+  totalFinancialImpact: number;
+  nutritionalImpactSummary: string;
+  commemorativeContext: {
+    targetMonth: string;
+    planningMonthsAhead: number;
+    prioritizeNobleDishes: boolean;
+    commemorativeDates: Array<{
+      referenceDate: string;
+      title: string;
+      nobleDishHint: string | null;
+    }>;
+  };
+  appliedSuggestions: Array<{
+    id: string;
+    suggestionText: string;
+    estimatedFinancialImpact: number;
+    estimatedNutritionalImpact: string;
+    priorityLevel: 'high' | 'medium';
+  }>;
+  createdAt: Date;
+};
+
+type MemoryCommemorativeDate = {
+  id: string;
+  tenantId: string;
+  companyName: string;
+  referenceDate: string;
+  year: number;
+  title: string;
+  nobleDishHint: string | null;
+  createdBy: string;
+  createdAt: Date;
+};
+
 export const menuImportMemory = new Map<string, MemoryMenuImport>();
+export const adjustedVersionMemory = new Map<string, MemoryAdjustedVersion>();
+export const commemorativeDateMemory = new Map<string, MemoryCommemorativeDate>();
 
 export const createMenusService = (deps: Deps) => {
   const repository = createMenusRepository(deps);
@@ -2211,17 +2256,108 @@ app.post('/menus/imports/:importId/adjusted-version', { preHandler: authenticate
     });
   }
 
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
   const companyName = getCompanyFromJwt(request);
   const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId
   const importId = parsedParams.data.importId;
   const { monthsAhead } = parsedBody.data;
+
+  if (!prisma) {
+    const imported = menuImportMemory.get(importId);
+
+    if (!imported || imported.tenantId !== tenantId || imported.companyName !== companyName) {
+      return reply.code(404).send({
+        status: 'error',
+        message: 'Importacao de cardapio nao encontrada para esta empresa.',
+      });
+    }
+
+    const baseReferenceDate = new Date(imported.referenceDate);
+    const shiftedDate = new Date(Date.UTC(
+      baseReferenceDate.getUTCFullYear(),
+      baseReferenceDate.getUTCMonth() + monthsAhead,
+      1,
+    ));
+    const targetMonth = `${shiftedDate.getUTCFullYear()}-${String(shiftedDate.getUTCMonth() + 1).padStart(2, '0')}`;
+
+    const commemorativeDates = Array.from(commemorativeDateMemory.values())
+      .filter(
+        (item) =>
+          item.tenantId === tenantId
+          && item.companyName === companyName
+          && item.referenceDate.startsWith(`${targetMonth}-`),
+      )
+      .sort((a, b) => a.referenceDate.localeCompare(b.referenceDate))
+      .map((item) => ({
+        referenceDate: item.referenceDate,
+        title: item.title,
+        nobleDishHint: item.nobleDishHint,
+      }));
+
+    const commemorativeContext = {
+      targetMonth,
+      planningMonthsAhead: monthsAhead,
+      prioritizeNobleDishes: commemorativeDates.length > 0,
+      commemorativeDates,
+    };
+
+    const totalFinancialImpact = Number((-Math.max(imported.exceededValue || 0.5, 0.5)).toFixed(2));
+    const adjustedMealCost = Number(
+      Math.max(imported.mealCost + totalFinancialImpact, imported.financialGoal * 0.85).toFixed(2),
+    );
+    const appliedSuggestions = [
+      {
+        id: randomUUID(),
+        suggestionText: 'Substituir item de maior custo por alternativa equivalente para alinhar a meta financeira.',
+        estimatedFinancialImpact: totalFinancialImpact,
+        estimatedNutritionalImpact: 'Mantem cobertura nutricional prevista para a refeicao.',
+        priorityLevel: 'high' as const,
+      },
+    ];
+    const versionCount = Array.from(adjustedVersionMemory.values()).filter(
+      (item) =>
+        item.tenantId === tenantId
+        && item.companyName === companyName
+        && item.importId === importId,
+    ).length;
+    const versionLabel = `v${versionCount + 1}`;
+    const versionId = randomUUID();
+    const createdAt = new Date();
+    const nutritionalImpactSummary = appliedSuggestions
+      .map((item) => item.estimatedNutritionalImpact)
+      .join(' | ');
+
+    adjustedVersionMemory.set(versionId, {
+      id: versionId,
+      tenantId,
+      companyName,
+      importId,
+      versionLabel,
+      targetMonth,
+      planningMonthsAhead: monthsAhead,
+      adjustedMealCost,
+      totalFinancialImpact,
+      nutritionalImpactSummary,
+      commemorativeContext,
+      appliedSuggestions,
+      createdAt,
+    });
+
+    return reply.code(201).send({
+      status: 'ok',
+      adjustedVersion: {
+        id: versionId,
+        versionLabel,
+        targetMonth,
+        planningMonthsAhead: monthsAhead,
+        adjustedMealCost,
+        totalFinancialImpact,
+        nutritionalImpactSummary,
+        commemorativeContext,
+        appliedSuggestions,
+        createdAt: createdAt.toISOString(),
+      },
+    });
+  }
 
   await ensureDomainTables();
 
@@ -2447,16 +2583,37 @@ app.get('/menus/imports/:importId/adjusted-versions', { preHandler: authenticate
     });
   }
 
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
   const companyName = getCompanyFromJwt(request);
   const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId
   const importId = parsedParams.data.importId;
+
+  if (!prisma) {
+    const versions = Array.from(adjustedVersionMemory.values())
+      .filter(
+        (item) =>
+          item.tenantId === tenantId
+          && item.companyName === companyName
+          && item.importId === importId,
+      )
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map((item) => ({
+        id: item.id,
+        versionLabel: item.versionLabel,
+        targetMonth: item.targetMonth,
+        planningMonthsAhead: item.planningMonthsAhead,
+        adjustedMealCost: item.adjustedMealCost,
+        totalFinancialImpact: item.totalFinancialImpact,
+        nutritionalImpactSummary: item.nutritionalImpactSummary,
+        commemorativeContext: item.commemorativeContext,
+        appliedSuggestions: item.appliedSuggestions,
+        createdAt: item.createdAt.toISOString(),
+      }));
+
+    return {
+      status: 'ok',
+      versions,
+    };
+  }
 
   await ensureDomainTables();
 
@@ -2545,19 +2702,49 @@ app.post('/menus/commemorative-dates', { preHandler: authenticate }, async (requ
     });
   }
 
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
   const companyName = getCompanyFromJwt(request);
   const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId
   const actor = getUserFromJwt(request);
   const payload = parsed.data;
   const dateYear = Number(payload.referenceDate.slice(0, 4));
   const id = randomUUID();
+
+  if (!prisma) {
+    const existing = Array.from(commemorativeDateMemory.values()).find(
+      (item) =>
+        item.tenantId === tenantId
+        && item.companyName === companyName
+        && item.referenceDate === payload.referenceDate,
+    );
+
+    const createdAt = existing?.createdAt ?? new Date();
+    const persistedId = existing?.id ?? id;
+
+    commemorativeDateMemory.set(persistedId, {
+      id: persistedId,
+      tenantId,
+      companyName,
+      referenceDate: payload.referenceDate,
+      year: dateYear,
+      title: payload.title.trim(),
+      nobleDishHint: payload.nobleDishHint?.trim() || null,
+      createdBy: actor.name,
+      createdAt,
+    });
+
+    return reply.code(201).send({
+      status: 'ok',
+      commemorativeDate: {
+        id: persistedId,
+        referenceDate: payload.referenceDate,
+        year: dateYear,
+        title: payload.title.trim(),
+        nobleDishHint: payload.nobleDishHint?.trim() || null,
+        createdBy: actor.name,
+        createdAt: createdAt.toISOString(),
+      },
+    });
+  }
 
   await ensureDomainTables();
 
@@ -2645,16 +2832,36 @@ app.get('/menus/commemorative-dates', { preHandler: authenticate }, async (reque
     });
   }
 
-  if (!prisma) {
-    return reply.code(503).send({
-      status: 'error',
-      message: apiMessage.health.dbUnavailable,
-    });
-  }
-
   const companyName = getCompanyFromJwt(request);
   const tenantId = (request.user as { tenantId?: string }).tenantId ?? demoContext.tenantId
   const { year, limit } = parsedQuery.data;
+
+  if (!prisma) {
+    const commemorativeDates = Array.from(commemorativeDateMemory.values())
+      .filter(
+        (item) =>
+          item.tenantId === tenantId
+          && item.companyName === companyName
+          && item.year === year,
+      )
+      .sort((a, b) => a.referenceDate.localeCompare(b.referenceDate))
+      .slice(0, limit)
+      .map((item) => ({
+        id: item.id,
+        referenceDate: item.referenceDate,
+        year: item.year,
+        title: item.title,
+        nobleDishHint: item.nobleDishHint,
+        createdBy: item.createdBy,
+        createdAt: item.createdAt.toISOString(),
+      }));
+
+    return {
+      status: 'ok',
+      year,
+      commemorativeDates,
+    };
+  }
 
   await ensureDomainTables();
 

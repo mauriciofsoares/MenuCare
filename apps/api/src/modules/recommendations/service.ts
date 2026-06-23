@@ -1,5 +1,6 @@
 import { createRecommendationsRepository } from './repository.js';
 import type { FastifyRequest } from 'fastify';
+import { menuImportMemory } from '../menus/service.js';
 
 type SafeParseSuccess<T> = { success: true; data: T };
 type SafeParseFailure = { success: false };
@@ -13,6 +14,23 @@ type RouteResult = {
   statusCode: number;
   body: unknown;
 };
+
+type MemoryNextMenuDecision = {
+  id: string;
+  tenantId: string;
+  companyName: string;
+  importId: string;
+  decisionStatus: 'approved' | 'rejected';
+  justification: string;
+  proposal: any;
+  governanceBlocksApproval: boolean;
+  historicalNonBlocking: boolean;
+  actorId: string;
+  actorName: string;
+  createdAt: Date;
+};
+
+const nextMenuDecisionMemory = new Map<string, MemoryNextMenuDecision>();
 
 export interface Deps {
   apiMessage: { health: { dbUnavailable: string } };
@@ -43,12 +61,124 @@ export const createRecommendationsService = (deps: Deps) => {
     return Number(parsed.toFixed(2));
   };
 
+  const buildMemoryProposal = (
+    companyName: string,
+    tenantId: string,
+    importId: string,
+  ) => {
+    const imported = menuImportMemory.get(importId);
+    if (!imported || imported.companyName !== companyName || imported.tenantId !== tenantId) {
+      return null;
+    }
+
+    const hasFinancialViolation = imported.mealCost > imported.financialGoal;
+    const estimatedCost = Number(
+      Math.max(
+        hasFinancialViolation ? imported.financialGoal : imported.mealCost,
+        imported.financialGoal * 0.85,
+      ).toFixed(2),
+    );
+
+    return {
+      importId,
+      unitName: imported.unitName,
+      serviceName: imported.serviceName,
+      proposalType: 'current_baseline',
+      recipes: [...imported.recipes],
+      estimatedCost,
+      financialGoal: Number(imported.financialGoal.toFixed(2)),
+      historicalLayer: {
+        nonBlocking: true,
+        sourceCombinationId: null,
+        sourceAverageRating: null,
+        sourceEvaluationsCount: 0,
+        note: 'Historico de avaliacoes recomenda combinacoes, mas nunca bloqueia aprovacao.',
+      },
+      governance: {
+        blocksApproval: hasFinancialViolation,
+        mandatoryFindings: [
+          {
+            criterion: 'contract_rule_violation',
+            status: 'ok',
+          },
+          {
+            criterion: 'financial_goal_exceeded',
+            status: hasFinancialViolation ? 'violation' : 'ok',
+          },
+        ],
+      },
+    };
+  };
+
   const getRecommendationPreview = async (
     request: FastifyRequest,
     params: { importId: string },
   ): Promise<RouteResult> => {
     if (!deps.prisma) {
-      return { statusCode: 503, body: { status: 'error', message: deps.apiMessage.health.dbUnavailable } };
+      const companyName = deps.getCompanyFromJwt(request);
+      const tenantId = deps.getTenantIdFromJwt(request);
+      const importId = params.importId;
+      const proposal = buildMemoryProposal(companyName, tenantId, importId);
+
+      if (!proposal) {
+        return {
+          statusCode: 404,
+          body: {
+            status: 'error',
+            message: 'Importacao de cardapio nao encontrada para esta empresa.',
+          },
+        };
+      }
+
+      return {
+        statusCode: 200,
+        body: {
+          status: 'ok',
+          recommendation: {
+            policy: deps.recommendationPolicyContract,
+            importContext: {
+              importId,
+              unitName: proposal.unitName,
+              serviceName: proposal.serviceName,
+              financialGoal: proposal.financialGoal,
+              mealCost: proposal.estimatedCost,
+              currentRecipes: proposal.recipes,
+            },
+            decision: {
+              blocksApproval: proposal.governance.blocksApproval,
+              mandatoryFindings: [
+                {
+                  criterion: 'contract_rule_violation',
+                  status: 'ok',
+                  detail: 'Sem nao conformidades contratuais detectadas no modo de memoria.',
+                },
+                {
+                  criterion: 'financial_goal_exceeded',
+                  status: proposal.governance.blocksApproval ? 'violation' : 'ok',
+                  detail: proposal.governance.blocksApproval
+                    ? 'O custo da refeicao esta acima da meta financeira definida.'
+                    : 'Meta financeira atendida para a refeicao.',
+                },
+                {
+                  criterion: 'mandatory_nutritional_restriction_violation',
+                  status: 'ok',
+                  detail: 'Sem violacoes nutricionais obrigatorias detectadas no escopo atual.',
+                },
+                {
+                  criterion: 'critical_operational_rule_violation',
+                  status: 'ok',
+                  detail: 'Sem violacoes operacionais criticas detectadas no escopo atual.',
+                },
+              ],
+            },
+            historicalLayer: {
+              nonBlocking: true,
+              note: 'Avaliacao historica e suporte de recomendacao e nunca bloqueio.',
+              recommendedCombinations: [],
+            },
+          },
+        },
+      };
     }
 
     const companyName = deps.getCompanyFromJwt(request);
@@ -197,7 +327,28 @@ export const createRecommendationsService = (deps: Deps) => {
     params: { importId: string },
   ): Promise<RouteResult> => {
     if (!deps.prisma) {
-      return { statusCode: 503, body: { status: 'error', message: deps.apiMessage.health.dbUnavailable } };
+      const companyName = deps.getCompanyFromJwt(request);
+      const tenantId = deps.getTenantIdFromJwt(request);
+      const importId = params.importId;
+      const nextMenuProposal = buildMemoryProposal(companyName, tenantId, importId);
+
+      if (!nextMenuProposal) {
+        return {
+          statusCode: 404,
+          body: {
+            status: 'error',
+            message: 'Importacao de cardapio nao encontrada para esta empresa.',
+          },
+        };
+      }
+
+      return {
+        statusCode: 200,
+        body: {
+          status: 'ok',
+          nextMenuProposal,
+        },
+      };
     }
 
     const companyName = deps.getCompanyFromJwt(request);
@@ -284,7 +435,68 @@ export const createRecommendationsService = (deps: Deps) => {
     payload: { decision: 'approved' | 'rejected'; justification: string },
   ): Promise<RouteResult> => {
     if (!deps.prisma) {
-      return { statusCode: 503, body: { status: 'error', message: deps.apiMessage.health.dbUnavailable } };
+      const companyName = deps.getCompanyFromJwt(request);
+      const actor = deps.getUserFromJwt(request);
+      const tenantId = deps.getTenantIdFromJwt(request);
+      const importId = params.importId;
+      const nextMenuProposal = buildMemoryProposal(companyName, tenantId, importId);
+
+      if (!nextMenuProposal) {
+        return {
+          statusCode: 404,
+          body: {
+            status: 'error',
+            message: 'Importacao de cardapio nao encontrada para esta empresa.',
+          },
+        };
+      }
+
+      if (payload.decision === 'approved' && nextMenuProposal.governance.blocksApproval) {
+        return {
+          statusCode: 409,
+          body: {
+            status: 'error',
+            message: 'Aprovacao bloqueada por criterios obrigatorios de governanca.',
+          },
+        };
+      }
+
+      const decisionId = deps.randomUUID();
+      const createdAt = new Date();
+
+      nextMenuDecisionMemory.set(decisionId, {
+        id: decisionId,
+        tenantId,
+        companyName,
+        importId,
+        decisionStatus: payload.decision,
+        justification: payload.justification,
+        proposal: nextMenuProposal,
+        governanceBlocksApproval: nextMenuProposal.governance.blocksApproval,
+        historicalNonBlocking: nextMenuProposal.historicalLayer.nonBlocking,
+        actorId: actor.id,
+        actorName: actor.name,
+        createdAt,
+      });
+
+      return {
+        statusCode: 201,
+        body: {
+          status: 'ok',
+          decision: {
+            id: decisionId,
+            importId,
+            status: payload.decision,
+            justification: payload.justification,
+            governanceBlocksApproval: nextMenuProposal.governance.blocksApproval,
+            historicalNonBlocking: nextMenuProposal.historicalLayer.nonBlocking,
+            actorId: actor.id,
+            actorName: actor.name,
+            createdAt: createdAt.toISOString(),
+            nextMenuProposal,
+          },
+        },
+      };
     }
 
     const companyName = deps.getCompanyFromJwt(request);
@@ -403,7 +615,39 @@ export const createRecommendationsService = (deps: Deps) => {
     query: { limit: number },
   ): Promise<RouteResult> => {
     if (!deps.prisma) {
-      return { statusCode: 503, body: { status: 'error', message: deps.apiMessage.health.dbUnavailable } };
+      const companyName = deps.getCompanyFromJwt(request);
+      const tenantId = deps.getTenantIdFromJwt(request);
+      const importId = params.importId;
+
+      const decisions = Array.from(nextMenuDecisionMemory.values())
+        .filter(
+          (item) =>
+            item.tenantId === tenantId
+            && item.companyName === companyName
+            && item.importId === importId,
+        )
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, query.limit)
+        .map((item) => ({
+          id: item.id,
+          importId: item.importId,
+          status: item.decisionStatus,
+          justification: item.justification,
+          governanceBlocksApproval: item.governanceBlocksApproval,
+          historicalNonBlocking: item.historicalNonBlocking,
+          actorId: item.actorId,
+          actorName: item.actorName,
+          createdAt: item.createdAt.toISOString(),
+          nextMenuProposal: item.proposal,
+        }));
+
+      return {
+        statusCode: 200,
+        body: {
+          status: 'ok',
+          decisions,
+        },
+      };
     }
 
     const companyName = deps.getCompanyFromJwt(request);

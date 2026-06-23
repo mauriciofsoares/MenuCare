@@ -1,5 +1,6 @@
 import { createEvaluationsRepository } from './repository.js';
 import type { FastifyRequest } from 'fastify';
+import { menuImportMemory } from '../menus/service.js';
 
 type SafeParseSuccess<T> = { success: true; data: T };
 type SafeParseFailure = { success: false };
@@ -13,6 +14,39 @@ type RouteResult = {
   statusCode: number;
   body: unknown;
 };
+
+type MemoryEvaluationImport = {
+  id: string;
+  tenantId: string;
+  companyName: string;
+  fileName: string;
+  unitName: string;
+  serviceName: string;
+  referenceDate: string;
+  score: number;
+  evaluationsCount: number;
+  comments: string | null;
+  createdAt: Date;
+};
+
+type MemoryCombinationIntelligence = {
+  id: string;
+  tenantId: string;
+  companyName: string;
+  combinationKey: string;
+  recipes: string[];
+  unitName: string;
+  serviceName: string;
+  averageRating: number;
+  evaluationsCount: number;
+  mappedRecords: number;
+  lastReferenceDate: string;
+  trend: 'positive' | 'stable' | 'negative';
+  createdAt: Date;
+};
+
+const evaluationImportMemory = new Map<string, MemoryEvaluationImport>();
+const combinationIntelligenceMemory = new Map<string, MemoryCombinationIntelligence>();
 
 export interface Deps {
   apiMessage: { health: { dbUnavailable: string } };
@@ -58,7 +92,42 @@ export const createEvaluationsService = (deps: Deps) => {
     },
   ): Promise<RouteResult> => {
     if (!deps.prisma) {
-      return { statusCode: 503, body: { status: 'error', message: deps.apiMessage.health.dbUnavailable } };
+      const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+      const companyName = deps.getCompanyFromJwt(request);
+      const evaluationId = deps.randomUUID();
+      const createdAt = new Date();
+
+      evaluationImportMemory.set(evaluationId, {
+        id: evaluationId,
+        tenantId,
+        companyName,
+        fileName: payload.fileName.trim(),
+        unitName: payload.unitName.trim(),
+        serviceName: payload.serviceName.trim(),
+        referenceDate: payload.referenceDate,
+        score: Number(payload.score.toFixed(2)),
+        evaluationsCount: payload.evaluationsCount,
+        comments: payload.comments?.trim() || null,
+        createdAt,
+      });
+
+      return {
+        statusCode: 201,
+        body: {
+          status: 'ok',
+          evaluation: {
+            id: evaluationId,
+            fileName: payload.fileName.trim(),
+            unitName: payload.unitName.trim(),
+            serviceName: payload.serviceName.trim(),
+            referenceDate: new Date(payload.referenceDate).toISOString(),
+            score: Number(payload.score.toFixed(2)),
+            evaluationsCount: payload.evaluationsCount,
+            comments: payload.comments?.trim() || null,
+            createdAt: createdAt.toISOString(),
+          },
+        },
+      };
     }
 
     const companyName = deps.getCompanyFromJwt(request);
@@ -122,7 +191,32 @@ export const createEvaluationsService = (deps: Deps) => {
     query: { limit: number },
   ): Promise<RouteResult> => {
     if (!deps.prisma) {
-      return { statusCode: 503, body: { status: 'error', message: deps.apiMessage.health.dbUnavailable } };
+      const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+      const companyName = deps.getCompanyFromJwt(request);
+
+      const evaluations = Array.from(evaluationImportMemory.values())
+        .filter((item) => item.tenantId === tenantId && item.companyName === companyName)
+        .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+        .slice(0, query.limit)
+        .map((item) => ({
+          id: item.id,
+          fileName: item.fileName,
+          unitName: item.unitName,
+          serviceName: item.serviceName,
+          referenceDate: new Date(item.referenceDate).toISOString(),
+          score: Number(item.score.toFixed(2)),
+          evaluationsCount: item.evaluationsCount,
+          comments: item.comments,
+          createdAt: item.createdAt.toISOString(),
+        }));
+
+      return {
+        statusCode: 200,
+        body: {
+          status: 'ok',
+          evaluations,
+        },
+      };
     }
 
     const companyName = deps.getCompanyFromJwt(request);
@@ -180,7 +274,102 @@ export const createEvaluationsService = (deps: Deps) => {
 
   const rebuildIntelligence = async (request: FastifyRequest): Promise<RouteResult> => {
     if (!deps.prisma) {
-      return { statusCode: 503, body: { status: 'error', message: deps.apiMessage.health.dbUnavailable } };
+      const companyName = deps.getCompanyFromJwt(request);
+      const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+
+      for (const [id, item] of combinationIntelligenceMemory.entries()) {
+        if (item.tenantId === tenantId && item.companyName === companyName) {
+          combinationIntelligenceMemory.delete(id);
+        }
+      }
+
+      const evalRows = Array.from(evaluationImportMemory.values())
+        .filter((item) => item.tenantId === tenantId && item.companyName === companyName);
+
+      const grouped = new Map<string, {
+        recipes: string[];
+        unitName: string;
+        serviceName: string;
+        scoreWeightedSum: number;
+        evaluationsCount: number;
+        mappedRecords: number;
+        lastReferenceDate: string;
+      }>();
+
+      for (const row of evalRows) {
+        const menuMatch = Array.from(menuImportMemory.values()).find(
+          (menu) =>
+            menu.tenantId === tenantId
+            && menu.companyName === companyName
+            && menu.unitName === row.unitName
+            && menu.serviceName === row.serviceName
+            && menu.referenceDate === row.referenceDate,
+        );
+
+        if (!menuMatch || !menuMatch.recipes.length) {
+          continue;
+        }
+
+        const recipes = [...menuMatch.recipes];
+        const key = `${row.unitName}::${row.serviceName}::${JSON.stringify(recipes)}`;
+        const current = grouped.get(key);
+
+        if (!current) {
+          grouped.set(key, {
+            recipes,
+            unitName: row.unitName,
+            serviceName: row.serviceName,
+            scoreWeightedSum: row.score * row.evaluationsCount,
+            evaluationsCount: row.evaluationsCount,
+            mappedRecords: 1,
+            lastReferenceDate: row.referenceDate,
+          });
+          continue;
+        }
+
+        current.scoreWeightedSum += row.score * row.evaluationsCount;
+        current.evaluationsCount += row.evaluationsCount;
+        current.mappedRecords += 1;
+        if (row.referenceDate > current.lastReferenceDate) {
+          current.lastReferenceDate = row.referenceDate;
+        }
+      }
+
+      let generatedCombinations = 0;
+
+      for (const [combinationKey, aggregate] of grouped.entries()) {
+        const averageRating = Number((aggregate.scoreWeightedSum / aggregate.evaluationsCount).toFixed(2));
+        const trend = averageRating >= 8 ? 'positive' : averageRating >= 6 ? 'stable' : 'negative';
+        const id = deps.randomUUID();
+
+        combinationIntelligenceMemory.set(id, {
+          id,
+          tenantId,
+          companyName,
+          combinationKey,
+          recipes: aggregate.recipes,
+          unitName: aggregate.unitName,
+          serviceName: aggregate.serviceName,
+          averageRating,
+          evaluationsCount: aggregate.evaluationsCount,
+          mappedRecords: aggregate.mappedRecords,
+          lastReferenceDate: aggregate.lastReferenceDate,
+          trend,
+          createdAt: new Date(),
+        });
+        generatedCombinations += 1;
+      }
+
+      return {
+        statusCode: 200,
+        body: {
+          status: 'ok',
+          summary: {
+            processedEvaluationRows: evalRows.length,
+            generatedCombinations,
+          },
+        },
+      };
     }
 
     const companyName = deps.getCompanyFromJwt(request);
@@ -327,7 +516,39 @@ export const createEvaluationsService = (deps: Deps) => {
     query: { limit: number },
   ): Promise<RouteResult> => {
     if (!deps.prisma) {
-      return { statusCode: 503, body: { status: 'error', message: deps.apiMessage.health.dbUnavailable } };
+      const companyName = deps.getCompanyFromJwt(request);
+      const tenantId = (request.user as { tenantId?: string }).tenantId ?? 'demo-tenant';
+
+      const combinations = Array.from(combinationIntelligenceMemory.values())
+        .filter((item) => item.tenantId === tenantId && item.companyName === companyName)
+        .sort((a, b) => {
+          if (b.averageRating !== a.averageRating) {
+            return b.averageRating - a.averageRating;
+          }
+          return b.evaluationsCount - a.evaluationsCount;
+        })
+        .slice(0, query.limit)
+        .map((item) => ({
+          id: item.id,
+          combinationKey: item.combinationKey,
+          recipes: item.recipes,
+          unitName: item.unitName,
+          serviceName: item.serviceName,
+          averageRating: Number(item.averageRating.toFixed(2)),
+          evaluationsCount: item.evaluationsCount,
+          mappedRecords: item.mappedRecords,
+          lastReferenceDate: new Date(item.lastReferenceDate).toISOString(),
+          trend: item.trend,
+          createdAt: item.createdAt.toISOString(),
+        }));
+
+      return {
+        statusCode: 200,
+        body: {
+          status: 'ok',
+          combinations,
+        },
+      };
     }
 
     const companyName = deps.getCompanyFromJwt(request);
