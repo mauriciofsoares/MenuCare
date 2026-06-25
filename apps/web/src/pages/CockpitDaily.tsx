@@ -156,7 +156,7 @@ export function CockpitDailyPage() {
           <div>
             <h1>O que exige atenção hoje?</h1>
             <p>
-              Central operacional de conformidade para priorizar risco, decisão humana e execução diária.
+              Visao executiva do fluxo contratual para priorizar revisao, avaliacao e decisao humana.
             </p>
           </div>
           <div className="mc-cockpit-hero-status">
@@ -178,33 +178,40 @@ export function CockpitDailyPage() {
 
         <div className="mc-kpis">
           <article className="card mc-kpi-card">
-            <div className="mc-kpi-top"><p>Controles pendentes</p></div>
+            <div className="mc-kpi-top"><p>Regras pendentes de revisao</p></div>
             <strong>{cockpit?.pendingControls ?? 0}</strong>
             <span className={`mc-trend ${(cockpit?.pendingControls ?? 0) === 0 ? 'is-positive' : ''}`}>
-              {(cockpit?.pendingControls ?? 0) === 0 ? 'Sem pendências de ativação' : 'Exigem decisão operacional'}
+              {(cockpit?.pendingControls ?? 0) === 0 ? 'Sem pendencias de revisao' : 'Priorizar revisao contratual'}
             </span>
           </article>
           <article className="card mc-kpi-card">
-            <div className="mc-kpi-top"><p>Execuções atrasadas</p></div>
-            <strong>{cockpit?.overdueExecutions ?? 0}</strong>
-            <span className={`mc-trend ${(cockpit?.overdueExecutions ?? 0) === 0 ? 'is-positive' : ''}`}>
-              {(cockpit?.overdueExecutions ?? 0) === 0 ? 'Rotina diária em dia' : 'Priorizar execução hoje'}
+            <div className="mc-kpi-top"><p>Cardapios importados</p></div>
+            <strong>{cockpit?.pendingMenus ?? 0}</strong>
+            <span className={`mc-trend ${(cockpit?.pendingMenus ?? 0) === 0 ? 'is-positive' : ''}`}>
+              {(cockpit?.pendingMenus ?? 0) === 0 ? 'Nenhum cardapio pendente' : 'Importados aguardando decisao'}
             </span>
           </article>
           <article className="card mc-kpi-card">
-            <div className="mc-kpi-top"><p>Findings abertos</p></div>
+            <div className="mc-kpi-top"><p>Avaliacoes com nao conformidade</p></div>
             <strong>{cockpit?.openFindings ?? 0}</strong>
             <span className={`mc-trend ${(cockpit?.openFindings ?? 0) === 0 ? 'is-positive' : ''}`}>
               {(cockpit?.openFindings ?? 0) === 0
-                ? 'Sem findings em aberto'
-                : `${cockpit?.criticalFindings ?? 0} crítico(s) exigem prioridade`}
+                ? 'Sem nao conformidades abertas'
+                : `${cockpit?.criticalFindings ?? 0} critico(s) exigem prioridade`}
             </span>
           </article>
           <article className="card mc-kpi-card">
-            <div className="mc-kpi-top"><p>Decisões pendentes</p></div>
+            <div className="mc-kpi-top"><p>Recomendacoes pendentes</p></div>
+            <strong>{cockpit?.pendingRecommendations ?? 0}</strong>
+            <span className={`mc-trend ${(cockpit?.pendingRecommendations ?? 0) === 0 ? 'is-positive' : ''}`}>
+              {(cockpit?.pendingRecommendations ?? 0) === 0 ? 'Sem recomendacoes pendentes' : 'Requer decisao humana registrada'}
+            </span>
+          </article>
+          <article className="card mc-kpi-card">
+            <div className="mc-kpi-top"><p>Cardapios futuros em preparacao</p></div>
             <strong>{decisionsTotal}</strong>
             <span className={`mc-trend ${decisionsTotal === 0 ? 'is-positive' : ''}`}>
-              {decisionsTotal === 0 ? 'Nenhuma decisão pendente' : 'Requer decisão humana registrada'}
+              {decisionsTotal === 0 ? 'Sem preparacao pendente' : 'Acompanhar aprovacao e consolidacao'}
             </span>
           </article>
         </div>
